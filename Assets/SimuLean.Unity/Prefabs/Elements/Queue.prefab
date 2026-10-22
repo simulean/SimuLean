@@ -1,0 +1,302 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &762583483207237899
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 134805690342808497}
+  - component: {fileID: 3922976789237502996}
+  - component: {fileID: 1267131982333763806}
+  - component: {fileID: 7738578295334758030}
+  - component: {fileID: 9187758545053166943}
+  m_Layer: 0
+  m_Name: Queue
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &134805690342808497
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 762583483207237899}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 507.38385, y: 0.000017166585, z: 499.4117}
+  m_LocalScale: {x: 3, y: 0.015, z: 3}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &3922976789237502996
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 762583483207237899}
+  m_Mesh: {fileID: -5520105396428920962, guid: e15d28a5a94937f48aad4e88676e6d0a, type: 3}
+--- !u!23 &1267131982333763806
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 762583483207237899}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: -6260851746549196497, guid: e15d28a5a94937f48aad4e88676e6d0a, type: 3}
+  - {fileID: 6038935270746786998, guid: e15d28a5a94937f48aad4e88676e6d0a, type: 3}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &7738578295334758030
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 762583483207237899}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ff5c97322173d34cad0649728fd5ca0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  nextElements: []
+  outputStrategyAsset: {fileID: 0}
+  outputStrategy:
+    strategyType: 0
+    parameterKey: routing_mode
+    routingExpression: 
+    weights: []
+  inputStrategy:
+    strategyType: 0
+    singleLabelName: 
+    singleLabelValue: 
+    multiLabelPairs: []
+    condition: 
+  entryLabels: []
+  exitLabels: []
+  tallies: []
+  tallySplit: 
+  sendTo: 0
+  receiveFrom: 0
+  pushToList: {fileID: 0}
+  pullFromList: {fileID: 0}
+  pullQuery:
+    conditions: []
+    orderBy: 
+    descending: 0
+  processBy:
+    team: {fileID: 0}
+    requirements: []
+    priority: 
+    release: 0
+    releaseAt: {fileID: 0}
+    holdForOwnTime: 0
+    holdFor:
+      strategyType: 0
+      constantValue: 1
+      uniformMin: 3
+      uniformMax: 7
+      normalMean: 5
+      normalStdDev: 1
+      exponentialRate: 0.2
+      triangularMin: 3
+      triangularMode: 5
+      triangularMax: 8
+      expression: processingTime
+      gammaShape: 2
+      gammaScale: 2.5
+      weibullShape: 1.5
+      weibullScale: 5
+      logNormalMu: 1.5
+      logNormalSigma: 0.5
+      betaAlpha: 2
+      betaBeta: 5
+      betaMin: 0
+      betaMax: 1
+      chiSquareDf: 5
+      studentTDf: 10
+      studentTClamp: 1
+      fDistD1: 5
+      fDistD2: 10
+      poissonLambda: 3
+      binomialN: 10
+      binomialP: 0.5
+      discreteUniformMin: 3
+      discreteUniformMax: 7
+  location: {fileID: 0}
+  workNodes: []
+  transportBy:
+    team: {fileID: 0}
+    requirements: []
+    priority: 
+    travelTime:
+      strategyType: 0
+      constantValue: 0
+      uniformMin: 3
+      uniformMax: 7
+      normalMean: 5
+      normalStdDev: 1
+      exponentialRate: 0.2
+      triangularMin: 3
+      triangularMode: 5
+      triangularMax: 8
+      expression: processingTime
+      gammaShape: 2
+      gammaScale: 2.5
+      weibullShape: 1.5
+      weibullScale: 5
+      logNormalMu: 1.5
+      logNormalSigma: 0.5
+      betaAlpha: 2
+      betaBeta: 5
+      betaMin: 0
+      betaMax: 1
+      chiSquareDf: 5
+      studentTDf: 10
+      studentTClamp: 1
+      fDistD1: 5
+      fDistD2: 10
+      poissonLambda: 3
+      binomialN: 10
+      binomialP: 0.5
+      discreteUniformMin: 3
+      discreteUniformMax: 7
+    overrideLoadTimes: 0
+    loadTime:
+      strategyType: 0
+      constantValue: 0
+      uniformMin: 3
+      uniformMax: 7
+      normalMean: 5
+      normalStdDev: 1
+      exponentialRate: 0.2
+      triangularMin: 3
+      triangularMode: 5
+      triangularMax: 8
+      expression: processingTime
+      gammaShape: 2
+      gammaScale: 2.5
+      weibullShape: 1.5
+      weibullScale: 5
+      logNormalMu: 1.5
+      logNormalSigma: 0.5
+      betaAlpha: 2
+      betaBeta: 5
+      betaMin: 0
+      betaMax: 1
+      chiSquareDf: 5
+      studentTDf: 10
+      studentTClamp: 1
+      fDistD1: 5
+      fDistD2: 10
+      poissonLambda: 3
+      binomialN: 10
+      binomialP: 0.5
+      discreteUniformMin: 3
+      discreteUniformMax: 7
+    unloadTime:
+      strategyType: 0
+      constantValue: 0
+      uniformMin: 3
+      uniformMax: 7
+      normalMean: 5
+      normalStdDev: 1
+      exponentialRate: 0.2
+      triangularMin: 3
+      triangularMode: 5
+      triangularMax: 8
+      expression: processingTime
+      gammaShape: 2
+      gammaScale: 2.5
+      weibullShape: 1.5
+      weibullScale: 5
+      logNormalMu: 1.5
+      logNormalSigma: 0.5
+      betaAlpha: 2
+      betaBeta: 5
+      betaMin: 0
+      betaMax: 1
+      chiSquareDf: 5
+      studentTDf: 10
+      studentTClamp: 1
+      fDistD1: 5
+      fDistD2: 10
+      poissonLambda: 3
+      binomialN: 10
+      binomialP: 0.5
+      discreteUniformMin: 3
+      discreteUniformMax: 7
+  walkBy:
+    speed: 0
+    route: 0
+    grid: {fileID: 0}
+    matrix: {fileID: 0}
+    waitAtDoor: 0
+  capacity: 100
+  releaseMode: 0
+  releaseScan: 0
+  layoutMode: 1
+  separation: 0
+  gridArea: {x: 0, y: 0}
+  itemPosition: {fileID: 0}
+  lineLength: 0
+  showFootprint: 1
+--- !u!114 &9187758545053166943
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 762583483207237899}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93d01001e2ebeb14c9d2c90d6adf23c4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  showConnections: 1

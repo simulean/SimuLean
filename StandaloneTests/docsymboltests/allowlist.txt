@@ -1,0 +1,12 @@
+# Back-ticked names in the documentation that are not code names of this repository, with the reason.
+# One per line: the name exactly as back-ticked, then " # reason". Entries no longer needed are reported.
+RuntimeInitializeOnLoadMethod # Unity attribute that CLAUDE.md forbids: absent from the code by design
+run_tests # a tool of the Unity MCP server that CLAUDE.md forbids
+refresh_unity # a tool of the "MCP for Unity" server
+instantiate_prefab # a tool of the Unity MCP server
+VideoBitrateMode.High # Unity Recorder API, cited for what it gave
+Porter # a child GameObject of the Porter member prefab
+Driver # a child GameObject of the PalletTruckOperator member prefab
+ItemPoint # a child GameObject of Combiner.prefab
+.mcp.json # the MCP configuration each user writes for their own editor (README), not in the repository
+Temp/simulean_test_results.json # written by the EditMode test runner in the editor's Temp folder, not in the repository

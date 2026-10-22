@@ -1,0 +1,14 @@
+{
+  "_comment": "Example layer-style config for make_floor_texture.py. Patterns are case-insensitive shell globs on the DXF layer name (after INSERT explosion, entities on layer 0 take their INSERT's layer). 'drop' wins over the groups; a layer matching no group is dropped. The first group is drawn on top. Widths are line widths in metres; intensity is the grey value 0-255 (the Unity underlay maps it to opacity).",
+  "units_to_metres": 0.001,
+  "groups": [
+    { "name": "wall",    "patterns": ["*wall*", "*column*", "*building*", "*door*"], "width_m": 0.060, "intensity": 255 },
+    { "name": "machine", "patterns": ["*machine*", "*equip*", "*conveyor*", "*rail*"], "width_m": 0.032, "intensity": 190 },
+    { "name": "axis",    "patterns": ["*axis*", "*grid*"],                           "width_m": 0.023, "intensity": 70 },
+    { "name": "other",   "patterns": ["*"],                                          "width_m": 0.025, "intensity": 120 }
+  ],
+  "drop": ["*dim*", "*hatch*", "*text*", "*defpoints*", "*hidden*", "*electric*"],
+  "label_layers": [],
+  "label_intensity": 215,
+  "flatten_m": 0.01
+}

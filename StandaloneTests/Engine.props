@@ -1,0 +1,16 @@
+<!-- Shared build items: compiles every source of Assets/SimuLean.Net outside Unity. The engine
+     is its own assembly with no UnityEngine reference (SimuLean.Net.asmdef), so nothing needs stubbing.
+     Import it from a test csproj: <Import Project="..\Engine.props" /> -->
+<Project>
+  <PropertyGroup>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- net8.0 + RollForward=Major: builds with any SDK >= 8 and runs on the newest installed runtime. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <EngineRoot>$(MSBuildThisFileDirectory)..\Assets\SimuLean.Net</EngineRoot>
+    <NoWarn>$(NoWarn);CS0162;CS0168;CS0219;CS0067;CS8632;CS0618</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(EngineRoot)\**\*.cs" />
+  </ItemGroup>
+</Project>

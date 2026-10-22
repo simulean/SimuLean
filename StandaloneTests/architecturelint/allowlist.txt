@@ -1,0 +1,17 @@
+# Exceptions of the architecture lint: "rule path # reason". A new use of a pattern outside this list fails the gate.
+# schedule-work: SimClock.ScheduleEvent is for events that are not an element's timed work.
+schedule-work Assets/SimuLean.Net/SimElements/Element.cs # Element.ScheduleWork itself (pausable work on the clock)
+schedule-work Assets/SimuLean.Net/SimElements/ElementDowntime.cs # the work list that downtime pauses and resumes
+schedule-work Assets/SimuLean.Net/SimElements/Source.cs # arrivals (absolute times / inter-arrival times)
+schedule-work Assets/SimuLean.Net/Downtime/DowntimeGenerators.cs # stops and their ends (timetables, MTBF / MTTR, shifts)
+schedule-work Assets/SimuLean.Net/Healthcare/Agenda.cs # booked sessions by date
+schedule-work Assets/SimuLean.Net/Collections/SimList.cs # zero-delay delivery of back-orders
+schedule-work Assets/SimuLean.Net/Signals/Signals.cs # zero-delay delivery of signals and clock signals
+schedule-work Assets/SimuLean.Net/Signals/Reaction.cs # timed actions of a reaction (stop for a time)
+# random-streams: the random engines themselves and code that is not model code.
+random-streams Assets/SimuLean.Net/Stochastics/Streams/DefaultRandomEngine.cs # the stream implementation (System.Random seeded per stream)
+random-streams Assets/SimuLean.Net/Stochastics/Streams/UnassignedStreamEngine.cs # the fallback that warns at its first draw
+random-streams Assets/SimuLean.Unity/Visuals/RollerConveyorMesh.cs # a mesh detail with a fixed seed (view, not model)
+random-streams Assets/SimuLean.Unity/Editor/ModularKitEditors.cs # an inspector button that moves a crane preview (editor)
+# unity-compat: the adapter itself.
+unity-compat Assets/SimuLean.Unity/Core/UnityCompat.cs # the single place that calls the Unity APIs

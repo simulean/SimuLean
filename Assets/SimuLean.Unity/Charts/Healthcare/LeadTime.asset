@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 73dc07348f6f61a4694377a365917274, type: 3}
+  m_Name: LeadTime
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.ChartDefinition
+  spec:
+    Title: Lead time to the appointment
+    Kind: 0
+    Y:
+      Source: 1
+      Name: lead_time_avg
+      Scope: element
+      Objects: '*Agenda*'
+    X:
+      Source: 2
+      Name: 
+      Scope: element
+      Objects: 
+    GroupBy: 1
+    Scenarios: 
+    Bins: 0
+    Confidence: 0.95
+    ValueLabels: 1
+    Replication: 0
+    From: 0
+    To: 0
+  source: 0
+  storedSets: 
+  exportSize: {x: 800, y: 500}
