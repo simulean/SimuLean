@@ -1,0 +1,52 @@
+cff-version: 1.2.0
+message: "If you use SimuLean, please cite it as below."
+type: software
+title: "SimuLean"
+abstract: >-
+  An open-source 3D discrete-event simulator on the Unity engine, designed to be
+  programmed by AI agents: a discrete-event engine that also runs headless, its
+  Unity integration layer, an element library for manufacturing and logistics,
+  experimentation and optimisation, and domain-level commands exposed to AI
+  agents through the Model Context Protocol.
+authors:
+  - family-names: "Pernas-Álvarez"
+    given-names: "Javier"
+    orcid: "https://orcid.org/0000-0001-9185-3583"
+    affiliation: "University of A Coruña"
+  - family-names: "Crespo-Pereira"
+    given-names: "Diego"
+    orcid: "https://orcid.org/0000-0002-0797-249X"
+    affiliation: "University of A Coruña"
+license: GPL-3.0-only
+repository-code: "https://github.com/simulean/SimuLean"
+version: "1.0.0"
+doi: "10.5281/zenodo.23565564"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.23565564"
+    description: "SimuLean 1.0.0 archived on Zenodo"
+date-released: "2026-10-22"
+keywords:
+  - discrete-event simulation
+  - Unity
+  - AI agents
+  - Model Context Protocol
+  - manufacturing systems
+  - digital twin
+references:
+  - type: article
+    title: "Agentic discrete-event simulation for manufacturing system design: an open 3D simulator, a benchmark and an industrial case"
+    authors:
+      - family-names: "Pernas-Álvarez"
+        given-names: "Javier"
+        orcid: "https://orcid.org/0000-0001-9185-3583"
+      - family-names: "Crespo-Pereira"
+        given-names: "Diego"
+        orcid: "https://orcid.org/0000-0002-0797-249X"
+    year: 2026
+    doi: "10.48550/arXiv.2611.10602"
+    url: "https://arxiv.org/abs/2611.10602"
+    identifiers:
+      - type: other
+        value: "arXiv:2611.10602"
+        description: "arXiv preprint"

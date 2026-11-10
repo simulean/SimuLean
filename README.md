@@ -19,8 +19,11 @@ built, checked, run, studied and optimised either in the Unity editor or by an A
 - **Agent interface**: 31 commands that cover the whole modelling cycle, with errors and warnings in every answer and a
   check before every run — see [AGENTS.md](AGENTS.md).
 
-> **Paper.** The design of SimuLean as a simulator for AI agents and its evaluation are described in a paper — the arXiv
-> link will be added here on publication.
+> **Paper.** The design of SimuLean as a simulator for AI agents and its evaluation are described in
+> J. Pernas-Álvarez and D. Crespo-Pereira, *Agentic discrete-event simulation for manufacturing system design: an open
+> 3D simulator, a benchmark and an industrial case*, arXiv:2611.10602 (2026),
+> [doi:10.48550/arXiv.2611.10602](https://doi.org/10.48550/arXiv.2611.10602). To cite the software, see
+> [CITATION.cff](CITATION.cff) (version 1.0.0: [doi:10.5281/zenodo.23565564](https://doi.org/10.5281/zenodo.23565564)).
 
 ## Quick start
 
