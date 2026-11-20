@@ -5,8 +5,10 @@
   <ItemGroup>
     <SimuLeanSuite Include="$(MSBuildThisFileDirectory)*\*.csproj" />
   </ItemGroup>
+  <!-- one suite at a time: each suite's restore also restores the engine library it references, and parallel restores
+       wrote Engine/obj at once ("Cannot create a file when that file already exists"); the builds stay parallel -->
   <Target Name="Restore">
-    <MSBuild Projects="@(SimuLeanSuite)" Targets="Restore" BuildInParallel="true" />
+    <MSBuild Projects="@(SimuLeanSuite)" Targets="Restore" BuildInParallel="false" />
   </Target>
   <Target Name="Build">
     <MSBuild Projects="@(SimuLeanSuite)" Targets="Build" BuildInParallel="true" />
