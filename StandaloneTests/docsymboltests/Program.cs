@@ -1,7 +1,9 @@
 // Doc-symbol check: every back-ticked code name in the agent-facing documentation
-// (CLAUDE.md, docs/architecture.md, docs/project-overview.md) must exist in the code — a type or member name, a
-// snake_case statistic or command name, a file path. Stale documentation is followed by agents as if it were true (a
-// review found removed classes and renamed statistics cited as current). A name quoted as history (on a line
+// (CLAUDE.md, docs/architecture.md, docs/project-overview.md, and the agents' guide: AGENTS.md, docs/agents/*.md, the
+// simulean-modeller skill; the topic modules docs/agents/topics/*.md) must exist in the code — a type or member name, a snake_case statistic or
+// command name, a file path — and every argument of a quoted command call (`simulean_set object=… key=…`) must be one
+// of that command's arguments (read from its [CliArg] attributes), so a retired argument name fails. Stale documentation is followed by agents as if it were true (removed
+// classes and renamed statistics cited as current). A name quoted as history (on a line
 // that says it was removed / replaced / renamed…) is skipped; the rest of the exceptions are in allowlist.txt, each
 // with its reason.
 // Run: dotnet run  (from StandaloneTests/docsymboltests)
@@ -13,7 +15,13 @@ using System.Text.RegularExpressions;
 
 static class Program
 {
-    static readonly string[] Docs = { "CLAUDE.md", "docs/architecture.md", "docs/project-overview.md" };
+    static readonly string[] FixedDocs = { "CLAUDE.md", "docs/architecture.md", "docs/project-overview.md", "AGENTS.md",
+                                           ".claude/skills/simulean-modeller/SKILL.md" };
+    static string[] Docs;
+
+    // a quoted command call: simulean_xxx then its arguments name=value
+    static readonly Regex Call = new Regex(@"^(?<cmd>simulean_[a-z_]+)\s+(?<rest>.+)$");
+    static readonly Regex CallArg = new Regex(@"(?<=^|\s)(?<arg>[A-Za-z]+)=");
 
     // a line that quotes a name as history: the name is expected to be gone
     static readonly Regex History = new Regex(@"\b(removed|remove[sd]?|replaced|replaces|renamed|former(ly)?|dropped|deleted|no longer|gone|was\b|were\b|until\b|instead of|retired|obsolete|legacy|old\b|previous(ly)?|deprecated|migrat\w*|merged into|now\b)", RegexOptions.IgnoreCase);
@@ -27,6 +35,12 @@ static class Program
     static int Main(string[] args)
     {
         string root = FindRoot();
+        // the agents' guide and the development procedures behind CLAUDE.md (docs/dev)
+        Docs = FixedDocs.Concat(new[] { "agents", "dev" }
+                                    .Select(d => Path.Combine(root, "docs", d)).Where(Directory.Exists)
+                                    .SelectMany(d => Directory.EnumerateFiles(d, "*.md", SearchOption.AllDirectories))
+                                    .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/')).OrderBy(f => f, StringComparer.Ordinal)).ToArray();
+        var commandArgs = CommandArguments(root);
         var code = Corpus(root);
         var words = new HashSet<string>(Regex.Matches(code, @"[A-Za-z_][A-Za-z0-9_]*").Cast<Match>().Select(m => m.Value), StringComparer.Ordinal);
         var allow = Allowed(Path.Combine(root, "StandaloneTests", "docsymboltests", "allowlist.txt"));
@@ -36,11 +50,13 @@ static class Program
         foreach (string f in files) words.Add(Path.GetFileNameWithoutExtension(f));   // prefabs, models, scenes by name
         int checkedNames = 0;
         var problems = new List<string>();
-        // the check itself: it finds the stale names a review found by hand, and accepts current ones
+        // the check itself: it finds stale names, and accepts current ones
         foreach (string stale in new[] { "RandomProcessConfig.CreateRandomProcess", "content_avg_tw", "Assets/SimuLean.Net/NoSuchFile.cs" })
             if (Missing(stale, words, files) == null) problems.Add($"self-test: `{stale}` was not reported");
         foreach (string current in new[] { "Element.ScheduleWork", "content_avg", "simulean_run_headless", "Assets/SimuLean.Net/SimClock/SimLog.cs" })
             if (Missing(current, words, files) != null) problems.Add($"self-test: `{current}` reported: {Missing(current, words, files)}");
+        if (BadArguments("simulean_set element=A key=b value=1", commandArgs) == null || BadArguments("simulean_set object=A key=b value=1", commandArgs) != null)
+            problems.Add("self-test: a retired argument of a quoted command call was not told from a current one");
         foreach (string line in new[] { "The former `X` was removed.", "Use `X` now." })
             if (!History.IsMatch(line) && line.Contains("former")) problems.Add("self-test: history not recognised: " + line);
         var usedAllow = new HashSet<string>();
@@ -53,6 +69,8 @@ static class Program
                 foreach (Match m in Tick.Matches(sentence))
                 {
                     string t = m.Groups[1].Value.Trim();
+                    string badArgs = BadArguments(t, commandArgs);
+                    if (badArgs != null) { checkedNames++; problems.Add($"{doc}:{line}: `{t}` — {badArgs}"); continue; }
                     string missing = Missing(t, words, files);
                     if (missing == null) { if (Classified(t)) checkedNames++; continue; }
                     checkedNames++;
@@ -98,6 +116,36 @@ static class Program
         }
         Flush();
         return result;
+    }
+
+    /// <summary>The arguments of every SimuLean command, from the [CliCommand] / [CliArg] attributes of the command sources.</summary>
+    static Dictionary<string, HashSet<string>> CommandArguments(string root)
+    {
+        var map = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        var token = new Regex(@"\[(?<kind>CliCommand|CliArg)\(""(?<name>[A-Za-z_]+)""");
+        foreach (string f in Directory.EnumerateFiles(Path.Combine(root, "Assets", "SimuLean.Unity", "Editor", "Pipeline"), "*.cs"))
+        {
+            HashSet<string> current = null;
+            foreach (Match m in token.Matches(File.ReadAllText(f)))
+            {
+                if (m.Groups["kind"].Value == "CliCommand")
+                {
+                    string name = m.Groups["name"].Value;
+                    current = map.TryGetValue(name, out var s) ? s : (map[name] = new HashSet<string>(StringComparer.Ordinal));
+                }
+                else current?.Add(m.Groups["name"].Value);
+            }
+        }
+        return map;
+    }
+
+    /// <summary>Why a quoted command call names an argument its command does not have (null: none, or not a call).</summary>
+    static string BadArguments(string t, Dictionary<string, HashSet<string>> commands)
+    {
+        var call = Call.Match(t);
+        if (!call.Success || !commands.TryGetValue(call.Groups["cmd"].Value, out var args)) return null;
+        var bad = CallArg.Matches(call.Groups["rest"].Value).Cast<Match>().Select(x => x.Groups["arg"].Value).Where(a => !args.Contains(a)).Distinct().ToList();
+        return bad.Count == 0 ? null : $"{call.Groups["cmd"].Value} has no argument {string.Join(", ", bad)} (it takes {string.Join(", ", args.OrderBy(a => a, StringComparer.Ordinal))})";
     }
 
     static bool Classified(string t) => Pascal.IsMatch(t) || Snake.IsMatch(t) || PathLike.IsMatch(t);

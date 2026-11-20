@@ -11,8 +11,10 @@ namespace SimuLean.Resources
     /// travel model (unless <see cref="TravelTime"/> is set) and unload.
     /// <list type="bullet">
     /// <item>When the origin offers an item, a destination with room is chosen (the origin's output strategy among
-    /// the destinations that can take it, counting the items already on their way to each), a transport request is
-    /// made to the dispatcher and the origin keeps the item (refused send → BLOCKED, as with a full destination).</item>
+    /// the destinations that can take it, counting the items already on their way to each — over every link and carrier
+    /// into it: the room is promised on the destination (<see cref="Element.PromiseRoom"/>), not per link), a transport
+    /// request is made to the dispatcher and the origin keeps the item (refused send → BLOCKED, as with a full
+    /// destination).</item>
     /// <item>When a resource is assigned it loads the item: the origin hands it over (<see cref="Element.SendHeldItem"/>)
     /// and the item leaves it (<c>OnExit</c>); it travels for the transport time, unloads and delivers it to the
     /// destination (<c>Receive</c>, <c>OnEntry</c>) — statistics stay link-driven. If the destination cannot take
@@ -24,7 +26,7 @@ namespace SimuLean.Resources
     {
         private readonly Element origin;
         private readonly List<Element> destinations = new List<Element>();
-        private readonly Dictionary<Element, int> inTransit = new Dictionary<Element, int>();
+        private readonly Dictionary<Item, Element> onTheWay = new Dictionary<Item, Element>();   // item → its destination
         private readonly HashSet<Item> requested = new HashSet<Item>();
         private readonly TransportMoves moves;
         private readonly List<Element> candidates = new List<Element>();                 // refilled on every choice
@@ -59,7 +61,7 @@ namespace SimuLean.Resources
         public Element Origin => origin;
 
         /// <summary>Items on their way (requested, loaded or waiting at a full destination).</summary>
-        public int InTransit { get { int n = 0; foreach (var v in inTransit.Values) n += v; return n; } }
+        public int InTransit => onTheWay.Count;
 
         /// <summary>True when a carrier was requested for <paramref name="item"/> and has not loaded it yet.</summary>
         public bool IsRequested(Item item) => item != null && requested.Contains(item);
@@ -82,7 +84,8 @@ namespace SimuLean.Resources
         /// <summary>Forgets requests, items on their way and waiting deliveries (new run).</summary>
         public void Reset()
         {
-            inTransit.Clear(); requested.Clear(); moves.Reset();
+            foreach (var kv in onTheWay) kv.Value.ForgetPromise(kv.Key);
+            onTheWay.Clear(); requested.Clear(); moves.Reset();
         }
 
         // ── origin side ──────────────────────────────────────────────────────
@@ -95,17 +98,24 @@ namespace SimuLean.Resources
                 // hand-over may come after the load (deferred), and an offer meanwhile must not request a second
                 // carrier.
                 requested.Remove(theItem);
-                (source.GetOutputStrategy() as IRoutingMemory)?.Forget(theItem);   // a per-item choice is spent (review2 #2)
+                (source.GetOutputStrategy() as IRoutingMemory)?.Forget(theItem);   // a per-item choice is spent
                 ItemHandOver.Exit(source, theItem);
                 source.StatsCollector.OnExit(theItem);
                 return true;
             }
             if (requested.Contains(theItem) || source.IsOutputBlocked) return false;
 
-            Element dest = ChooseDestination(theItem, source);
-            if (dest == null) return false;                  // no room anywhere: the origin stays blocked
+            // a place reserved before its job: the same promise is taken over (PromiseRoom is per item: no double count)
+            Element dest = source.ReservedExitOf(theItem) ?? ChooseDestination(theItem, source);
+            if (dest == null)                                // no room anywhere: the origin stays blocked
+            {
+                Element.OfferForEntry(destinations, theItem, source, source.GetOutputStrategy());   // a station may prepare
+                return false;
+            }
+            source.ExitHandedOver(theItem);
 
-            inTransit[dest] = (inTransit.TryGetValue(dest, out int n) ? n : 0) + 1;
+            dest.PromiseRoom(theItem);                       // its place there, over every link into it
+            onTheWay[theItem] = dest;
             requested.Add(theItem);
             moves.Request(theItem, dest, Deliver);
             return false;                                    // stays in the origin until loaded
@@ -114,16 +124,14 @@ namespace SimuLean.Resources
         private bool HasRoom(Element d, Item item, Element source)
         {
             if (d.IsInputBlocked || !d.CheckAvailability(item) || !d.ValidateInput(item, source)) return false;
-            int free = d.GetFreeCapacity();
-            int coming = inTransit.TryGetValue(d, out int n) ? n : 0;
-            return free < 0 || free - coming > 0;   // room already promised to items on their way
+            return d.HasRoomBeyondPromises(this);   // room already promised to items on their way, by any link
         }
 
         private Element ChooseDestination(Item item, Element source)
         {
             // A routing by rule (an expression on the item's labels) names the destination over all of them: the item goes
-            // there or waits — its index is over the destinations, not over those with room (a full named
-            // destination sent the item to the first one with room).
+            // there or waits — its index is over the destinations, not over those with room (else a full named
+            // destination would send the item to the first one with room).
             if (source.GetOutputStrategy() is IRuleRouting rule)
             {
                 int r = rule.Route(destinations, item, source);
@@ -135,7 +143,7 @@ namespace SimuLean.Resources
             if (candidates.Count == 0) return null;
             if (candidates.Count == 1) return candidates[0];
             int i = source.GetOutputStrategy().SelectOutput(candidates, item, source, context.Set(source, candidates));
-            return i >= 0 && i < candidates.Count ? candidates[i] : null;   // none chosen: it waits (review2 #1)
+            return i >= 0 && i < candidates.Count ? candidates[i] : null;   // none chosen: it waits
         }
 
         // ── delivery (the carrier unloaded) ──────────────────────────────────
@@ -143,9 +151,14 @@ namespace SimuLean.Resources
         private bool Deliver(Item item, Element d)
         {
             if (d.IsInputBlocked || !d.CheckAvailability(item) || !d.ValidateInput(item, origin) || !ItemHandOver.Receive(null, d, item))
+            {
+                d.PrepareForEntry(item, origin);   // its resources may be missing (taken by another item)
                 return false;
+            }
             d.StatsCollector.OnEntry(item);
-            inTransit[d]--;
+            origin.Counters.Handed(destinations, destinations.IndexOf(d), item);   // read-only counter (logic viewer)
+            onTheWay.Remove(item);
+            d.ReleaseRoom(item, this);
             // The room promised to this item is no longer counted: items still waiting in the origin may go now
             // (the destination itself may never notify, e.g. a queue passing items straight through).
             origin.GetSimClock().Schedule(() => { if (!origin.IsOutputBlocked) origin.NotifyUnblock(); }, 0);

@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: "Workshop, advanced \u2014 setups, reserved exits, timeouts and two-team lifts"
+  description: 'Three part families share a lathe that changes over by a setup matrix (its buffer groups by setup), two mills whose machinists are shared with a rush CNC and the dispatch crane''s driver, an inspection that starts only when the dispatch bay has room, and a hall crane that waits for a driver of another team.
+
+    Waits carry limits: the mill''s secured machinist and the crane give up, and rush orders that wait too long go to a backup mill, which a reaction counts.'
+  author: SimuLean
+  scenePath: Assets/Scenes/LibraryExamples/Workshop_Advanced.unity
+  copiedFrom: 
+  created: 2026-11-05 12:00:00
+  modified: 2026-11-05 12:00:00
+  represents: "Main line: Source A, Source B (exponential, rate 0.17 /min each) and Source C (0.08 /min) set the label type = A / B / C \u2192 Lathe Buffer (100, Group by setup, at most 6 in a row ahead of the oldest) \u2192 Lathe (1 slot, triangular 0.8 / 1.1 / 1.6 min; Setup on a type change, first item included, by the team Setters (1 setter); changeover time per from \u2192 to pair from the data table 'Lathe setup matrix', file Workshop_Advanced/lathe_changeovers.csv: first setup 4, A\u2192B 2, B\u2192A 2.5, A or B \u2192 C triangular 4 / 5 / 7, C \u2192 any uniform 3..4, other pairs 3) \u2192 Mill Buffer \u2192 Mill 1 / Mill 2 (triangular 2.5 / 3.2 / 4.2, each needs a machinist of the team Machinists (3) for its process, priority 1; Mill 1 secures its machinist before taking the part (Before The Part) with Max Wait 4 and Give Up) \u2192 Inspection (triangular 1.4 / 1.8 / 2.4, Reserve Exit: it starts only when a place in the Dispatch Bay is promised) \u2192 Dispatch Bay (capacity 1) \u2192 Crane Lift (triangular 1.0 / 1.4 / 2.0; needs the Hall Crane of the team Crane, then a driver of the team Machinists: Acquire In Order, priority 2, Max Wait 2 and Give Up \u2014 the crane is released and asked again) \u2192 Shipped.\nRush line: Rush Orders (0.04 /min, type = R) \u2192 Rush Queue (Max wait 10, On timeout Reroute to Backup Mill) \u2192 Rush CNC (triangular 4 / 5 / 7, a machinist with priority 5 and Resume preemption: it takes a machinist from a mill job) \u2192 Rush Shipped; Backup Mill (triangular 8 / 10 / 14, no operator) \u2192 Rush Shipped.\nDowntime Machine Failures on Lathe, Mill 1, Mill 2 and Rush CNC (uniform 300..500 min between failures, triangular 10 / 20 / 35 min repair) repaired by the team Mechanics (1 mechanic, repair priority 10). The team Machinists serves the highest priority request first (request order: priority, descending). Reaction Late Rush: when a rush order's wait in the Rush Queue times out, it labels the item late = 1 and counts it in the queue's property lateRush."
+  kpis: "Throughput out=Shipped.input, rush=Rush Shipped.input. Changeovers setups=Lathe.setups, Lathe.setup_time, Lathe.setup_time_avg, Lathe.state:SETUP, wait=Lathe Buffer.stay_avg. Reserved exit inspBlocked=Inspection.state:BLOCKED (waiting before its process), Mill 1.state:BLOCKED. Timeouts millTo=Mill 1.timeouts:resource, craneTo=Crane Lift.timeouts:resource, rushTo=Rush Queue.timeouts:queue, backup=Backup Mill.input, fired=reaction:Late Rush.fired. Crane waiting for its driver: Crane Lift.state:WAITING_FOR_RESOURCE; the crane's own HELD share is a member statistic (charts: resource:Hall Crane.state:HELD). Repairs downtime:Machine Failures.repairs / .repair_wait_avg / .downtime_total; preemption team:Machinists.preemptions, Mill 2.interruptions, Mill 2.interrupted_time. Utilisation team:Machinists / Setters / Crane / Mechanics.utilization.\nSeeds 1..5, 2400 min (mean \xB1 95 % half-width): grouped 969 \xB1 46 out, 98 rush, 295 \xB1 9 changeovers (1017 min), lathe wait 9 min; without grouping (Lathe Buffer.groupBySetup=false) 635 \xB1 15 out, 457 \xB1 11 changeovers (1522 min), lathe wait 272 min \u2014 the lathe cannot keep up. Inspection BLOCKED 1.9 % (0.2 % with Inspection.reserveExit=false, where it waits after its process instead). Mill 1 gives up its machinist 0.8 times (machinists HELD 0.5 %; 0.4 % with Mill 1.processBy.acquireBeforeEntry=false). Crane Lift gives up 14.2 times; the crane is HELD 6.9 % of the time waiting for its driver. Rush: 3.0 timeouts, 2.6 to the backup mill, the reaction fires 3.0 times. 20 repairs (wait 2.6 min), 44 preemptions. Utilisation: machinists 0.78, crane 0.72, setter 0.45, mechanic 0.18."
+  parameters: 'Grouping: Lathe Buffer.groupBySetup (true / false), Lathe Buffer.groupLimit (6). Changeovers: data:Lathe setup matrix.file, Lathe.setup.time.constantValue (3), Lathe.setup.when, team:Setters.members.
+
+    Resource rules: Inspection.reserveExit, Dispatch Bay.capacity (1), Mill 1.processBy.acquireBeforeEntry, Mill 1.processBy.maxWait (4) / .onTimeout, Crane Lift.processBy.acquire (InOrder / AllAtOnce), Crane Lift.processBy.maxWait (2), Crane Lift.processBy.priority (2), Rush Queue.maxWait (10) / .onTimeout.
+
+    Teams: team:Machinists.members (3), team:Crane.members, team:Mechanics.members. Preemption: Rush CNC.processBy.priority (5), Rush CNC.processBy.preemption (Resume).
+
+    Failures: downtime:Machine Failures.timeToFailure.uniformMin / .uniformMax, .timeToRepair.triangularMin / Mode / Max. Arrivals: Source A / B / C / Rush Orders.interArrivalDistribution.exponentialRate.'
+  assumptions: Time unit min, horizon 2400 min (40 h), no warm-up, fixed seed 1; end condition Stop When No Progress For 240 min. Operators, the setter and the mechanic walk in straight lines at 1.2 m/s; the hall crane parks at Crane Park between lifts. Failures on calendar time, Immediate. A Give Up frees what the job holds and asks again behind the others. Illustrative times, not calibrated to any plant.

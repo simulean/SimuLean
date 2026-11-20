@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,6 +26,55 @@ namespace SimuLean.Optimization
     public interface IObjective
     {
         Evaluation Evaluate(Candidate candidate);
+    }
+
+    /// <summary>
+    /// An objective that evaluates a whole batch of candidates at once (a generation sent to the
+    /// out-of-editor runner, <see cref="BatchedObjective"/>). <see cref="OptimizationRun.Evaluate(IReadOnlyList{Candidate})"/>
+    /// uses it instead of one <see cref="IObjective.Evaluate"/> per candidate; a candidate it could not evaluate (cancelled)
+    /// is null.
+    /// </summary>
+    public interface IBatchObjective : IObjective
+    {
+        IReadOnlyList<Evaluation> EvaluateAll(IReadOnlyList<Candidate> candidates, int parallelism, CancellationToken cancellation);
+    }
+
+    /// <summary>
+    /// A <see cref="SimulationObjective"/> whose batches run through a function (e.g. in the out-of-editor runner): one
+    /// <see cref="StudyBatch"/> per batch of candidates (<see cref="SimulationObjective.BatchFor"/>), the evaluations rebuilt
+    /// from its runs (<see cref="SimulationObjective.EvaluationFrom"/>) — the same evaluations as evaluating each candidate.
+    /// </summary>
+    public sealed class BatchedObjective : IBatchObjective
+    {
+        private readonly SimulationObjective inner;
+        private readonly Func<StudyBatch, CancellationToken, SimuLean.Results.ResultSet> run;
+
+        public BatchedObjective(SimulationObjective objective, Func<StudyBatch, CancellationToken, SimuLean.Results.ResultSet> run)
+        {
+            inner = objective ?? throw new ArgumentNullException(nameof(objective));
+            this.run = run ?? throw new ArgumentNullException(nameof(run));
+        }
+
+        public SimulationObjective Objective => inner;
+
+        public Evaluation Evaluate(Candidate candidate) => inner.Evaluate(candidate);
+
+        public IReadOnlyList<Evaluation> EvaluateAll(IReadOnlyList<Candidate> candidates, int parallelism, CancellationToken cancellation)
+        {
+            var batch = inner.BatchFor(candidates);
+            batch.Threads = Math.Max(1, parallelism);
+            var set = run(batch, cancellation);
+            var byScenario = new Dictionary<string, List<SimuLean.Results.ResultRun>>();
+            foreach (var r in set.Runs)
+            {
+                if (!byScenario.TryGetValue(r.Scenario, out var list)) byScenario[r.Scenario] = list = new List<SimuLean.Results.ResultRun>();
+                list.Add(r);
+            }
+            var result = new Evaluation[candidates.Count];
+            for (int i = 0; i < candidates.Count; i++)
+                result[i] = inner.EvaluationFrom(candidates[i], byScenario.TryGetValue(batch.Scenarios[i].Name, out var runs) ? runs : new List<SimuLean.Results.ResultRun>());
+            return result;
+        }
     }
 
     /// <summary>
@@ -92,8 +142,8 @@ namespace SimuLean.Optimization
         public double Seconds { get; internal set; }
         public string StopReason { get; internal set; }
         public List<ProgressPoint> History { get; } = new List<ProgressPoint>();
-        /// <summary>Every candidate simulated, in evaluation order (kept in the results store, as OptQuest /
-        /// FlexSim keep them) — cache hits are not repeated.</summary>
+        /// <summary>Every candidate simulated, in evaluation order (kept in the results store, as optimisation
+        /// tools keep them) — cache hits are not repeated.</summary>
         public List<EvaluatedCandidate> Candidates { get; } = new List<EvaluatedCandidate>();
 
         /// <summary>The candidates as result-set rows (<see cref="SimuLean.Results.ResultSet.Candidates"/>).</summary>
@@ -190,7 +240,25 @@ namespace SimuLean.Optimization
                 }
                 results[i] = e;
             };
-            if (Settings.Parallelism > 1 && todo.Count > 1)
+            if (objective is IBatchObjective batched && todo.Count > 0 && !ShouldStop)
+            {
+                // the whole batch at once (the out-of-editor runner); the time limit is checked between batches
+                IReadOnlyList<Evaluation> all;
+                try { all = batched.EvaluateAll(todo.Select(i => candidates[i]).ToList(), Settings.Parallelism, cancellation); }
+                catch (OperationCanceledException) { all = new Evaluation[todo.Count]; }
+                catch (Exception ex) { all = todo.Select(_ => Evaluation.Failed(ex.GetType().Name + ": " + ex.Message)).ToList(); }
+                for (int t = 0; t < todo.Count; t++)
+                {
+                    var e = all[t];
+                    if (e != null && double.IsNaN(e.Fitness))
+                    {
+                        e.Fitness = double.NegativeInfinity;
+                        if (e.Error == null) e.Error = "the fitness is not a number (a metric was not reached?)";
+                    }
+                    results[todo[t]] = e;
+                }
+            }
+            else if (Settings.Parallelism > 1 && todo.Count > 1)
                 Parallel.ForEach(todo, new ParallelOptions { MaxDegreeOfParallelism = Settings.Parallelism }, one);
             else
                 foreach (int i in todo) one(i);

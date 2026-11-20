@@ -114,7 +114,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 599126453596152714}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.7071068, y: 0, z: -0, w: 0.7071067}
+  m_LocalRotation: {x: 0.00000003090862, y: 0.7071067, z: 0.7071068, w: -0.000000030908616}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -1992,7 +1992,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   nextElements: []
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -2201,8 +2200,8 @@ MonoBehaviour:
     discreteUniformMax: 7
   capacity: 1
   outputItemPrefab: {fileID: 0}
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerScan: 0
   serverAnimator: {fileID: 0}
 --- !u!114 &5395992959758237768
 MonoBehaviour:

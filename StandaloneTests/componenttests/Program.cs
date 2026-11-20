@@ -1,5 +1,5 @@
-// Components without a suite of their own until R-11: LengthLimitedQueue,
-// GateQueue, WeeklyShiftPattern + ShiftDowntime, ResultTable + ProjectDatabase; PeriodicDowntime.
+// Components without a suite of their own: LengthLimitedQueue,
+// the gated ItemsQueue (the former GateQueue), WeeklyShiftPattern + ShiftDowntime, ResultTable + ProjectDatabase; PeriodicDowntime; TopPacking.
 // Run: dotnet run  (from StandaloneTests/componenttests)
 using System;
 using System.Collections.Generic;
@@ -29,13 +29,16 @@ static class Program
         Run("LengthLimitedQueue: lane length, gap and item lengths", TestLaneLength);
         Run("LengthLimitedQueue: lanes, oversize items, count limit", TestLanesAndLimits);
         Run("LengthLimitedQueue: pass-through, FIFO exit, Unblock drains, Start resets", TestLaneFlow);
-        Run("GateQueue: holds items until released; spare releases are credits", TestGateQueue);
+        Run("LengthLimitedQueue: a speed conveys (length ÷ speed to the end), accumulates behind a slow station, stops pause it", TestConveyor);
+        Run("Statistics: a compound's sub-items counted on entry (opt-in), so they can leave one by one", TestSubItemsOnEntry);
+        Run("Gated queue: holds items until released; spare releases are credits", TestGateQueue);
         Run("WeeklyShiftPattern: parse, working time, next change, merged and overnight windows, holidays", TestShiftPattern);
         Run("WeeklyShiftPattern: malformed text fails", TestShiftPatternErrors);
         Run("ShiftDowntime: a server works only in its shifts", TestShiftDowntime);
         Run("PeriodicDowntime: stops at first, first + period, ... before until, each of the duration", TestPeriodicTimes);
         Run("PeriodicDowntime: processing pauses and resumes (Immediate), or finishes first (AfterCurrent)", TestPeriodicPausesWork);
         Run("PeriodicDowntime: the warm-up resets its counters; a late start clips the running stop", TestPeriodicWarmupAndLateStart);
+        Run("TopPacking: rows across the width, a new row then a new layer, each centred; the height of the layers", TestTopPacking);
         Run("PeriodicDowntime: invalid settings fail the build; overlap only when allowed", TestPeriodicValidation);
         Run("PeriodicDowntime: its config round-trips through JSON", TestPeriodicJsonRoundTrip);
         Run("ResultTable: CSV in the invariant culture, quoting", TestResultTableCsv);
@@ -132,18 +135,94 @@ static class Program
 
         var wide = new LengthLimitedQueue("Wide", clock, 100.0);
         var buffer2 = new LengthLimitedQueue("Buffer2", clock, 10.0);
-        var gate = new GateQueue(10, "Gate", clock);
+        var gate = new ItemsQueue(10, "Gate", clock) { Gated = true };
         GeneralLink.CreateLink(buffer2, new List<Element> { gate });
         GeneralLink.CreateLink(gate, new List<Element> { wide });
         buffer2.Start(); gate.Start(); wide.Start();
         gate.SetCapacity(0);                                     // refuses everything for now
         foreach (var it in order) buffer2.Receive(it);
         Check(buffer2.GetQueueLength() == 3, "held behind a closed gate");
-        gate.SetCapacity(10); gate.Release(10);
+        gate.SetCapacity(10); gate.ReleaseItems(10);
         Check(buffer2.Unblock() && buffer2.GetQueueLength() == 0, "Unblock drains the whole lane while the output accepts");
         Check(wide.Items.SequenceEqual(order), "in arrival order (global FIFO)");
         buffer2.Start();
         Check(buffer2.GetQueueLength() == 0 && buffer2.TotalUsedLength == 0, "Start empties the lanes");
+    }
+
+    static void TestSubItemsOnEntry()
+    {
+        var clock = new SimClock(1);
+        var q = new ItemsQueue(100, "Unpack", clock);
+        q.Start();
+        var pallet = new Item(0);
+        pallet.subItems = new List<Item>();
+        for (int i = 0; i < 4; i++) pallet.subItems.Add(new Item(0));
+        q.StatsCollector.OnEntry(pallet);
+        Check(q.GetStatsInputCount() == 1, "off (default): the pallet only");
+        var q2 = new ItemsQueue(100, "Unpack2", clock);
+        q2.Start();
+        q2.StatsCollector.CountSubItemsOnEntry = true;
+        var pallet2 = new Item(0);
+        var boxes = new List<Item>();
+        pallet2.subItems = new List<Item>();
+        for (int i = 0; i < 4; i++) { var b = new Item(0); boxes.Add(b); pallet2.subItems.Add(b); }
+        q2.StatsCollector.OnEntry(pallet2);
+        Check(q2.GetStatsInputCount() == 5, $"on: the pallet and its 4 boxes ({q2.GetStatsInputCount()})");
+        clock.AdvanceClock(3);
+        foreach (var b in boxes) q2.StatsCollector.OnExit(b);
+        q2.StatsCollector.OnExit(pallet2);
+        Check(q2.GetStatsOutputCount() == 5 && q2.GetStatsContentCurrent() == 0, "each leaves on its own; content back to 0");
+        Near(q2.GetStatsStayTimeMean(), 3, "each stayed 3");
+    }
+
+    static void TestConveyor()
+    {
+        // A 10 m conveyor at 2 m per time unit: 5 to the end. Items at 0, 1, 2 for a free sink leave at 5, 6, 7.
+        (List<double> exits, LengthLimitedQueue lane, SimClock clock) Run(double serverTime, double stopFrom = -1, double stopTo = -1)
+        {
+            var clock = new SimClock(1);
+            var src = new ScheduleSource("Src", clock, new Dictionary<string, List<string>>
+            {
+                ["Time"] = new List<string> { "1", "2", "3" }, ["Name"] = new List<string> { "P", "P", "P" }, ["Q"] = new List<string> { "1", "1", "1" },
+            });
+            var lane = new LengthLimitedQueue("Conveyor", clock, 10.0) { Speed = 2 };
+            var exits = new List<double>();
+            Element next;
+            var sink = new Sink("Sink", clock);
+            if (serverTime > 0)
+            {
+                var m = new MultiServer(new[] { (IRandomSampler)new ConstantRandomProcess(serverTime) }, "M", clock);
+                GeneralLink.CreateLink(m, new List<Element> { sink });
+                next = m;
+                m.Start();
+            }
+            else next = sink;
+            GeneralLink.CreateLink(src, new List<Element> { lane });
+            GeneralLink.CreateLink(lane, new List<Element> { next });
+            lane.ItemExited += (e, it) => exits.Add(clock.GetSimulationTime());
+            src.Start(); lane.Start(); sink.Start();
+            StopToken stop = null;
+            if (stopFrom >= 0)
+            {
+                clock.ScheduleEvent(new ActionEvent(() => stop = lane.Stop(new StopRequest(ElementState.STOPPED))), stopFrom);
+                clock.ScheduleEvent(new ActionEvent(() => lane.Resume(stop)), stopTo);
+            }
+            clock.AdvanceClock(50);
+            return (exits, lane, clock);
+        }
+        string T(List<double> l) => string.Join(",", l.Select(x => x.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)));
+
+        var free = Run(0);
+        Check(T(free.exits) == "6,7,8", "a free exit: each item 5 after it entered (arrivals at 1, 2, 3): " + T(free.exits));
+        var slow = Run(3);
+        Check(T(slow.exits) == "6,9,12", "behind a station of 3 they accumulate and leave as it frees: " + T(slow.exits));
+        var stopped = Run(0, 2, 4);
+        // the first two (in at 1 and 2) pause 2; the third, refused during the stop, enters at 4 and leaves at 9
+        Check(T(stopped.exits) == "8,9,9", "a stop from 2 to 4 pauses the conveying (+2) and refuses items: " + T(stopped.exits));
+        Check(free.lane.GetQueueLength() == 0, "the conveyor empties");
+        bool threw = false;
+        try { new LengthLimitedQueue("Bad", new SimClock(1), 10.0) { Speed = -1 }; } catch (ArgumentOutOfRangeException) { threw = true; }
+        Check(threw, "a negative speed fails");
     }
 
     // ── GateQueue ────────────────────────────────────────────────────────────
@@ -151,7 +230,7 @@ static class Program
     static void TestGateQueue()
     {
         var clock = new SimClock(1);
-        var gate = new GateQueue(3, "Gate", clock);
+        var gate = new ItemsQueue(3, "Gate", clock) { Gated = true };
         var lane = new LengthLimitedQueue("Out", clock, 100.0);
         GeneralLink.CreateLink(gate, new List<Element> { lane });
         gate.Start(); lane.Start();
@@ -159,15 +238,15 @@ static class Program
         Check(gate.Receive(items[0]) && gate.Receive(items[1]) && gate.Receive(items[2]), "takes up to its capacity");
         Check(!gate.CheckAvailability(items[3]) && !gate.Receive(items[3]), "and refuses beyond it");
         Check(lane.GetQueueLength() == 0 && gate.CurrentState == ElementState.PROCESSING, "nothing leaves before a release");
-        gate.Release(2);
+        gate.ReleaseItems(2);
         Check(lane.GetQueueLength() == 2 && gate.GetQueueLength() == 1, "Release(2) lets two out, in order");
         Check(lane.Items[0] == items[0] && lane.Items[1] == items[1], "FIFO");
-        gate.Release(3);
-        Check(gate.GetQueueLength() == 0 && gate.GetPendingItems() == 2 && gate.CurrentState == ElementState.IDLE,
+        gate.ReleaseItems(3);
+        Check(gate.GetQueueLength() == 0 && gate.PendingRelease == 2 && gate.CurrentState == ElementState.IDLE,
               "Release(3) with one item: it leaves and two releases remain as credit");
-        Check(gate.Receive(items[3]) && gate.GetQueueLength() == 0 && gate.GetPendingItems() == 1, "an arrival uses a credit at once");
+        Check(gate.Receive(items[3]) && gate.GetQueueLength() == 0 && gate.PendingRelease == 1, "an arrival uses a credit at once");
         gate.Start();
-        Check(gate.GetPendingItems() == 0 && gate.GetQueueLength() == 0, "Start clears items and credits");
+        Check(gate.PendingRelease == 0 && gate.GetQueueLength() == 0, "Start clears items and credits");
     }
 
     // ── WeeklyShiftPattern ───────────────────────────────────────────────────
@@ -223,8 +302,8 @@ static class Program
         var built = factory.BuildModel(cfg);
         factory.StartModel();
         clock.AdvanceClock(cfg.MaxSimulationTime);
-        Element srv = built.Values.Single(e => e.GetName() == "srv");
-        Element sink = built.Values.Single(e => e.GetName() == "sink");
+        Element srv = built.Values.Single(e => e.Name == "srv");
+        Element sink = built.Values.Single(e => e.Name == "sink");
         Near(srv.GetStateRatio(ElementState.OFF_SHIFT), 128.0 / 168, "off shift 128 h of 168", 0.01);
         Check(sink.GetStatsInputCount() > 0, "it still produces in its shifts");
     }
@@ -235,17 +314,17 @@ static class Program
     static SimulationConfig PeriodicModel(double processTime, Action<DowntimeConfig> set, double horizon = 1000, double warmup = 0)
     {
         var c = new SimulationConfig { UseFixedSeed = true, Seed = 7, MaxSimulationTime = horizon, WarmupTime = warmup };
-        var src = new ElementConfig("src", "UnitySource", "src");
-        src.Parameters["sourceMode"] = "Schedule";
-        src.Parameters["arrivalsTable"] = new Dictionary<string, List<string>>
+        var src = new ElementConfig("src", "Source", "src");
+        src.Set("mode", "Schedule");
+        src.Set("arrivalsTable", new Dictionary<string, List<string>>
         {
             ["Time"] = new List<string> { "0" }, ["Name"] = new List<string> { "Part" }, ["Q"] = new List<string> { "1" },
-        };
-        var srv = new ElementConfig("srv", "UnityMultiServer", "srv");
-        srv.Parameters["capacity"] = 1;
-        srv.Parameters["delayStrategyType"] = "Constant";
-        srv.Parameters["constantValue"] = processTime;
-        c.Elements.Add(src); c.Elements.Add(srv); c.Elements.Add(new ElementConfig("sink", "UnitySink", "sink"));
+        });
+        var srv = new ElementConfig("srv", "MultiServer", "srv");
+        srv.Set("capacity", 1);
+        srv.Set("delayStrategy.strategyType", "Constant");
+        srv.Set("delayStrategy.constantValue", processTime);
+        c.Elements.Add(src); c.Elements.Add(srv); c.Elements.Add(new ElementConfig("sink", "Sink", "sink"));
         c.Connections.Add(new ConnectionConfig("src", "srv", "General"));
         c.Connections.Add(new ConnectionConfig("srv", "sink", "General"));
         var dt = new DowntimeConfig("pm", "Periodic", "srv");
@@ -270,9 +349,32 @@ static class Program
         return (model, clock, gen, starts, ends);
     }
 
+    static void TestTopPacking()
+    {
+        // four 0.5 x 0.5 cartons (0.3 high) on a 1 x 1 top: two rows of two, one layer
+        var carton = (0.5, 0.3, 0.5);
+        var four = new[] { carton, carton, carton, carton };
+        var at = TopPacking.Places(1, 1, four);
+        double rowWidth = 0.5 * 1.01 + 0.5, rowDepth = 0.5 * 1.01;
+        Near(at[0].x, 0.25 - rowWidth / 2, "first part: left of the row's centre");
+        Near(at[1].x, 0.5 * 1.01 + 0.25 - rowWidth / 2, "second part beside it");
+        Check(at[0].y == 0 && at[3].y == 0, "one layer");
+        Near(at[0].z, (rowDepth + 0.5) / 2 - 0.25, "first row towards +z");
+        Near(at[2].z, (rowDepth + 0.5) / 2 - (rowDepth + 0.25), "second row towards -z");
+        Near(TopPacking.Height(1, 1, four), 0.3, "height: one layer");
+        // a fifth starts a second layer, as high as its tallest part
+        var five = new[] { carton, carton, carton, carton, (0.5, 0.4, 0.5) };
+        Near(TopPacking.Places(1, 1, five)[4].y, 0.3, "the fifth on the first layer");
+        Near(TopPacking.Height(1, 1, five), 0.7, "height: two layers");
+        // a part larger than the top: a row and a layer of its own
+        var big = new[] { (2.0, 0.5, 2.0), (2.0, 0.5, 2.0) };
+        Near(TopPacking.Height(1, 1, big), 1.0, "two oversize parts: two layers");
+        Check(TopPacking.Places(1, 1, new (double, double, double)[0]).Length == 0 && TopPacking.Height(1, 1, new (double, double, double)[0]) == 0, "nothing: no places, no height");
+    }
+
     static void TestPeriodicTimes()
     {
-        var r = RunPeriodic(PeriodicModel(5, d => { d.Parameters["first"] = 10.0; d.Parameters["period"] = 100.0; d.Parameters["duration"] = 20.0; d.Parameters["until"] = 350.0; }));
+        var r = RunPeriodic(PeriodicModel(5, d => { d.Set("periodicFirst", 10.0); d.Set("periodicPeriod", 100.0); d.Set("periodicDuration", 20.0); d.Set("periodicUntil", 350.0); }));
         Check(r.gen is PeriodicDowntime, "kind Periodic builds a PeriodicDowntime");
         Check(r.starts.SequenceEqual(new[] { 10.0, 110, 210, 310 }), $"starts at 10, 110, 210, 310, none from 350 on (got {string.Join(", ", r.starts)})");
         Check(r.ends.SequenceEqual(new[] { 30.0, 130, 230, 330 }), $"each lasts 20 (ends {string.Join(", ", r.ends)})");
@@ -282,38 +384,43 @@ static class Program
         Element srv = r.model.Find("srv");
         Near(srv.GetStateRatio(ElementState.SCHEDULED_DOWN), 80.0 / 1000, "the element spends 8 % SCHEDULED_DOWN", 1e-9);
 
-        var forever = RunPeriodic(PeriodicModel(5, d => { d.Parameters["period"] = 100.0; d.Parameters["duration"] = 20.0; }), 999);
+        var forever = RunPeriodic(PeriodicModel(5, d => { d.Set("periodicPeriod", 100.0); d.Set("periodicDuration", 20.0); }), 999);
         Check(forever.starts.Count == 10 && forever.starts[0] == 0 && forever.starts[9] == 900,
               $"no until: every 100 from 0 (got {forever.starts.Count}: {string.Join(", ", forever.starts)})");
-        var exact = RunPeriodic(PeriodicModel(5, d => { d.Parameters["period"] = 0.1; d.Parameters["duration"] = 0.05; d.Parameters["first"] = 0.3; }), 1000.01);
+        var exact = RunPeriodic(PeriodicModel(5, d => { d.Set("periodicPeriod", 0.1); d.Set("periodicDuration", 0.05); d.Set("periodicFirst", 0.3); }), 1000.01);
         Near(exact.starts.Last(), 0.3 + 9997 * 0.1, "the k-th start is first + k * period (no summed drift)", 1e-12);
     }
 
     static void TestPeriodicPausesWork()
     {
         // the part is processed 0..50; the stop 10..30 pauses it: 10 done, 40 left, so it leaves at 70
-        var imm = PeriodicModel(50, d => { d.Parameters["first"] = 10.0; d.Parameters["period"] = 1000.0; d.Parameters["duration"] = 20.0; });
+        var imm = PeriodicModel(50, d => { d.Set("periodicFirst", 10.0); d.Set("periodicPeriod", 1000.0); d.Set("periodicDuration", 20.0); });
         var r1 = RunPeriodic(imm, 69.9);
         Check(r1.model.Find("sink").GetStatsInputCount() == 0, "Immediate: still in process at 69.9");
         r1.clock.AdvanceClock(70.1);
         Check(r1.model.Find("sink").GetStatsInputCount() == 1, "and done at 70 (the 20 of stop added)");
         Check(r1.model.Find("srv").CurrentState != ElementState.SCHEDULED_DOWN, "resumed");
 
-        var after = PeriodicModel(50, d => { d.Parameters["first"] = 10.0; d.Parameters["period"] = 1000.0; d.Parameters["duration"] = 20.0; d.Parameters["mode"] = "AfterCurrent"; });
+        var after = PeriodicModel(50, d => { d.Set("periodicFirst", 10.0); d.Set("periodicPeriod", 1000.0); d.Set("periodicDuration", 20.0); d.Set("mode", "AfterCurrent"); });
         var r2 = RunPeriodic(after, 50.1);
         Check(r2.model.Find("sink").GetStatsInputCount() == 1, "AfterCurrent: the job in progress finishes at 50");
-        Check(r2.gen.StopCount == 1 && r2.ends.SequenceEqual(new[] { 30.0 }), "the stop still ran 10..30");
+        Check(r2.gen.StopCount == 1 && r2.ends.Count == 0 && r2.model.Find("srv").CurrentState == ElementState.SCHEDULED_DOWN,
+              "the stop takes effect when the job ends (50), not cut: still running");
+        r2.clock.AdvanceClock(70.1);
+        Check(r2.ends.SequenceEqual(new[] { 70.0 }), $"it lasts its whole 20: stopped 50..70 (ends {string.Join(", ", r2.ends)})");
+        Near(r2.gen.TotalDowntime, 20, "downtime_total: the 20 the element stood");
+        Near(r2.gen.ScheduledDowntime, 20, "downtime_scheduled: the 20 planned");
     }
 
     static void TestPeriodicWarmupAndLateStart()
     {
         // stops 10 + 100k for 20; the warm-up at 520 falls inside the stop 510..530
-        var r = RunPeriodic(PeriodicModel(5, d => { d.Parameters["first"] = 10.0; d.Parameters["period"] = 100.0; d.Parameters["duration"] = 20.0; }, 1000, 520));
+        var r = RunPeriodic(PeriodicModel(5, d => { d.Set("periodicFirst", 10.0); d.Set("periodicPeriod", 100.0); d.Set("periodicDuration", 20.0); }, 1000, 520));
         Check(r.gen.StopCount == 4, $"after the warm-up: the stops at 610, 710, 810, 910 ({r.gen.StopCount})");
         Near(r.gen.TotalDowntime, 10 + 4 * 20, "the running stop counts from the warm-up (10) + 4 x 20");
 
         // a generator started at 215 applies the stop 210..230 for its remaining 15
-        var b = RunPeriodic(PeriodicModel(5, d => { d.Parameters["first"] = 9999.0; d.Parameters["period"] = 10000.0; d.Parameters["duration"] = 1.0; }), 215);
+        var b = RunPeriodic(PeriodicModel(5, d => { d.Set("periodicFirst", 9999.0); d.Set("periodicPeriod", 10000.0); d.Set("periodicDuration", 1.0); }), 215);
         var late = new PeriodicDowntime(b.model.Find("srv"), 100, 20, 10, clock: b.clock);
         var starts = new List<double>(); var ends = new List<double>();
         late.StopStarted += (g, t) => starts.Add(b.clock.GetSimulationTime());
@@ -334,14 +441,14 @@ static class Program
             catch (FormatException e) { threw = e.Message.Contains("'pm'"); }
             Check(threw, what + " fails the build, naming the downtime");
         }
-        Fails("period 0", d => { d.Parameters["period"] = 0.0; d.Parameters["duration"] = 1.0; });
-        Fails("a negative duration", d => { d.Parameters["period"] = 10.0; d.Parameters["duration"] = -1.0; });
-        Fails("duration > period", d => { d.Parameters["period"] = 10.0; d.Parameters["duration"] = 15.0; });
-        Fails("a negative first", d => { d.Parameters["period"] = 10.0; d.Parameters["duration"] = 1.0; d.Parameters["first"] = -5.0; });
-        Fails("until not after the first", d => { d.Parameters["period"] = 10.0; d.Parameters["duration"] = 1.0; d.Parameters["first"] = 5.0; d.Parameters["until"] = 5.0; });
-        Fails("no period", d => { d.Parameters["duration"] = 1.0; });
+        Fails("period 0", d => { d.Set("periodicPeriod", 0.0); d.Set("periodicDuration", 1.0); });
+        Fails("a negative duration", d => { d.Set("periodicPeriod", 10.0); d.Set("periodicDuration", -1.0); });
+        Fails("duration > period", d => { d.Set("periodicPeriod", 10.0); d.Set("periodicDuration", 15.0); });
+        Fails("a negative first", d => { d.Set("periodicPeriod", 10.0); d.Set("periodicDuration", 1.0); d.Set("periodicFirst", -5.0); });
+        Fails("until not after the first", d => { d.Set("periodicPeriod", 10.0); d.Set("periodicDuration", 1.0); d.Set("periodicFirst", 5.0); d.Set("periodicUntil", 5.0); });
+        Fails("no period", d => { d.Set("periodicDuration", 1.0); });
 
-        var o = RunPeriodic(PeriodicModel(5, d => { d.Parameters["period"] = 10.0; d.Parameters["duration"] = 15.0; d.Parameters["allowOverlap"] = true; }), 12);
+        var o = RunPeriodic(PeriodicModel(5, d => { d.Set("periodicPeriod", 10.0); d.Set("periodicDuration", 15.0); d.Set("allowOverlap", true); }), 12);
         Check(o.model.Find("srv").ActiveStops.Count == 2, "allowOverlap: the stops at 0 and 10 stack at 12");
         o.clock.AdvanceClock(99);
         Check(o.gen.StopCount == 10 && o.ends.Count == 9, $"ten started by 99, nine ended ({o.gen.StopCount}, {o.ends.Count})");
@@ -351,18 +458,12 @@ static class Program
     {
         var c = PeriodicModel(5, d =>
         {
-            d.Parameters["first"] = 10.0; d.Parameters["period"] = 100.0; d.Parameters["duration"] = 20.0; d.Parameters["until"] = 350.0;
-            d.Parameters["allowOverlap"] = false; d.Parameters["code"] = "PM"; d.Parameters["state"] = "STOPPED"; d.Parameters["mode"] = "AfterCurrent";
+            d.Set("periodicFirst", 10.0); d.Set("periodicPeriod", 100.0); d.Set("periodicDuration", 20.0); d.Set("periodicUntil", 350.0);
+            d.Set("allowOverlap", false); d.Set("periodicCode", "PM"); d.Set("stateName", "STOPPED"); d.Set("mode", "AfterCurrent");
         });
         var dt = c.Downtimes[0];
-        string json = MiniJson.Serialize(new Dictionary<string, object>
-        {
-            ["Id"] = dt.Id, ["Kind"] = dt.Kind, ["TargetIds"] = dt.TargetIds.Cast<object>().ToList(), ["Parameters"] = dt.Parameters,
-        });
-        var back = (Dictionary<string, object>)MiniJson.Parse(json);
-        var copy = new DowntimeConfig(back.GetString("Id"), back.GetString("Kind"), back.GetList("TargetIds").Select(x => (string)x).ToArray())
-        { Parameters = back.GetObject("Parameters") };
-        Check(copy.Kind == "Periodic" && copy.Parameters.Count == dt.Parameters.Count, "kind and keys survive");
+        var copy = ConfigJson.Deserialize(ConfigJson.Serialize(c)).Downtimes[0];
+        Check(copy.Kind == "Periodic" && copy.Values().Count() == dt.Values().Count(), "kind and settings survive");
         c.Downtimes[0] = copy;
         var r = RunPeriodic(c);
         var gen = (PeriodicDowntime)r.gen;

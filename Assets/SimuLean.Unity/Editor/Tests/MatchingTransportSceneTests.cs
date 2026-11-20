@@ -10,7 +10,7 @@ using Object = UnityEngine.Object;
 namespace SimuLean.Unity.Editor.Tests
 {
     /// <summary>
-    /// A yard (Queue, release Any Accepted, carried by a crane team) serving
+    /// Matching transport in the scene: a yard (Queue, release Any Accepted, carried by a crane team) serving
     /// one Combiner with two assemblies by key — extracted and run headless gives the reference model
     /// <c>yard_kitting_capacity</c>'s result (Unity ↔ headless parity of the new settings).
     /// </summary>
@@ -19,19 +19,10 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void YardServesTwoAssembliesByKeyWithACrane()
         {
-            var active = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root, scene);
-                T Make<T>(string n) where T : Component
-                {
-                    var go = new GameObject(n);
-                    go.transform.SetParent(root.transform);
-                    return go.AddComponent<T>();
-                }
+                var root = test.Root;
+                T Make<T>(string n) where T : Component => test.Make<T>(n);
                 Dictionary<string, List<string>> Table(string name, params string[] blocks)
                     => new Dictionary<string, List<string>>
                     {
@@ -51,8 +42,9 @@ namespace SimuLean.Unity.Editor.Tests
                 subs.SetArrivalsTable(Table("subs", "1", "2", "3", "4"));
                 var yard = Make<UnityQueue>("yard");
                 yard.capacity = 4;
-                yard.releaseMode = ReleaseMode.AnyAccepted;
+                yard.offerOrder = OfferOrder.AnyAccepted;
                 var crane = Make<UnityResourceTeam>("crane");
+                crane.travel = TeamTravel.Abstract;   // the defined travel time (a team now travels straight by default)
                 crane.members = new List<ResourceMemberSpec> { new ResourceMemberSpec { name = "Crane1" } };
                 yard.transportBy.team = crane;
                 yard.transportBy.travelTime = new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = 2f };
@@ -75,25 +67,20 @@ namespace SimuLean.Unity.Editor.Tests
 
                 var config = SceneExtractor.Extract(root).Config;
                 var yardCfg = config.Elements.Find(e => e.Name == "yard");
-                Assert.AreEqual("AnyAccepted", yardCfg.Parameters["releaseMode"], "the release mode goes to the config");
-                Assert.AreEqual(2, config.Elements.Find(e => e.Name == "bays").Parameters["capacity"], "the assemblies too");
+                Assert.AreEqual(SimuLean.OfferOrder.AnyAccepted, yardCfg.SettingsAs<QueueSettings>().OfferOrder, "the release mode goes to the config");
+                Assert.AreEqual(2, config.Elements.Find(e => e.Name == "bays").Get<object>("capacity"), "the assemblies too");
 
                 var clockE = new SimClock(1);
                 var model = new SimuLean.Headless.HeadlessModelFactory(clockE);
                 model.BuildModel(config);
                 var order = new List<double>();
-                model.GetAllElements().Values.First(e => e.GetName() == "erected").ItemEntered += (el, it) => order.Add(it.GetLabelValue("block") ?? -1);
+                model.GetAllElements().Values.First(e => e.Name == "erected").ItemEntered += (el, it) => order.Add(it.GetLabelValue("block") ?? -1);
                 model.StartModel();
                 clockE.AdvanceClock(200);
                 var results = RunResults.Capture(model);
                 Assert.AreEqual("1,3,2,4", string.Join(",", order), "each assembly matched its own main item (as the reference model)");
                 Assert.AreEqual(19, results.Find(ResultScope.Model, "model")[ResultMetrics.Makespan], 1e-9, "the reference model's makespan");
                 Assert.AreEqual(4, results.Find(ResultScope.Resource, "Crane1")[ResultMetrics.Tasks], "the crane carried every sub-block");
-            }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
             }
         }
     }

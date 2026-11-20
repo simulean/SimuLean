@@ -13,7 +13,7 @@ namespace SimuLean.Collections
         /// <summary>A formula in the common expression syntax (<see cref="SimuLean.Expressions.Expression"/>): bare names
         /// are the entry's fields, <c>item.x</c> its item's properties — e.g. <c>prio * 10 + age</c>.</summary>
         Expression,
-        /// <summary>A built-in: <c>age</c>, <c>pushTime</c>, <c>itemPriority</c>, <c>owner</c>, <c>type</c>.</summary>
+        /// <summary>A built-in: <c>age</c>, <c>pushTime</c>, or a value of its item / origin (<c>item.type</c>, <c>item.priority</c>, <c>item.id</c>, <c>origin.name</c>, any <c>item.x</c> / <c>origin.x</c>).</summary>
         BuiltIn,
     }
 

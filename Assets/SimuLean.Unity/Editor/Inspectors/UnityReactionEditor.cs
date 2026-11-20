@@ -85,7 +85,7 @@ namespace SimuLean.Unity.Editor
                 EditorGUILayout.LabelField($"Fired {bound.Fired}" + (bound.Skipped > 0 ? $" · condition not met {bound.Skipped}" : ""));
                 if (!double.IsNaN(bound.LastFired))
                     EditorGUILayout.LabelField($"Last at t = {bound.LastFired:0.##}" + (bound.LastItem != null ? $" · {bound.LastItem}" : "")
-                                               + (bound.LastSource != null ? $" · {bound.LastSource.GetName()}" : ""), EditorStyles.miniLabel);
+                                               + (bound.LastSource != null ? $" · {bound.LastSource.Name}" : ""), EditorStyles.miniLabel);
             }
             serializedObject.ApplyModifiedProperties();
         }
@@ -155,6 +155,18 @@ namespace SimuLean.Unity.Editor
                             Field(a, "list", "List");
                             Field(a, "value", "Value");
                             break;
+                        case ReactionActionKind.Release:
+                            Field(a, "target", "Queue", "A Queue released on command; empty = the element that signalled.");
+                            Field(a, "value", "How many", "Items to release; empty = 1.");
+                            break;
+                        case ReactionActionKind.Retry:
+                            Field(a, "target", "Element", "Offers it again the items waiting for it (its admission is evaluated again); " +
+                                  "empty = the element that signalled. A property its condition reads wakes it by itself.");
+                            break;
+                        case ReactionActionKind.SetItemLook:
+                            ColorField(a);
+                            Field(a, "scale", "Scale", "A factor of the visual's own size; 0 = keep it. View only: the item's size labels do not change.");
+                            break;
                     }
                     Field(a, "onlyIf", "Only if");
                     if (remove) { actions.DeleteArrayElementAtIndex(i); break; }
@@ -181,6 +193,20 @@ namespace SimuLean.Unity.Editor
                 Field(action, "count", "Members", "How many (0 = all).");
             }
             else Field(action, "target", "Element", elementTip);
+        }
+
+        // Set Item Look: a fully transparent colour keeps the item's own; the toggle switches between it and an opaque colour
+        private static void ColorField(SerializedProperty action)
+        {
+            var color = action.FindPropertyRelative("color");
+            bool sets = color.colorValue.a > 0;
+            bool on = EditorGUILayout.Toggle(new GUIContent("Change colour", "Off = keep the item's colour."), sets);
+            if (on != sets)
+            {
+                var c = color.colorValue;
+                color.colorValue = on ? (c.r + c.g + c.b > 0 ? new Color(c.r, c.g, c.b, 1) : Color.red) : UnityReaction.ActionSpec.KeepColor;
+            }
+            if (on) Field(action, "color", "Colour");
         }
 
         private static void Field(SerializedProperty action, string name, string label, string tooltip = null)
@@ -224,6 +250,7 @@ namespace SimuLean.Unity.Editor
                 case SignalKind.ProcessEnded: return "a process ends";
                 case SignalKind.StateChanged: return st ? $"the state becomes {state.Trim()}" : "the state changes";
                 case SignalKind.Stopped: return st ? $"a {state.Trim()} stop starts" : "a stop starts";
+                case SignalKind.WaitTimedOut: return "a wait reaches its max wait";
                 default: return st ? $"a {state.Trim()} stop ends" : "a stop ends";
             }
         }
@@ -247,6 +274,11 @@ namespace SimuLean.Unity.Editor
                 case ReactionActionKind.SetElementProperty: return $"{(a.target != null ? a.target.name : "element")}.{Or(a.name)} = {value}";
                 case ReactionActionKind.Stop: return $"stop {target}" + (a.duration > 0 ? " for " + a.duration.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) : " until resumed");
                 case ReactionActionKind.Resume: return $"resume {target}";
+                case ReactionActionKind.Release: return $"release {(string.IsNullOrWhiteSpace(a.value) ? "1" : value)} from {target}";
+                case ReactionActionKind.Retry: return $"retry {target}";
+                case ReactionActionKind.SetItemLook:
+                    return "item look" + (a.SetsColor ? " " + UnityReaction.ColorText(a.color) : "")
+                         + (a.scale > 0 ? " ×" + a.scale.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) : "");
                 default: return $"push {value} to {(a.list != null ? a.list.ListName : "?")}";
             }
         }
@@ -273,6 +305,13 @@ namespace SimuLean.Unity.Editor
                 bool needsValue = needsName || a.kind == ReactionActionKind.PushToList;
                 if (a.kind == ReactionActionKind.SetItemLabel && !itemSignal)
                     issues.Add(new InspectorIssue(MessageType.Error, $"{at}: an item label needs an item signal (an item enters / leaves, a process ends)."));
+                if (a.kind == ReactionActionKind.SetItemLook)
+                {
+                    if (!itemSignal)
+                        issues.Add(new InspectorIssue(MessageType.Error, $"{at}: an item look needs an item signal (an item enters / leaves, a process ends)."));
+                    if (!a.SetsColor && !(a.scale > 0))
+                        issues.Add(new InspectorIssue(MessageType.Error, $"{at}: change the colour or give the scale."));
+                }
                 bool stopResume = a.kind == ReactionActionKind.Stop || a.kind == ReactionActionKind.Resume;
                 if (stopResume && a.onTeam && a.team == null)
                     issues.Add(new InspectorIssue(MessageType.Error, $"{at}: choose the team."));
@@ -284,6 +323,16 @@ namespace SimuLean.Unity.Editor
                     issues.Add(new InspectorIssue(MessageType.Error, $"{at}: give the value."));
                 if (a.kind == ReactionActionKind.PushToList && a.list == null)
                     issues.Add(new InspectorIssue(MessageType.Error, $"{at}: choose the list."));
+                if (a.kind == ReactionActionKind.Retry && a.target == null && r.IsTimeSignal)
+                    issues.Add(new InspectorIssue(MessageType.Error, $"{at}: choose the element (a clock signal has none of its own)."));
+                if (a.kind == ReactionActionKind.Release)
+                {
+                    if (a.target == null && r.IsTimeSignal)
+                        issues.Add(new InspectorIssue(MessageType.Error, $"{at}: choose the Queue (a clock signal has none of its own)."));
+                    if (a.target != null && !(a.target is UnityQueue uq && uq.gated))
+                        issues.Add(new InspectorIssue(MessageType.Error, $"{at}: a release acts on a Queue released on command, not on '{a.target.name}'."));
+                    if (UnityReaction.Value(a.value) is string) Check(issues, a.value, $"{at}'s value");
+                }
                 if (needsValue && UnityReaction.Value(a.value) is string) Check(issues, a.value, $"{at}'s value");
             }
             return issues;
@@ -292,8 +341,9 @@ namespace SimuLean.Unity.Editor
         private static void Check(List<InspectorIssue> issues, string expression, string what)
         {
             if (string.IsNullOrWhiteSpace(expression)) return;
-            string error = Expression.Check(expression.Trim());
-            if (error != null) issues.Add(new InspectorIssue(MessageType.Error, $"{what}: {error}"));
+            var check = ExpressionField.Check(expression.Trim(), "reaction");
+            if (check.Severity == ExpressionField.Severity.Error) issues.Add(new InspectorIssue(MessageType.Error, $"{what}: {check.Message}"));
+            else if (check.Severity == ExpressionField.Severity.Warning) issues.Add(new InspectorIssue(MessageType.Warning, $"{what}: {check.Message}"));
         }
     }
 }

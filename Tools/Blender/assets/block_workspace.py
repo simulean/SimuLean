@@ -1,5 +1,5 @@
 """
-SimuLean kit: shipyard block workspace ("puesto de bloque") - a bay of the
+SimuLean kit: shipyard block workspace - a bay of the
 block-assembly workshop where a hull block (assets/ship_block.py) rests on
 steel stools while it is welded and outfitted.  Lifting in and out of the bay
 uses the existing OverheadCrane kit.

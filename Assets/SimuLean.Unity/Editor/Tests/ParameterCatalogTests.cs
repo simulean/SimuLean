@@ -13,7 +13,7 @@ using SimuLean.Serialization;
 namespace SimuLean.Unity.Editor.Tests
 {
     /// <summary>
-    /// Every parameterisable property is offered (parameterisation): each key the scene extraction
+    /// Every parameterisable property is offered: each key the scene extraction
     /// writes — for every element type of the library, every downtime kind, a resource team, user properties and every
     /// sample scene — is either a parameter (its type says it) or declared in a <see cref="ParameterSchema"/> (option,
     /// sampler spec, numbers, structural). A new element type, key or property fails here until it is decided.
@@ -41,8 +41,8 @@ namespace SimuLean.Unity.Editor.Tests
                     if (se is UnitySource source) source.mode = SourceMode.InterArrival;   // schedule mode needs a loaded table
                     first = first ?? se;
                 }
-                var labels = first.gameObject.AddComponent<SElementLabels>();
-                labels.SetLabelValue("batch", 12);
+                var labels = first.gameObject.AddComponent<SElementProperties>();
+                labels.SetValue("batch", 12);
                 var team = new GameObject("Crew").AddComponent<UnityResourceTeam>();
                 team.transform.SetParent(root.transform);
                 foreach (UnityDowntime.DowntimeKind k in Enum.GetValues(typeof(UnityDowntime.DowntimeKind)))
@@ -77,7 +77,8 @@ namespace SimuLean.Unity.Editor.Tests
         }
 
         static IEnumerable<string> SampleScenes()
-            => Directory.GetFiles("Assets/Scenes", "*.unity", SearchOption.AllDirectories).Select(p => p.Replace('\\', '/')).OrderBy(p => p);
+            => IsolatedScene.SceneFolders.SelectMany(f => Directory.GetFiles(f, "*.unity", SearchOption.AllDirectories))
+                                         .Select(p => p.Replace('\\', '/')).OrderBy(p => p);
 
         [TestCaseSource(nameof(SampleScenes))]
         public void EveryKeyOfTheSampleSceneIsDecided(string path)

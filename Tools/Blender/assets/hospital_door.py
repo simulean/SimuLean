@@ -14,8 +14,10 @@ Real-world reference: hospital main-entrance automatic sliding doors -- a 1.8 m 
 fixed glazed side lights, 2.4 m door head, an operator box above with the hospital band, a recessed entrance mat.
 Hospital palette (hospital_parts): white, teal band, satin aluminium frames, dark glazing.
 
-Frame: authored front = -Y (Unity +Z: the inside of the building, where patients walk away / arrive from), +Z up,
-origin on the floor at the centre of the opening.
+Frame as the stations: authored front = -Y (the inside of the building, where patients walk away / arrive from),
+exported turned 180 deg (station_parts.STATION_TURN) to the library's model frame -- the inside on Unity -Z; the Unity
+coordinates quoted below are the authored ones (x and z change sign in the export) --, +Z up, origin on the floor at
+the centre of the opening.
 
 Animation hierarchy (Unity names; every name is a bare Transform with <name>_LOD0/1/2 meshes under it):
     HospitalDoor            root, on the floor at the centre of the opening
@@ -119,4 +121,4 @@ def build_preview():
 
 
 if __name__ == '__main__':
-    SP.station_main('HospitalDoor', build_door, LOD_PLAN, NODES, TEXEL_WEIGHTS)
+    SP.station_main('HospitalDoor', build_door, LOD_PLAN, NODES, TEXEL_WEIGHTS, turn=SP.STATION_TURN)

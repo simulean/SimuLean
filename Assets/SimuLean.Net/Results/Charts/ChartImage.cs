@@ -25,6 +25,14 @@ namespace SimuLean.Results.Charts
             Clear(background);
         }
 
+        /// <summary><paramref name="image"/> cleared to <paramref name="background"/> when it has this size, else a new one.</summary>
+        public static ChartImage Reuse(ChartImage image, int width, int height, int background = 0xFFFFFF)
+        {
+            if (image == null || image.Width != width || image.Height != height) return new ChartImage(width, height, background);
+            image.Clear(background);
+            return image;
+        }
+
         public void Clear(int rgb)
         {
             for (int i = 0; i < Rgba.Length; i += 4) { Rgba[i] = (byte)(rgb >> 16); Rgba[i + 1] = (byte)(rgb >> 8); Rgba[i + 2] = (byte)rgb; Rgba[i + 3] = 255; }
@@ -134,10 +142,12 @@ namespace SimuLean.Results.Charts
         }
 
         /// <summary>The image shrunk by a whole factor, each pixel the mean of its block (supersampling → smooth edges).</summary>
-        public ChartImage Downsample(int factor)
+        /// <param name="into">An image of the shrunk size to write into (reused by views that redraw; else a new one).</param>
+        public ChartImage Downsample(int factor, ChartImage into = null)
         {
             if (factor <= 1) return this;
-            var small = new ChartImage(Math.Max(1, Width / factor), Math.Max(1, Height / factor));
+            int w = Math.Max(1, Width / factor), h = Math.Max(1, Height / factor);
+            var small = into != null && into.Width == w && into.Height == h ? into : new ChartImage(w, h);
             int n = factor * factor;
             for (int y = 0; y < small.Height; y++)
                 for (int x = 0; x < small.Width; x++)

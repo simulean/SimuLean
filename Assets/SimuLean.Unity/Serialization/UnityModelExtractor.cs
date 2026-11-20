@@ -29,11 +29,13 @@ namespace SimuLean.Unity
         //  JSON import / export helpers
         // =====================================================================
 
-        /// <summary>Extracts configuration and serialises to JSON, saving to persistentDataPath.</summary>
+        /// <summary>Extracts the configuration and writes it as the model file (<see cref="ConfigJson"/>: the format the
+        /// out-of-editor runner reads, an exact round trip — every parameter bag and DTO; JsonUtility lost them), saving it
+        /// to persistentDataPath.</summary>
         public string ExportToJson()
         {
             var config = ExtractConfiguration();
-            string json = JsonUtility.ToJson(config, prettyPrint: true);
+            string json = ConfigJson.Serialize(config);
 
             string path = System.IO.Path.Combine(Application.persistentDataPath, configFileName);
             System.IO.File.WriteAllText(path, json);

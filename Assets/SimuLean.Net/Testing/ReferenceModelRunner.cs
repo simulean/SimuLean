@@ -10,8 +10,8 @@ using SimuLean.Serialization;
 namespace SimuLean.Testing
 {
     /// <summary>
-    /// Runs a reference model headless and compares its statistics with a stored baseline
-    ///. Shared by the dotnet runner (<c>StandaloneTests/referencemodels</c>) and the
+    /// Runs a reference model headless and compares its statistics with a stored baseline.
+    /// Shared by the dotnet runner (<c>StandaloneTests/referencemodels</c>) and the
     /// Unity EditMode tests, so both check the same numbers. Engine-pure (no Unity types).
     /// <para>Baseline = JSON object: <c>model</c>, <c>elements</c> (count), <c>connections</c> (count) and
     /// <c>stats</c>: element id → { metric → value }. Structural differences (element / connection
@@ -22,6 +22,13 @@ namespace SimuLean.Testing
     {
         /// <summary>Default relative tolerance (runs are seeded, so differences mean behaviour changed).</summary>
         public const double DefaultTolerance = 1e-6;
+
+        /// <summary>Statistics the baselines leave out: a queue's stay percentile and a sink's time in system are
+        /// summaries of item times the run already records (stays; the creation times the tallies read), and they would
+        /// add a key to nearly every baseline without checking any new behaviour of the models; the results tests check
+        /// their values (<c>StandaloneTests/resultstests</c>).</summary>
+        public static readonly ISet<string> NotInBaselines = new HashSet<string>(
+            ResultMetrics.QueueStay.Concat(ResultMetrics.TimeInSystem), StringComparer.Ordinal);
 
         /// <summary>Result of one run: per-element metrics, sorted by element id.</summary>
         public sealed class Result
@@ -47,7 +54,7 @@ namespace SimuLean.Testing
             foreach (var o in RunResults.Capture(factory, name).Objects)
             {
                 var m = new SortedDictionary<string, double>(StringComparer.Ordinal);
-                foreach (var kv in o.Metrics) m[kv.Key] = kv.Value;
+                foreach (var kv in o.Metrics) if (!NotInBaselines.Contains(kv.Key)) m[kv.Key] = kv.Value;
                 r.Stats[Key(o)] = m;
             }
             return r;

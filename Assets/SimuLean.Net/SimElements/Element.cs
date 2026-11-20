@@ -1,4 +1,3 @@
-using SimuLean.Headless;
 using SimuLean.Statistics;
 using System;
 using System.Collections.Generic;
@@ -49,10 +48,23 @@ namespace SimuLean
         public LabelAssignments ExitLabels { get; set; }
 
         private SimuLean.Stochastics.Streams.IRandomEngine expressionRandom;
-        /// <summary>The stream of the random functions (<c>rand()</c>, <c>pick()</c>…) in this element's expressions — label
-        /// assignments, process times, routing: the model's stream <c>name/expr</c>, created on first use.</summary>
+        /// <summary>The fallback stream of the random functions (<c>rand()</c>, <c>pick()</c>…) of an expression evaluated over
+        /// this element with no stream of its own: the model's stream <c>name/expr</c>, created on first use. Every random use
+        /// of the library has its own (<see cref="RandomStreamFor"/>, labels, samplers).</summary>
         public SimuLean.Stochastics.Streams.IRandomEngine ExpressionRandom
             => expressionRandom ?? (expressionRandom = simClock.Context.CreateRandomStream(name, "expr"));
+
+        private Dictionary<string, SimuLean.Stochastics.Streams.IRandomEngine> purposeStreams;
+        /// <summary>The stream of one random use of this element (owner = its name, <paramref name="purpose"/>: routing,
+        /// admission, noShow…), created on first use. Each use draws from its own, so a change in one leaves the draws of the
+        /// others as they were: scenarios stay comparable (common random numbers).</summary>
+        public SimuLean.Stochastics.Streams.IRandomEngine RandomStreamFor(string purpose)
+        {
+            if (purposeStreams == null) purposeStreams = new Dictionary<string, SimuLean.Stochastics.Streams.IRandomEngine>();
+            if (!purposeStreams.TryGetValue(purpose, out var stream))
+                purposeStreams[purpose] = stream = simClock.Context.CreateRandomStream(name, purpose);
+            return stream;
+        }
 
         // ── state tracking ────────────────────────────────────────────────────
         private ElementStateTracker _stateTracker;
@@ -92,14 +104,14 @@ namespace SimuLean
         public ElementStatsCollector StatsCollector { get; private set; }
 
         // ─────────────────────────────────────────────────────────────────────
-        /// <summary>The element's name (also <see cref="GetName"/>).</summary>
+        /// <summary>The element's name.</summary>
         public override string Name => name;
 
         public Element(string name, SimClock simClock, IVElement vElement = null)
         {
             this.name     = name;
             this.simClock = simClock;
-            this.vElement = vElement ?? new HeadlessVElement(enableLogging: false);
+            this.vElement = vElement ?? new NoView();
 
             _stateTracker  = new ElementStateTracker(ElementState.IDLE, 0.0);
             StatsCollector = new ElementStatsCollector(this, simClock);
@@ -141,8 +153,26 @@ namespace SimuLean
             if (inputStrategy == null)
                 return true;
 
-            return inputStrategy.Admits(this, theItem, origin);
+            bool admitted = inputStrategy.Admits(this, theItem, origin);
+            if (!(inputStrategy is DefaultStrategy)) Counters.Admission(admitted);   // read-only counter (logic viewer)
+            return admitted;
         }
+
+        /// <summary>An item entered (the link layer's entry, <see cref="Statistics.ElementStatsCollector.OnEntry"/>): counted as an
+        /// entry through the admission when the element has a condition (<see cref="DecisionCounters.Entered"/>).</summary>
+        internal void CountAdmittedEntry()
+        {
+            if (inputStrategy != null && !(inputStrategy is DefaultStrategy)) Counters.Entry();
+        }
+
+        private DecisionCounters decisions;
+
+        /// <summary>The run-time counters of its decisions (routing per output, admission, wake-ups, releases), null
+        /// before its first counted decision. Read-only for the model (<see cref="DecisionCounters"/>).</summary>
+        public DecisionCounters Decisions => decisions;
+
+        /// <summary>The counters, made at the first decision counted.</summary>
+        internal DecisionCounters Counters => decisions ?? (decisions = new DecisionCounters());
 
         // ── Output strategy API ───────────────────────────────────────────────
 
@@ -199,7 +229,7 @@ namespace SimuLean
         public double GetProcessingRatio()
             => GetStateRatio(ElementState.PROCESSING);
 
-        // ── base statistics accessors (Task 0-A) ─────────────────────────────
+        // ── base statistics accessors ─────────────────────────────
         // Available on EVERY element type, in both Unity-clock and headless mode,
         // so the Experimenter/Optimizer metric dropdowns can rely on them.
         // They wrap StatsCollector, whose values are driven by the Link layer.
@@ -258,6 +288,7 @@ namespace SimuLean
             StatsCollector.ResetForWarmup();
             _stateTracker.Reset(_stateTracker.CurrentState, simClock.GetSimulationTime());
             StopCount = 0;   // stops started after the warm-up, like every other figure
+            ResetTimeouts();   // max-wait timeouts too
         }
 
         /// <summary>
@@ -272,7 +303,7 @@ namespace SimuLean
                                        Math.Max(0.0, warmupTime - clock.GetSimulationTime()));
         }
 
-        private sealed class WarmupEvent : IBackgroundEvent   // resets statistics, moves nothing (S2)
+        private sealed class WarmupEvent : IBackgroundEvent   // resets statistics, moves nothing
         {
             private readonly SimClock clock;
             private readonly List<IWarmupStatistics> elements;
@@ -293,8 +324,8 @@ namespace SimuLean
         /// <summary>
         /// Adds an input link. An element fed by several links (one per upstream element, or a list plus
         /// connections) gets an <see cref="InputFanIn"/> so that, when it has room, <b>every</b> upstream is
-        /// notified (the last link used to replace the others, so the other upstream elements
-        /// stayed BLOCKED forever once they had been refused).
+        /// notified (with a single link the other upstream elements
+        /// would stay BLOCKED forever once they had been refused).
         /// </summary>
         public void SetInput(ILink link)
         {
@@ -332,8 +363,90 @@ namespace SimuLean
 
         /// <summary>Tells the input link this element has room (no-op without an input link).</summary>
         protected bool NotifyInput() => input != null && input.NotifyAvailable(this);
+
+        // ── room promised to loads on their way here ──
+        // One ledger per receiving element, shared by every link and carrier that sends a load before it can enter
+        // (carried by a team, walking, a milk run, a list transfer): each counts the room the others promised, so two
+        // origins never promise the same last place (it was counted per link: several links over-filled one place).
+        private HashSet<Item> promisedRoom;
+        private HashSet<object> waitingForPromisedRoom;
+
+        /// <summary>Loads on their way here: each holds one place until it enters (or its move is dropped).</summary>
+        public int RoomPromised => promisedRoom?.Count ?? 0;
+
+        /// <summary>True when a place here is promised to <paramref name="item"/>.</summary>
+        public bool IsRoomPromised(Item item) => item != null && promisedRoom != null && promisedRoom.Contains(item);
+
+        /// <summary>Free places not promised to loads on their way (negative = unlimited, as <see cref="GetFreeCapacity"/>;
+        /// never below 0 otherwise).</summary>
+        public int FreeCapacityBeyondPromises()
+        {
+            int free = GetFreeCapacity();
+            if (free < 0) return free;
+            int left = free - RoomPromised;
+            return left > 0 ? left : 0;
+        }
+
+        /// <summary>True when a free place is left after the promised ones. When only promises stand in the way,
+        /// <paramref name="asker"/> (a link, a milk run) is remembered: it is told (this element's input is notified) when
+        /// another one releases a promise — its own releases it handles itself.</summary>
+        public bool HasRoomBeyondPromises(object asker)
+        {
+            int free = GetFreeCapacity();
+            if (free < 0 || free - RoomPromised > 0) return true;
+            if (free > 0) WaitForPromisedRoom(asker);
+            return false;
+        }
+
+        /// <summary>Remembers <paramref name="asker"/> as refused because the free room here is promised (see
+        /// <see cref="HasRoomBeyondPromises"/>).</summary>
+        public void WaitForPromisedRoom(object asker)
+        {
+            if (asker == null) return;
+            (waitingForPromisedRoom ??= new HashSet<object>()).Add(asker);
+        }
+
+        /// <summary>Promises a place here to <paramref name="item"/>, on its way (idempotent).</summary>
+        public void PromiseRoom(Item item)
+        {
+            if (item == null) return;
+            (promisedRoom ??= new HashSet<Item>()).Add(item);
+        }
+
+        /// <summary>Releases the place promised to <paramref name="item"/> (it entered, or its move was dropped); false when
+        /// none was. When another asker than <paramref name="by"/> was refused for promised room, this element's input is
+        /// notified after the current event, so every upstream may try again.</summary>
+        public bool ReleaseRoom(Item item, object by)
+        {
+            if (item == null || promisedRoom == null || !promisedRoom.Remove(item)) return false;
+            UnreserveRoom(item);
+            if (waitingForPromisedRoom != null && waitingForPromisedRoom.Count > 0)
+            {
+                bool others = waitingForPromisedRoom.Count > 1 || !waitingForPromisedRoom.Contains(by);
+                if (others)
+                {
+                    waitingForPromisedRoom.Clear();
+                    simClock.Schedule(NotifyPromisedRoomFreed, 0);
+                }
+                else if (promisedRoom.Count == 0) waitingForPromisedRoom.Clear();
+            }
+            return true;
+        }
+
+        /// <summary>Drops the place promised to <paramref name="item"/> without telling anyone: a new run (the owner's
+        /// reset), when nothing is on its way any more.</summary>
+        public void ForgetPromise(Item item)
+        {
+            if (item == null || promisedRoom == null || !promisedRoom.Remove(item)) return;
+            UnreserveRoom(item);
+            if (promisedRoom.Count == 0) waitingForPromisedRoom?.Clear();
+        }
+
+        private void NotifyPromisedRoomFreed()
+        {
+            if (!IsInputBlocked) NotifyInput();
+        }
         public void     SetOutput(ILink output)  { this.output = output; }
-        public string   GetName()               => name;
         public SimClock GetSimClock()           => simClock;
 
         /// <summary>
@@ -341,8 +454,31 @@ namespace SimuLean
         /// Subclass overrides should call <c>ResetStateTracker()</c> and
         /// <c>StatsCollector.Reset()</c> (or simply <c>base.Start()</c>).
         /// </summary>
+        // a wake-up of the waiting senders is scheduled at the current time
+        private bool wakePending;
+
+        /// <summary>Offers this element again the items waiting for it upstream — what its admission refused: a zero-delay event at the current time, after the event that asked (a reaction's actions all run first), once
+        /// however many writes ask before it. Asked when a property its admission condition reads is written, and by a
+        /// reaction's <c>Retry</c> action. It asks upstream as a freed place does, while it has room.</summary>
+        public void WakeInput()
+        {
+            if (wakePending) return;
+            wakePending = true;
+            Counters.WokenUp();
+            simClock.Schedule(Wake, 0);
+        }
+
+        private void Wake()
+        {
+            wakePending = false;
+            for (int i = 0; i < 100000 && !IsInputBlocked && GetFreeCapacity() != 0; i++)
+                if (!NotifyInput()) break;
+        }
+
         public virtual void Start()
         {
+            wakePending = false;
+            ResetTimeouts();
             ResetStateTracker();
             StatsCollector.Reset();
         }

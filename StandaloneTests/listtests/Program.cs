@@ -22,6 +22,8 @@ static class Program
 
     static int Main()
     {
+        Run("Quoted values, operators without spaces, DESC / ASC, item.x / origin.x, unknown fields fail the build",
+            TestQueryValuesAndOperators);
         Run("SimList: values, filters, orders, fields", TestQueries);
         Run("SimList: back-orders delivered by a zero-delay event, cancellable", TestBackOrders);
         Run("SimList: statistics", TestStatistics);
@@ -41,6 +43,10 @@ static class Program
         Run("Origins: a multi-slot server advertises every finished item", TestServerOrigin);
         Run("Origins: a release source advertises every pending item", TestReleaseSourceOrigin);
         Run("Origins: a stopped origin's entries wait until it resumes", TestStoppedOrigin);
+        Run("Origins: a puller that pushes to the same list advertises what it pulled", TestPullerPushesToSameList);
+        Run("Orders: several keys with their own directions (urgent desc, distance); the spec round-trips", TestMultiKeyOrder);
+        Run("ListLink: ReservedFor names the puller of a matched item; Withdraw takes an advertised item off the list", TestReservedAndWithdraw);
+        Run("Carried pulls: carriers waiting at a stopped assembler all deliver once when it resumes", TestCarriersWaitingAtStoppedPuller);
 
         Console.WriteLine($"\n{passed} passed, {failed} failed");
         return failed == 0 ? 0 : 1;
@@ -101,7 +107,7 @@ static class Program
     static void Schedule(SimClock c, double t, Action a) => c.ScheduleEvent(new At(a), t - c.GetSimulationTime());
     static IRandomSampler Const(double v) => new ConstantRandomProcess(v);
     static List<Element> L(params Element[] e) => new List<Element>(e);
-    static string Ids(IEnumerable<Item> items) => string.Join(",", items.Select(i => i.GetTypeName() + i.GetId()));
+    static string Ids(IEnumerable<Item> items) => string.Join(",", items.Select(i => i.Name + i.GetId()));
 
     // ── SimList ──────────────────────────────────────────────────────────────
 
@@ -163,7 +169,7 @@ static class Program
         pull3.Cancel();
         clock.AdvanceClock(5);
         Check(got3 == null && list.Entries.Any(e => (string)e.Value == "answer"), "cancelled after match: entry back in the list");
-        // No pull and no wait recorded, the entry keeps its push time, it is not pushed twice
+        // no pull and no wait recorded, the entry keeps its push time, it is not pushed twice
         var back = list.Entries.First(e => (string)e.Value == "answer");
         Check(list.Pulled == pulledBefore && list.WaitTime.Count == waitsBefore && list.Pushed == pushedBefore + 1 && back.PushTime == pushedAt,
               $"cancelled after match: statistics untouched, push time kept (pulled {list.Pulled - pulledBefore}, waits {list.WaitTime.Count - waitsBefore}, pushed {list.Pushed - pushedBefore}, push time {back.PushTime} vs {pushedAt})");
@@ -487,6 +493,54 @@ static class Program
         Check(list.Pushed == 3 && list.Count == 0, $"each item listed once (pushed {list.Pushed})");
     }
 
+    static void TestCarriersWaitingAtStoppedPuller()
+    {
+        // Four parts are carried from QP: one to Q2, three to an assembler. Both pullers stop while the carriers travel,
+        // so all four wait at their destinations (Q2's first). When the assembler resumes, each delivery notifies its
+        // input again and the next waiting carrier delivers inside that notification: every part must arrive exactly
+        // once and every carrier must be freed.
+        var clock = new SimClock(1);
+        var d = new SimuLean.Resources.ResourceDispatcher("Movers", clock);
+        var ops = Enumerable.Range(1, 4).Select(i => new SimuLean.Resources.TaskExecutor("Op" + i, clock)).ToList();
+        foreach (var o in ops) d.Add(o);
+        var list = new SimList("parts", clock);
+        var qm = new ItemsQueue(10, "QM", clock);
+        var qp = new ItemsQueue(10, "QP", clock);
+        var q2 = new ItemsQueue(10, "Q2", clock);
+        var comb = new Combiner(new[] { 3 }, Const(1), "C", clock, batchMode: true);
+        var sink = new Collector(clock);
+        GeneralLink.CreateLink(qm, L(comb));
+        var link = new ListLink(list);
+        link.AddOrigin(qp);
+        link.AddPuller(q2, ListQuery.All.Where("kind", ListOp.Equal, 2));
+        link.AddPuller(comb.GetInputPort(1), ListQuery.All.Where("kind", ListOp.Equal, 1));
+        link.SetTransport(qp, new SimuLean.Resources.StationResources(d)).TravelTime = (item, dest) => 5;
+        GeneralLink.CreateLink(comb, L(sink));
+        foreach (var e in new Element[] { qm, qp, q2, comb, sink }.Concat(ops)) e.Start();
+        d.Start();
+        link.Start();
+        qm.Receive(new Item(0));
+        foreach (int kind in new[] { 2, 1, 1, 1 })
+        {
+            var part = new Item(0);
+            part.SetLabelValue("kind", kind);
+            qp.Receive(part);
+        }
+        StopToken stopC = null, stopQ = null;
+        Schedule(clock, 2, () => { stopQ = q2.Stop(new StopRequest(ElementState.STOPPED, StopMode.Immediate));
+                                   stopC = comb.Stop(new StopRequest(ElementState.STOPPED, StopMode.Immediate)); });
+        Schedule(clock, 20, () => comb.Resume(stopC));
+        Schedule(clock, 40, () => q2.Resume(stopQ));
+        bool threw = false;
+        try { clock.AdvanceClock(100); }
+        catch (ArgumentOutOfRangeException) { threw = true; }
+        Check(!threw, "resuming the assembler delivers the waiting carriers without failing");
+        Check(sink.Got.Count == 1, $"one assembly ({sink.Got.Count})");
+        Check(comb.GetInputPort(1).GetStatsInputCount() == 3, $"each part delivered once ({comb.GetInputPort(1).GetStatsInputCount()})");
+        Check(q2.GetStatsInputCount() == 1 && qp.GetQueueLength() == 0 && list.Count == 0, "every part taken, Q2's too");
+        Check(ops.All(o => o.IsAvailable), "every carrier free again");
+    }
+
     static void TestReleaseSourceOrigin()
     {
         var clock = new SimClock(1);
@@ -557,5 +611,110 @@ static class Program
         Check(m.GetStatsInputCount() == 10 && sink.GetStatsInputCount() == 10, "server and sink counted");
         Near(q.GetStatsContentCurrent(), 0, "queue content back to 0");
         Check(list.Pushed == 10 && list.Pulled == 10 && list.Count == 0, $"list pushed {list.Pushed} / pulled {list.Pulled}");
+    }
+
+    static void TestMultiKeyOrder()
+    {
+        var clock = new SimClock(1);
+        var list = new SimList("calls", clock);
+        list.PushValue("far-urgent", F(("urgent", 1), ("distance", 9)));
+        list.PushValue("near", F(("urgent", 0), ("distance", 1)));
+        list.PushValue("near-urgent", F(("urgent", 1), ("distance", 2)));
+        list.PushValue("far", F(("urgent", 0), ("distance", 8)));
+        var spec = ListQuerySpec.Decode("|urgent desc, distance");
+        Check(spec.orderBy == "urgent desc, distance" && !spec.descending && spec.Encode() == "|urgent desc, distance", "spec keeps both keys: " + spec.Encode());
+        var order = new List<string>();
+        while (list.TryPull(spec.ToQuery(), out var e)) order.Add((string)e.Value);
+        Check(string.Join(",", order) == "near-urgent,far-urgent,near,far", "urgent first, then nearest: " + string.Join(",", order));
+        Check(ListQuerySpec.Decode("|distance desc").descending, "a single key still sets descending");
+    }
+
+    static void TestReservedAndWithdraw()
+    {
+        var clock = new SimClock(1);
+        var list = new SimList("W", clock);
+        var f = new Feeder(clock, "N", 3, 0, null);
+        var q = new ItemsQueue(10, "Q", clock);
+        var m = new MultiServer(new[] { Const(5) }, "M", clock);
+        var sink = new Collector(clock);
+        GeneralLink.CreateLink(f, L(q));
+        var link = new ListLink(list);
+        link.AddOrigin(q); link.AddPuller(m);
+        GeneralLink.CreateLink(m, L(sink));
+        foreach (var e in new Element[] { f, q, m, sink }) e.Start();
+        link.Start();
+        Element reservedTo = null; Item first = null;
+        Schedule(clock, 0.0, () => { });
+        f.Begin();
+        clock.AdvanceClock(1);
+        Check(list.Count == 2 && q.GetQueueLength() == 2, $"one taken, two listed ({list.Count} listed, {q.GetQueueLength()} held)");
+        var held = q.GetItems().ToList();
+        first = held[0];
+        reservedTo = link.ReservedFor(first);
+        Check(reservedTo == null, "a listed, unmatched item is reserved for nobody");
+        Check(link.Withdraw(held[1]) && list.Count == 1, "withdrawn: one entry left");
+        Check(!link.Withdraw(held[1]), "withdrawing it again does nothing");
+    }
+
+    // A welding queue that pulls from list W (the nodes waiting at the beds) and pushes back to W, so the robot chooses
+    // among the beds and the queue: what the queue pulled must be advertised in W again.
+    static void TestPullerPushesToSameList()
+    {
+        var clock = new SimClock(1);
+        var list = new SimList("W", clock);
+        var f = new Feeder(clock, "N", 4, 0, null);
+        var bed = new ItemsQueue(10, "Bed", clock);
+        var wq = new ItemsQueue(10, "WQ", clock);
+        var robot = new MultiServer(new[] { Const(5) }, "Robot", clock);
+        var sink = new Collector(clock);
+        GeneralLink.CreateLink(f, L(bed));
+        var link = new ListLink(list);
+        link.AddOrigin(bed); link.AddOrigin(wq);
+        link.AddPuller(robot);
+        link.AddPuller(wq, ListQuery.All.Where("owner", ListOp.Equal, "Bed"));   // the queue takes only from the bed
+        GeneralLink.CreateLink(robot, L(sink));
+        foreach (var e in new Element[] { f, bed, wq, robot, sink }) e.Start();
+        link.Start();
+        f.Begin();
+        clock.AdvanceClock(100);
+        Check(sink.Got.Count == 4, $"the robot welds every node, also those the queue pulled ({sink.Got.Count} of 4)");
+        Check(bed.GetQueueLength() == 0 && wq.GetQueueLength() == 0 && list.Count == 0,
+              $"nothing left behind (bed {bed.GetQueueLength()}, queue {wq.GetQueueLength()}, list {list.Count})");
+    }
+
+    static void TestQueryValuesAndOperators()
+    {
+        var clock = new SimClock(1);
+        var list = new SimList("l", clock);
+        var a = new Item(0); a.SetLabelText("kind", "pickup"); a.SetLabelValue("prio", 1); a.SetId("A", 1, 0);
+        var b = new Item(0); b.SetLabelText("kind", "drop"); b.SetLabelValue("prio", 3); b.SetId("B", 2, 0);
+        list.PushItem(a, null); list.PushItem(b, null);
+        ListEntry Best(string q) => list.TryPeek(ListQuerySpec.Decode(q).ToQuery(), out var e) ? e : null;
+        Check(Best("kind == 'pickup'|")?.Item == a && Best("kind == \"pickup\"|")?.Item == a, "a quoted value is the text inside (it matched nothing)");
+        Check(Best("prio>=2|")?.Item == b && Best("prio=1|")?.Item == a, "operators without spaces");
+        Check(Best("|prio DESC")?.Item == b && Best("|prio Desc, kind ASC")?.Item == b && Best("|prio asc")?.Item == a, "desc / asc in any case");
+        Check(Best("item.type == 'B'|")?.Item == b && Best("|item.priority desc, item.id desc")?.Item == b, "item.x reads the entry's item");
+        Check(ListQuerySpec.Decode("item.code == 'it''s'|").conditions[0].value == "it's", "'' is a quote inside a value");
+        bool threw = false;
+        try { ListQuerySpec.Decode("prio ~ 2|"); } catch (FormatException) { threw = true; }
+        Check(threw, "an unknown operator fails");
+
+        // the fields of a team's requests and members are known: a typo fails when the model is built
+        var c = new SimuLean.Serialization.SimulationConfig { UseFixedSeed = true, Seed = 1, MaxSimulationTime = 10 };
+        var team = new SimuLean.Serialization.ResourceTeamConfig { Id = "ops", Name = "ops", RequestOrder = "|priorty desc" };
+        team.Members.Add(new SimuLean.Serialization.ResourceMemberConfig { Name = "op1" });
+        c.ResourceTeams.Add(team);
+        string error = null;
+        try { new SimuLean.Headless.HeadlessModelFactory(new SimClock(1)).BuildModel(c); } catch (FormatException e) { error = e.Message; }
+        Check(error != null && error.Contains("unknown field 'priorty'") && error.Contains("you mean 'priority'"), "a typo in a request order fails: " + error);
+        team.RequestOrder = "|origin.content desc, priority DESC";
+        team.ResourceOrder = "|tasksDone";
+        error = null;
+        try { new SimuLean.Headless.HeadlessModelFactory(new SimClock(1)).BuildModel(c); } catch (FormatException e) { error = e.Message; }
+        Check(error != null && error.Contains("unknown field 'tasksDone'") && error.Contains("'tasks'"), "a member order names the ResultMetrics field: " + error);
+        team.ResourceOrder = "|tasks";
+        error = null;
+        try { new SimuLean.Headless.HeadlessModelFactory(new SimClock(1)).BuildModel(c); } catch (FormatException e) { error = e.Message; }
+        Check(error == null, "known fields build: " + error);
     }
 }

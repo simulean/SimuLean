@@ -8,6 +8,7 @@ namespace SimuLean.Unity.Editor
     public class UnitySinkEditor : SElementInspector
     {
         protected override bool HasVisual => false;
+        protected override string[] DrawnFields => new[] { "expectedItems", "keepItems", "positionLabels" };
 
         protected override void DrawParameters()
         {

@@ -3,7 +3,7 @@ using System;
 namespace SimuLean.Stochastics
 {
     /// <summary>
-    /// Probability functions of SimuLean (D1, they replaced ALGLIB): CDFs, quantiles and probability masses
+    /// Probability functions of SimuLean (own implementations, no third-party numerics): CDFs, quantiles and probability masses
     /// of the distributions, and the functions behind them — Γ, ln Γ, B, the regularized incomplete gamma and beta and
     /// their inverses, erf / erfc. Every quantile is the inverse of its CDF (x with CDF(x) = p).
     /// Written from the published algorithms: ln Γ by Lanczos' approximation (g = 7, 9 terms) with reflection below 1/2;

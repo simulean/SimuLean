@@ -7,10 +7,27 @@ namespace SimuLean.Unity
     public enum SourceMode
     {
         InterArrival,
-        Schedule
+        Schedule,
+        /// <summary>A Poisson process whose rate changes by period: <see cref="UnitySource.ratePeriods"/> or a
+        /// data table with the columns Start and Rate.</summary>
+        RateTable,
     }
 
-    [SimuLean.Unity.SimuLeanElement(SimuLean.Unity.SimuLeanModules.Sources, "Source", Description = "Creates items: inter-arrival distribution or a schedule table", Prefab = "Source.prefab", Order = 0)]
+    /// <summary>One period of a rate-table source: from <see cref="start"/> (model time) arrivals come at <see cref="rate"/>
+    /// per model time unit (0 = none) until the next period's start; the last one's rate holds to the end of the run.</summary>
+    [System.Serializable]
+    public class RatePeriodSpec
+    {
+        [Tooltip("When the period starts (model time; the starts increase).")]
+        [Min(0f)] public double start;
+        [Tooltip("Arrivals per model time unit in the period (a Poisson process); 0 = none (the door closed).")]
+        [Min(0f)] public double rate;
+        [Tooltip("Labels set on the period's items, 'name = expression' (e.g. slot = 'morning').")]
+        [SimuLean.Unity.SimuLeanExpression("label", Records = true)]
+        public List<string> labels = new List<string>();
+    }
+
+    [SimuLean.Unity.SimuLeanElement(SimuLean.Unity.SimuLeanModules.Sources, "Source", Description = "Creates items: inter-arrival distribution, a schedule table or a rate per period", Prefab = "Source.prefab", Order = 0)]
     public class UnitySource : SElement, IVElement
     {
         public override bool HasInput => false;
@@ -18,25 +35,53 @@ namespace SimuLean.Unity
         private Element theSource;  // Can be either ScheduleSource or InterArrivalSource
 
         public GameObject itemPrefab;
+        [Tooltip("Items get the size of the Item Prefab (labels width / height / length, metres) where their labels set " +
+                 "none — what a storage with physical dimensions, a stacker's height limit and a combiner's load height read.")]
+        public bool sizeFromModel = true;
         public float separation = 1f;
         public Transform itemPosition;
 
+        [SimuLeanHelp("InterArrival: the first item arrives at t = the first draw (not at 0), then one per drawn interval. Schedule: " +
+                      "the table's rows at their Time, Q items each. RateTable: a Poisson process whose rate changes by period " +
+                      "(ratePeriods[i].start / .rate, per model time unit; rate 0 = none; the last rate holds to the end, so end with " +
+                      "rate 0 to close; or a table with the columns Start, Rate via simulean_load_table). A full receiver: an " +
+                      "InterArrival / RateTable source holds its item (BLOCKED) and draws the next arrival only after it left — no " +
+                      "arrival is lost, the arrivals are delayed; a Schedule source keeps its timetable and its items wait in order.")]
         public SourceMode mode = SourceMode.Schedule;
 
-        [Tooltip("Labels given to every created item, e.g. prio = 5 (schedule-table columns of the same name override them).")]
-        public List<LabelAssignment> assignLabels = new List<LabelAssignment> { new LabelAssignment { label = "prio", value = "0" } };
+        [Tooltip("Labels set on every created item, 'name = expression' (e.g. prio = 5, sku = 'A-07', due = now() + 480, " +
+                 "mix = pick(0.7, 'std', 0.3, 'rush')); text in quotes. Schedule-table columns of the same name override them.")]
+        [SimuLean.Unity.SimuLeanExpression("label", Records = true)]
+        public List<string> createLabels = new List<string> { "prio = 0" };
 
 
         [Tooltip("Demand factor: 1 = as given; 1.2 = 20 % more arrivals (the rate, or each table row's quantity, times the " +
                  "factor). A study parameter: run demand scenarios without editing the scene.")]
         [Min(0.01f)] public float demandFactor = 1f;
 
+        [Tooltip("While the source is stopped (a downtime on it): Hold — the arrivals wait and leave when it ends (a schedule's " +
+                 "items pile up; a time-between-arrivals source holds the one that came); Pause — no arrivals and the timetable " +
+                 "shifts by the stop (a supplier that does not work); Lose — they come and are dropped, counted in lost_arrivals " +
+                 "(customers who find the door closed).")]
+        public SourceStopPolicy arrivalsOnStop = SourceStopPolicy.Hold;
+
         [Tooltip("Time between arrivals distribution. If null or returns 0, items arrive immediately.")]
         public RandomProcessConfig interArrivalDistribution =
-            new RandomProcessConfig { strategyType = RandomProcessType.Exponential, exponentialRate = 0.2 };   // random arrivals, mean 5 (review2 #43)
+            new RandomProcessConfig { strategyType = RandomProcessType.Exponential, exponentialRate = 0.2 };   // random arrivals, mean 5
+
+        [Tooltip("RateTable mode: the periods — start (model time), rate (arrivals per model time unit, a Poisson process; " +
+                 "0 = none) and the period's item labels. Before the first start the rate is 0; after the last start its rate " +
+                 "holds to the end (end with rate 0 to close the door: the source then stops). Or a data table with the columns " +
+                 "Start, Rate (and Name, labels) instead.")]
+        [SimuLeanHelp("One item per period, by start: ratePeriods[0].start = 0, ratePeriods[0].rate = 0.5 (per model time unit), " +
+                      "ratePeriods[1].start = 240, ratePeriods[1].rate = 0 (the door closes: no more arrivals, so a run that stops " +
+                      "when empty ends at the last exit). Rate 0 before the first start. labels = 'name = expression' records for " +
+                      "the period's items. A study varies ratePeriods[i].rate, or demandFactor for all.")]
+        public List<RatePeriodSpec> ratePeriods = new List<RatePeriodSpec>();
 
         [Tooltip("Schedule mode: the model's data table with the arrivals — one row per arrival: Time, Name, Q and " +
-                 "any label columns. Its source (typed rows, a CSV / Excel file, an SQL query) is read when each run starts.")]
+                 "any label columns. RateTable mode: one row per period — Start, Rate, Name and label columns. Its source " +
+                 "(typed rows, a CSV / Excel file, an SQL query) is read when each run starts.")]
         public UnityDataTable dataTable;
 
         [Tooltip("A table read when the model is built, instead of the data table: 'sql:SELECT …' (the project database) or a " +
@@ -79,7 +124,9 @@ namespace SimuLean.Unity
             newItem.SetActive(true);
             if (itemViews.Count > 256) itemViews.RemoveAll(v => v == null);   // views destroyed downstream (sinks)
             itemViews.Add(newItem);
-            
+            // the engine passes the new item's id: views that vary by item (e.g. MaterialVariants) are told which one they show
+            foreach (var init in newItem.GetComponentsInChildren<IItemViewInit>(true)) init.OnItemCreated(type);
+
             // Apply separation offset for visual stacking
             Vector3 offset = new Vector3(0f, separation, 0f);
             newItem.transform.position = itemPosition.position + offset;
@@ -97,10 +144,13 @@ namespace SimuLean.Unity
         void IVElement.UnloadItem(Item vItem) { }
 
         /// <summary>True when the schedule table comes from the data table <see cref="dataTable"/>.</summary>
-        public bool ReadsDataTable => mode == SourceMode.Schedule && !ReadsTableSource && dataTable != null;
+        public bool ReadsDataTable => UsesTable && !ReadsTableSource && dataTable != null;
+
+        /// <summary>The mode reads a table (a schedule, or a rate table given as a table).</summary>
+        public bool UsesTable => mode == SourceMode.Schedule || mode == SourceMode.RateTable;
 
         /// <summary>True when the schedule table comes from <see cref="tableSource"/> (SQL / a block breakdown part).</summary>
-        public bool ReadsTableSource => mode == SourceMode.Schedule && SimuLean.Data.TableSources.IsSpec(tableSource);
+        public bool ReadsTableSource => UsesTable && SimuLean.Data.TableSources.IsSpec(tableSource);
 
         /// <summary>The database the table source reads: <see cref="tableDatabase"/>, else the project database.</summary>
         public string TableDatabasePath() => string.IsNullOrWhiteSpace(tableDatabase)
@@ -165,7 +215,7 @@ namespace SimuLean.Unity
         }
 
         /// <summary>The table this component holds (loaded in the inspector or set), never the last run's: a run starts from
-        /// it (a Restart after reloading the data used the previous run's table).</summary>
+        /// it (else a Restart after reloading the data would use the previous run's table).</summary>
         private Dictionary<string, List<string>> LoadedCopy()
         {
             EnsureDataLoaded();

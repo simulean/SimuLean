@@ -37,7 +37,7 @@ namespace SimuLean.Unity
         /// in <paramref name="formats"/> (none = no file). Main thread (reads the project folder).</summary>
         public static ResultSet RunAndPublish(Study study, ResultFormats formats = ResultFormats.None)
         {
-            var set = study.Run();
+            var set = ExternalRunner.Prepare().Run(study);   // outside the editor when the runner is there
             set.Model = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
             foreach (string path in ResultsOutput.Keep(set, formats, ResultsOutput.ProjectRoot))
                 Debug.Log($"[SimuLean] Results: {path}");

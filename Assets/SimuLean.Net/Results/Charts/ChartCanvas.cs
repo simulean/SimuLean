@@ -32,16 +32,32 @@ namespace SimuLean.Results.Charts
     /// Draws a chart into a <see cref="ChartImage"/>, at <see cref="Supersample"/> times the size and then scaled down, so
     /// every edge is smooth; text through <see cref="ChartFonts"/> (Inter).
     /// </summary>
+    /// <summary>
+    /// The images a raster render draws into (the supersampled one and the result), kept by a view that redraws the same
+    /// chart (the dashboard, the element inspector) so a refresh allocates no image — a 480 × 300 chart is ≈ 2.9 MB, and
+    /// allocating it every second set off the collector, which pauses the frame. The image a render returns
+    /// with them is <see cref="Small"/>: read it before the next render with the same buffers.
+    /// </summary>
+    public sealed class ChartBuffers
+    {
+        public ChartImage Large { get; internal set; }
+        public ChartImage Small { get; internal set; }
+    }
+
     public sealed class RasterCanvas : IChartCanvas
     {
         private readonly ChartImage image;
         private readonly int k;
+        private readonly ChartBuffers buffers;
 
-        public RasterCanvas(int width, int height, int background, int supersample = 2)
+        /// <param name="buffers">The images to draw into, kept from the last render of the same view (else new ones).</param>
+        public RasterCanvas(int width, int height, int background, int supersample = 2, ChartBuffers buffers = null)
         {
             k = Math.Max(1, supersample);
             Width = width; Height = height;
-            image = new ChartImage(width * k, height * k, background);
+            this.buffers = buffers;
+            image = buffers != null ? buffers.Large = ChartImage.Reuse(buffers.Large, width * k, height * k, background)
+                                    : new ChartImage(width * k, height * k, background);
         }
 
         public double Width { get; }
@@ -49,7 +65,7 @@ namespace SimuLean.Results.Charts
         public int Supersample => k;
 
         /// <summary>The finished image at its size.</summary>
-        public ChartImage ToImage() => image.Downsample(k);
+        public ChartImage ToImage() => buffers != null ? buffers.Small = image.Downsample(k, buffers.Small) : image.Downsample(k);
 
         public void Rect(double x, double y, double w, double h, int rgb, double alpha = 1) => image.FillRect(x * k, y * k, w * k, h * k, rgb, (float)alpha);
 

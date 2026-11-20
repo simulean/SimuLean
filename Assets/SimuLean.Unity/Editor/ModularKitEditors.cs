@@ -59,8 +59,8 @@ namespace SimuLean.Unity
         {
             var go = new GameObject(name);
             GameObjectUtility.SetParentAndAlign(go, cmd.context as GameObject);
-            Undo.RegisterCreatedObjectUndo(go, "Create " + name);
             var c = go.AddComponent<T>();        // Reset() resolves the kit and builds
+            Undo.RegisterCreatedObjectUndo(go, "Create " + name);   // complete: one undo step, nothing dangling
             Selection.activeObject = go;
             return c;
         }
@@ -112,7 +112,6 @@ namespace SimuLean.Unity
             const float W = 24f, D = 18f, colH = 7.6f, rail = 6f, colOff = 0.32f;
             var root = new GameObject("Workshop");
             GameObjectUtility.SetParentAndAlign(root, cmd.context as GameObject);
-            Undo.RegisterCreatedObjectUndo(root, "Create Workshop");
             float x0 = -W / 2f, z0 = -D / 2f;
 
             // walls counter-clockwise (interior on each wall's +Z side)
@@ -149,6 +148,7 @@ namespace SimuLean.Unity
             crane.hookDrop = 3.4f;
             crane.Rebuild();
 
+            Undo.RegisterCreatedObjectUndo(root, "Create Workshop");   // complete: one undo step
             Selection.activeObject = root;
         }
 

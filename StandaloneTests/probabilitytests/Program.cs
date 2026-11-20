@@ -1,4 +1,4 @@
-// Probability functions (D1): SimuLean's own implementation (SimuLean.Stochastics.Probability) against ALGLIB 4.07's values (reference.tsv,
+// Probability functions: SimuLean's own implementation (SimuLean.Stochastics.Probability) against ALGLIB 4.07's values (reference.tsv,
 // generated once before ALGLIB was removed), plus round trips of every inverse through its CDF.
 // Run: dotnet run  (from StandaloneTests/probabilitytests)
 using System;

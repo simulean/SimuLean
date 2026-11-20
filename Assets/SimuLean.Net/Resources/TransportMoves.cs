@@ -19,12 +19,44 @@ namespace SimuLean.Resources
         private Item loadingNow;
         private readonly List<Action<Element, StopToken>> waitingForResume = new List<Action<Element, StopToken>>();
 
-        private sealed class Arrival
+        // One move: its state, read by the carrier's task steps through these methods (no closures).
+        // The move's times are read when the step runs.
+        private sealed class Arrival : ITaskInterruption
         {
-            public Item Item; public Element Destination; public TaskExecutor Executor; public bool Delivered;
+            public TransportMoves Moves; public Item Item; public Element Destination; public TaskExecutor Executor; public bool Delivered;
             public bool WaitingForOrigin;   // loaded while the origin was stopped: the hand-over waits for its resume
             public Func<Item, Element, bool> Deliver;
+
+            public void OnAssigned(ResourceRequest r, IReadOnlyList<TaskExecutor> got) => Moves.Start(this, r, got);
+            public void LeadIs(TaskExecutor lead) => Executor = lead;
+            public void Counted() => Moves.Interruptions++;
+            public double LoadTime() => Moves.LoadTime?.Invoke(Item) ?? Executor.LoadTime;
+            public void OnLoaded(Item it) => Moves.Loaded(it, this);
+            public bool OriginReady() => !WaitingForOrigin;
+            public double TravelTime() => Moves.TravelTime(Item, Destination);
+            public double UnloadTime() => Moves.UnloadTime?.Invoke(Item) ?? Executor.UnloadTime;
+            public void TryDeliver() => Moves.TryDeliver(this);
+            public bool IsDelivered() => Delivered;
+
+            // a carrier on its way, empty, to the pick-up (a move of one carrier, not loaded yet; a timed or an
+            // open-ended move) can be taken; the move asks for a carrier again. Loaded, it delivers. A move of several
+            // carriers is a CarrierGroup.
+            public bool Alone;
+            public bool CanInterrupt(TaskSequence task, TaskStep step, PreemptMode mode)
+                => mode != PreemptMode.Abort && Alone && step.Kind == StepKind.Travel && task.CurrentStep == 0;
+            public bool InterruptsOnStop(TaskSequence task, TaskStep step) => false;   // a stop pauses its travel
+            public void Interrupted(TaskSequence task, TaskExecutor executor, PreemptMode mode, bool byStop)
+            {
+                Executor = null;
+                Moves.Interruptions++;
+                Moves.Ask(this);
+            }
+            public void Paused(TaskSequence task, TaskExecutor executor, bool paused) { }
         }
+
+        /// <summary>Carriers taken from this element's moves (on their way, empty, to the pick-up, or waiting there for
+        /// the rest of their group) by requests of higher priority or by their stop.</summary>
+        public int Interruptions { get; private set; }
 
         public TransportMoves(Element origin, StationResources transport)
         {
@@ -57,10 +89,13 @@ namespace SimuLean.Resources
         /// <summary>Requests a carrier for <paramref name="item"/> to <paramref name="dest"/>; <paramref name="deliver"/>
         /// puts it into the destination (false = it cannot take it now: the carrier waits).</summary>
         public void Request(Item item, Element dest, Func<Item, Element, bool> deliver)
+            => Ask(new Arrival { Moves = this, Item = item, Destination = dest, Deliver = deliver });
+
+        private void Ask(Arrival arrival)
         {
-            var request = new ResourceRequest(origin, TaskType.Transport, (r, got) => Start(item, dest, got, deliver),
-                                              new List<ResourceRequirement>(Transport.Requirements).ToArray());
-            request.Priority = Transport.Priority?.Invoke(item) ?? 0;
+            var request = new ResourceRequest(origin, TaskType.Transport, arrival.OnAssigned, Transport.Requirements);
+            request.Priority = Transport.Priority?.Invoke(arrival.Item) ?? 1;
+            request.Preempt = Transport.Preempt;
             request.Location = origin.Location;              // "nearest vehicle" rules measure to the pick-up
             Transport.Dispatcher.Request(request);
         }
@@ -82,9 +117,15 @@ namespace SimuLean.Resources
             {
                 var a = waiting[i];
                 if (a.Destination != dest) continue;
-                if (!a.Deliver(a.Item, a.Destination)) return false;
-                a.Delivered = true;
+                // Out of the queue before delivering: the delivery can notify the destination's input again, which
+                // re-enters here and delivers other waiting carriers; the queue then changes under this index.
                 waiting.RemoveAt(i);
+                if (!a.Deliver(a.Item, a.Destination))
+                {
+                    waiting.Insert(Math.Min(i, waiting.Count), a);
+                    return false;
+                }
+                a.Delivered = true;
                 a.Executor.Continue();
                 return true;
             }
@@ -93,70 +134,100 @@ namespace SimuLean.Resources
 
         // ── the move ─────────────────────────────────────────────────────────
 
-        private void Start(Item item, Element dest, IReadOnlyList<TaskExecutor> got, Func<Item, Element, bool> deliver)
+        private void Start(Arrival arrival, ResourceRequest request, IReadOnlyList<TaskExecutor> got)
         {
+            if (got.Count > 1) { StartGroup(arrival, request, got); return; }
             var carrier = got[0];
-            var arrival = new Arrival { Item = item, Destination = dest, Executor = carrier, Deliver = deliver };
-            var lead = new TaskSequence(TaskType.Transport, origin, "Transport " + item.GetId());
+            arrival.Executor = carrier;
+            arrival.Alone = got.Count == 1;
+            Item item = arrival.Item; Element dest = arrival.Destination;
+            var lead = new TaskSequence(TaskType.Transport, origin, "Transport " + item.GetId())
+            {
+                Priority = Transport.Priority?.Invoke(item) ?? 1, Preemptable = Transport.Preemptable,
+            };
+            lead.Interruption = arrival;
             bool spatial = carrier.Mode == ResourceMode.Spatial;
             if (spatial)
             {
                 if (origin.Location == null || dest.Location == null)
-                    throw new InvalidOperationException($"Transport by '{carrier.GetName()}' from '{origin.GetName()}' to '{dest.GetName()}': " +
+                    throw new InvalidOperationException($"Transport by '{carrier.Name}' from '{origin.Name}' to '{dest.Name}': " +
                                                         "both elements need a location (network node) for a spatial carrier.");
                 lead.Travel(origin.Location);                // empty, to the pick-up
             }
-            lead.Load(item, () => LoadTime?.Invoke(item) ?? carrier.LoadTime, it => Loaded(it, arrival))
-                .HoldUntil(() => !arrival.WaitingForOrigin);   // no hold unless the origin is stopped
-            if (TravelTime != null) lead.Travel(() => TravelTime(item, dest), spatial ? dest.Location : null);
+            lead.Load(item, arrival.LoadTime, arrival.OnLoaded)
+                .HoldUntil(arrival.OriginReady);   // no hold unless the origin is stopped
+            if (TravelTime != null) lead.Travel(arrival.TravelTime, spatial ? dest.Location : null);
             else if (spatial) lead.Travel(dest.Location);
-            lead.Unload(item, () => UnloadTime?.Invoke(item) ?? carrier.UnloadTime)
-                .Callback(() => TryDeliver(arrival))
-                .HoldUntil(() => arrival.Delivered);
-            // Helpers (requests needing several resources) accompany the lead and are freed with it.
-            for (int k = 1; k < got.Count; k++)
-            {
-                var helper = got[k];
-                helper.Execute(new TaskSequence(TaskType.Transport, origin, "Help " + item.GetId()).Hold(ResourceStates.TRAVELLING_LOADED));
-                lead.Completed += _ => helper.Continue();
-            }
+            lead.Unload(item, arrival.UnloadTime)
+                .Callback(arrival.TryDeliver)
+                .HoldUntil(arrival.IsDelivered);
             got[0].Execute(lead);
+        }
+
+        // Several carriers move the item together (CarrierGroup): they gather at the pick-up, then the lead loads, carries
+        // and unloads it, the others with it.
+        private void StartGroup(Arrival arrival, ResourceRequest request, IReadOnlyList<TaskExecutor> got)
+        {
+            Item item = arrival.Item; Element dest = arrival.Destination;
+            foreach (var c in got)
+                if (c.Mode == ResourceMode.Spatial && (origin.Location == null || dest.Location == null))
+                    throw new InvalidOperationException($"Transport by '{c.Name}' from '{origin.Name}' to '{dest.Name}': " +
+                                                        "both elements need a location (network node) for a spatial carrier.");
+            arrival.Alone = false;
+            var group = new CarrierGroup(origin, request, Transport.Dispatcher, Transport.Preemptable, origin.Location,
+                                         "Transport " + item.GetId(), "Help " + item.GetId(), (lead, carrier) =>
+                                         {
+                                             bool spatial = carrier.Mode == ResourceMode.Spatial;
+                                             lead.Load(item, arrival.LoadTime, arrival.OnLoaded).HoldUntil(arrival.OriginReady);
+                                             if (TravelTime != null) lead.Travel(arrival.TravelTime, spatial ? dest.Location : null);
+                                             else if (spatial) lead.Travel(dest.Location);
+                                             lead.Unload(item, arrival.UnloadTime).Callback(arrival.TryDeliver).HoldUntil(arrival.IsDelivered);
+                                         }, arrival.LeadIs, arrival.Counted);
+            group.Start(got);
         }
 
         private void Loaded(Item item, Arrival arrival)
         {
             Loading?.Invoke(item);
-            if (origin.IsOutputBlocked)
-            {
-                // A stopped origin keeps its items (downtime blocking is not bypassed): the carrier
-                // waits, HELD, and takes the item when the stop ends.
-                arrival.WaitingForOrigin = true;
-                Action<Element, StopToken> onResumed = null;
-                onResumed = (e, token) =>
-                {
-                    if (origin.IsOutputBlocked) return;
-                    origin.Resumed -= onResumed;
-                    waitingForResume.Remove(onResumed);
-                    arrival.WaitingForOrigin = false;
-                    HandOverOrRetry(item);
-                    arrival.Executor.Continue();
-                };
-                origin.Resumed += onResumed;
-                waitingForResume.Add(onResumed);
-                return;
-            }
+            if (origin.IsOutputBlocked) { WaitForOrigin(item, arrival); return; }
             HandOverOrRetry(item);
+        }
+
+        // A stopped origin keeps its items (downtime blocking is not bypassed): the carrier waits, HELD,
+        // and takes the item when the stop ends.
+        // In its own method: a closure that captures a parameter is allocated at every call, used or not.
+        private void WaitForOrigin(Item item, Arrival arrival)
+        {
+            arrival.WaitingForOrigin = true;
+            Action<Element, StopToken> onResumed = null;
+            onResumed = (e, token) =>
+            {
+                if (origin.IsOutputBlocked) return;
+                origin.Resumed -= onResumed;
+                waitingForResume.Remove(onResumed);
+                arrival.WaitingForOrigin = false;
+                HandOverOrRetry(item);
+                arrival.Executor.Continue();
+            };
+            origin.Resumed += onResumed;
+            waitingForResume.Add(onResumed);
         }
 
         private void HandOverOrRetry(Item item)
         {
             if (HandOver(item)) return;
-            // Loaded inside the origin's own send (a free resource, no load time): the origin has not finished
-            // its bookkeeping yet — hand the item over after the current event, at the same time.
+            HandOverLater(item);
+        }
+
+        // Loaded inside the origin's own send (a free resource, no load time): the origin has not finished its bookkeeping
+        // yet — hand the item over after the current event, at the same time.
+        // In its own method: a closure that captures a parameter is allocated at every call, used or not.
+        private void HandOverLater(Item item)
+        {
             origin.GetSimClock().Schedule(() =>
             {
                 if (!HandOver(item))
-                    throw new InvalidOperationException($"'{origin.GetName()}' did not hand item {item.GetId()} over to its transporter.");
+                    throw new InvalidOperationException($"'{origin.Name}' did not hand item {item.GetId()} over to its transporter.");
             }, 0);
         }
 

@@ -17,6 +17,7 @@
         /// </summary>
         /// <param name="theProcess"></param>
         void CompleteServerProcess(ServerProcess theProcess);
-        string GetName();
+        /// <summary>The station's name.</summary>
+        string Name { get; }
     }
 }

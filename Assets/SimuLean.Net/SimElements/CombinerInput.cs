@@ -22,7 +22,7 @@ namespace SimuLean
             inputStrategy = new PortStrategy(owner, inputId);   // the assemblies' matching, checked by the links
         }
 
-        /// <summary>The combiner's location: carriers deliver components there (follow-up #11: a spatial crane serving
+        /// <summary>The combiner's location: carriers deliver components there (a spatial crane serving
         /// a bay through a list targets this port, which has no node of its own).</summary>
         public override string Location
         {
@@ -51,15 +51,17 @@ namespace SimuLean
             if (a == null) return false;
             // Upstream is asked again when the set is complete, and also while some assembly still has room on this input:
             // a FIFO queue queues new arrivals behind the waiting ones and only offers them when asked, so with a
-            // requirement ≥ 2 the set never completed (benchmark finding C1). The sender is still inside its
+            // requirement ≥ 2 the set never completed. The sender is still inside its
             // own send here, so its Unblock is deferred to a zero-delay event (Element.NotifyUnblock).
             if (owner.ComponentReceived(a, inputId, theItem) || owner.TargetFor(inputId, null, null, matching: false) != null)
                 NotifyInput();
             return true;
         }
 
-        /// <summary>Room on some gathering assembly (the matching is the input strategy, checked by the link).</summary>
-        public override bool CheckAvailability(Item theItem) => owner.TargetFor(inputId, theItem, null, matching: false) != null;
+        /// <summary>Room on some gathering assembly (the matching is the input strategy, checked by the link); nothing while
+        /// the combiner's stop refuses items — its component inputs stop with it (they took parts during a stop).</summary>
+        public override bool CheckAvailability(Item theItem)
+            => !owner.IsInputBlocked && owner.TargetFor(inputId, theItem, null, matching: false) != null;
 
         /// <summary>The components waiting on this input, assembly by assembly.</summary>
         public IEnumerable<Item> GetItems()

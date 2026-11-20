@@ -81,8 +81,8 @@ namespace SimuLean.Unity
             foreach (var ex in team.Executors)
             {
                 TaskExecutor h = null;
-                foreach (var x in factory.Executors) if (x.GetName() == ex.GetName()) h = x;
-                if (h != null) LastComparison.Add(new Row { Name = ex.GetName() + " (utilisation)", Scene = ex.Utilization, Headless = h.Utilization });
+                foreach (var x in factory.Executors) if (x.Name == ex.Name) h = x;
+                if (h != null) LastComparison.Add(new Row { Name = ex.Name + " (utilisation)", Scene = ex.Utilization, Headless = h.Utilization });
             }
         }
     }

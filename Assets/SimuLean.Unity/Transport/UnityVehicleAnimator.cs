@@ -37,6 +37,9 @@ namespace SimuLean.Unity
         public float carryLift = 0.3f, emptyLift = 0.1f;
         [Tooltip("Turn added to the travel direction (degrees), for models that do not face +Z.")]
         public float yawOffset;
+        [Tooltip("Rail vehicles (shuttles, transfer cars): keep the heading the member was spawned with and drive both ways, " +
+                 "never turning to face the travel direction.")]
+        public bool keepHeading;
         [Tooltip("Lift AGV models: the top plate's stroke (m), raised while carrying.")]
         public float liftStroke = 0.06f;
         [Tooltip("Operator models: distance of one stride (m) and the swing of the legs (degrees).")]
@@ -46,7 +49,7 @@ namespace SimuLean.Unity
         [Tooltip("Radius of a wheel without a mesh to measure (m); wheels with meshes use their own size.")]
         [Min(0.01f)] public float wheelRadius = 0.10f;
 
-        /// <summary>The enabled animators (views read it every frame instead of searching the scene; review2 #22).</summary>
+        /// <summary>The enabled animators (views read it every frame instead of searching the scene).</summary>
         public static IReadOnlyList<UnityVehicleAnimator> Active => active;
         private static readonly List<UnityVehicleAnimator> active = new List<UnityVehicleAnimator>();
         private void OnEnable() => active.Add(this);
@@ -132,8 +135,9 @@ namespace SimuLean.Unity
                 // several elements at one node (a buffer before its station): the one that processes
                 foreach (var e in UnityCompat.FindAll<SElement>())
                 {
-                    if (e == null || e.location == null) continue;
-                    string id = e.location.NodeId;
+                    if (e == null) continue;
+                    // an element without a location: the point a straight team goes to (SceneExtractor.AutoPointPrefix)
+                    string id = e.location != null ? e.location.NodeId : SceneExtractor.AutoPointPrefix + SceneExtractor.ElementId(e);
                     if (!stationAt.TryGetValue(id, out var had) || (!(had is IProcessResourceUser) && e is IProcessResourceUser)) stationAt[id] = e;
                 }
             }
@@ -187,16 +191,20 @@ namespace SimuLean.Unity
                 if (!executor.IsWorkPaused) segFraction = d > 0 ? Mathf.Clamp01((float)((now - leg.SegmentStartTime) / d)) : 1f;
                 position = Vector3.Lerp(a, b, segFraction);
                 Vector3 dir = b - a; dir.y = 0;
-                if (dir.sqrMagnitude > 1e-6f) transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up) * Quaternion.Euler(0, yawOffset, 0);
+                if (!keepHeading && dir.sqrMagnitude > 1e-6f) transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up) * Quaternion.Euler(0, yawOffset, 0);
             }
             else
             {
                 if (!ReferenceEquals(leg, cachedLeg)) CacheRoute(leg);
                 float t = (float)leg.Fraction(now);
-                position = PointAlongRoute(t);
-                Vector3 dir = PointAlongRoute(Mathf.Min(1f, t + 0.01f)) - position;
+                // kinematic travel (axes with acceleration): the position follows the axis profiles, not the time fraction
+                if (executor.TravelModel is AxisTravel && routePoints.Length == 2 && leg.Path == null)
+                    position = AxisLegPath.Along(executor.TravelModel, leg, routePoints[0], routePoints[1], now);
+                else position = PointAlongRoute(t);
+                Vector3 dir = PointAlongRoute(Mathf.Min(1f, t + 0.01f)) - PointAlongRoute(t);
                 dir.y = 0;
-                if (dir.sqrMagnitude > 1e-6f) transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up) * Quaternion.Euler(0, yawOffset, 0);
+                if (!keepHeading && dir.sqrMagnitude > 1e-6f)
+                    transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up) * Quaternion.Euler(0, yawOffset, 0);
             }
             position += WorkOffset(leg, position);
             transform.position = position;

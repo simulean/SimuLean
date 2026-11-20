@@ -20,7 +20,7 @@ namespace SimuLean.Unity
 
     /// <summary>
     /// Reusable runtime navigation camera for simulation scenes in Play mode (legacy Input Manager), with
-    /// "map-like" (FlexSim-style) behaviour that does not depend on the zoom, the frame rate or the history:
+    /// "map-like" behaviour that does not depend on the zoom, the frame rate or the history:
     /// <list type="bullet">
     /// <item><b>Pan</b> (middle drag, or left drag when <see cref="leftDragPans"/>): the point grabbed under the cursor
     /// (ground plane <see cref="groundHeight"/>, or a collider hit) stays exactly under the cursor at any zoom.</item>
@@ -45,7 +45,7 @@ namespace SimuLean.Unity
     /// <see cref="MoveKeys"/> and <see cref="Step"/> drive it from scripts or tests without the Input Manager.
     /// </summary>
     [RequireComponent(typeof(Camera))]
-    [SimuLean.Unity.SimuLeanTool(SimuLean.Unity.SimuLeanToolCategories.Visualization, "Camera Controller", Description = "FlexSim-style navigation camera (added to the main camera)", Singleton = true, OnMainCamera = true)]
+    [SimuLean.Unity.SimuLeanTool(SimuLean.Unity.SimuLeanToolCategories.Visualization, "Camera Controller", Description = "Map-like navigation camera (added to the main camera)", Singleton = true, OnMainCamera = true)]
     public class SimCameraController : MonoBehaviour
     {
         [Header("Speeds")]
@@ -86,7 +86,7 @@ namespace SimuLean.Unity
         public float maxFrameTime = 0.1f;
 
         [Header("Mouse")]
-        [Tooltip("Left drag on the scene pans (FlexSim style); a left click without drag still selects.")]
+        [Tooltip("Left drag on the scene pans (map-like); a left click without drag still selects.")]
         public bool leftDragPans = true;
         [Tooltip("Pixels the mouse must move with a button down before it counts as a drag (and not a click).")]
         public float dragThreshold = 5f;

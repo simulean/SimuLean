@@ -22,10 +22,11 @@ namespace SimuLean.Unity
         public string singleLabelValue = "";
 
         // ── Multi Label Strategy ───────────────────────────────────────────
-        [Tooltip("For MultiLabel: Label-value pairs in format 'label=value'")]
-        public string[] multiLabelPairs = new string[0];
+        [Tooltip("For MultiLabel: label / value records; admitted when ANY matches (a value that reads as a number matches a numeric label)")]
+        public List<LabelValuePair> multiLabelPairs = new List<LabelValuePair>();
 
         [Tooltip("For Condition: admits the item when this expression holds, e.g. item.color == 'red' && item.weight <= element.maxWeight")]
+        [SimuLean.Unity.SimuLeanExpression("admission")]
         public string condition = "";
 
         /// <summary>
@@ -46,7 +47,7 @@ namespace SimuLean.Unity
                     break;
 
                 case InputStrategyType.MultiLabel:
-                    if (multiLabelPairs == null || multiLabelPairs.Length == 0)
+                    if (multiLabelPairs == null || multiLabelPairs.Count == 0)
                     {
                         errorMessage = "MultiLabel strategy requires at least one label-value pair";
                         return false;
@@ -56,6 +57,14 @@ namespace SimuLean.Unity
 
             return true;
         }
+    }
+
+    /// <summary>A label and the value an item must have for it (a MultiLabel admission's record).</summary>
+    [Serializable]
+    public class LabelValuePair
+    {
+        [Tooltip("The item's label")] public string label = "";
+        [Tooltip("The value: a number matches a numeric label, else a text label")] public string value = "";
     }
 
     /// <summary>

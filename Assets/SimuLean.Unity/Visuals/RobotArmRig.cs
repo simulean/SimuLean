@@ -174,7 +174,7 @@ namespace SimuLean.Unity
 
             a1 = Clamp(0, a1); a2 = Clamp(1, a2); a3 = Clamp(2, a3);
 
-            // Wrist: the rotation left after A1..A3, as roll (A4) · pitch (A5) · roll (A6).
+            // Wrist: the rotation left after A1..A3, as roll A4 · pitch A5 · roll A6.
             Quaternion r3 = Quaternion.AngleAxis(a1, Vector3.up) * Quaternion.AngleAxis(a2, Vector3.right)
                           * Quaternion.AngleAxis(a3, Vector3.right);
             Vector3 heading = Quaternion.AngleAxis(a1, Vector3.up) * Vector3.forward;   // the flange's "up" faces away from the base

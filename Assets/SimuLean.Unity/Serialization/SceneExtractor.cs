@@ -37,15 +37,23 @@ namespace SimuLean.Unity
     /// </summary>
     public static class SceneExtractor
     {
+        // True when the element's type has the shared settings group (a Sink has no transportBy, a Source no inputStrategy).
+        private static bool Has(ElementConfig ec, string group)
+            => ec.Settings != null && SettingsPaths.Declares(ec.Settings.GetType(), group);
+
         private static readonly ElementExtractorRegistry Registry = ElementExtractorRegistry.CreateDefault();
 
         /// <param name="root">Model root (null = the whole scene).</param>
         /// <param name="sceneRun">True for a run in the scene itself: teams moving with Unity physics are timed by
         /// the physics (external travel); false (headless) uses their calibration.</param>
         /// <summary>The id of the team an element uses; a team that is not part of the model (inactive, or outside the
-        /// model root) is a clear error (it was a KeyNotFoundException, retried every frame by the clock).</summary>
+        /// model root) is a clear error (not a KeyNotFoundException, which the clock would retry every frame).</summary>
+        /// <summary>The model id of a team (its name and object id; unique in the scene).</summary>
+        public static string TeamId(UnityResourceTeam team) => team.TeamName + "_" + UnityCompat.ObjectId(team);
+
         private static string TeamIdOf(SceneExtraction x, SElement se, UnityResourceTeam team, string how)
         {
+            if (team == null) return "";   // a use whose requirements name their teams
             if (x.TeamIds.TryGetValue(team, out string id)) return id;
             throw new System.InvalidOperationException($"'{se.name}' is {how} by team '{team.name}', which is not part of the model " +
                                                 "(inactive, or outside the model root).");
@@ -62,11 +70,12 @@ namespace SimuLean.Unity
             foreach (var element in elements)
             {
                 if (element == null) continue;
-                string typeName = element.GetType().Name;
-                string id = $"{typeName}_{element.name}_{UnityCompat.ObjectId(element)}";
+                string id = ElementId(element);
                 x.ElementIds[element] = id;
-                var ec = new ElementConfig(id, typeName, element.name);
+                var ec = new ElementConfig(id, Registry.EngineTypeOf(element.GetType().Name), element.name);
                 ExtractOwn(element, ec);
+                // rule parameters that change nothing: a list without its rule, a name the rule lacks
+                foreach (string w in RuleParameterChecks.Problems(element, includeTeams: false)) Debug.LogWarning("[SimuLean] " + w, element);
                 config.Elements.Add(ec);
             }
 
@@ -95,6 +104,12 @@ namespace SimuLean.Unity
             foreach (var element in elements)
                 ExtractConnections(x, element);
 
+            // Parameters naming other elements (their ids are all known now), e.g. a milk run's flows
+            foreach (var element in elements)
+                if (element != null && Registry.TryGetExtractor(element.GetType().Name, out var rx) && rx is IElementReferenceExtractor refs
+                    && x.ElementIds.TryGetValue(element, out string refId))
+                    refs.ExtractReferences(element, config.Elements.Find(e => e.Id == refId), x.ElementIds);
+
             // Combiner input order (ids of the upstream elements; [0] = main input) and list inputs
             foreach (var element in elements)
             {
@@ -103,14 +118,14 @@ namespace SimuLean.Unity
                 var order = new List<string>();   // "" = an input fed by a list
                 foreach (SElement up in comb.ResolveInputSlots())
                     order.Add(up != null && x.ElementIds.TryGetValue(up, out string upId) ? upId : "");
-                combConfig.Parameters["inputOrder"] = order;
+                combConfig.Set("inputOrder", order);
                 if (comb.listInputs != null)
                     foreach (var li in comb.listInputs)
                     {
                         if (li == null || li.list == null || !x.ListIds.TryGetValue(li.list, out string lid)) continue;
                         var conn = new ConnectionConfig(lid, combId, "PullFromList");
-                        conn.Parameters["query"] = li.query != null ? li.query.Encode() : "";
-                        conn.Parameters["port"] = li.input;
+                        conn.Query = li.query != null ? li.query.Encode() : "";
+                        conn.Input = li.input;
                         config.Connections.Add(conn);
                     }
             }
@@ -127,12 +142,13 @@ namespace SimuLean.Unity
                 foreach (var h in simClock.Holidays) if (!string.IsNullOrWhiteSpace(h)) config.Holidays.Add(h.Trim());
                 config.MaxSimulationTime = simClock.MaxTime;
                 config.WarmupTime        = simClock.WarmupTime;
-                // End condition (S2): the elements by their ids (names may repeat); those outside the model root are left out.
+                // End condition: the elements by their ids (names may repeat); those outside the model root are left out.
                 config.StopAt.Clear();
                 foreach (var e in simClock.StopAt)
                     if (e != null && x.ElementIds.TryGetValue(e, out string endId)) config.StopAt.Add(endId);
                 config.StopAtCount   = config.StopAt.Count > 0 ? simClock.StopAtCount : 0;
                 config.StopWhenEmpty = simClock.StopWhenEmpty;
+                config.StopWhenNoProgressFor = simClock.StopWhenNoProgressFor;
                 // Fixed mode → that seed; random each run → the seed the scene used last (UseFixedSeed replays it).
                 config.UseFixedSeed = simClock.SeedMode == SeedMode.Fixed;
                 if (simClock.SeedMode == SeedMode.Fixed) config.Seed = simClock.Seed;
@@ -146,22 +162,24 @@ namespace SimuLean.Unity
             if (networks.Length > 0) config.Network = networks[0].ToConfig();
             var known = new HashSet<string>();
             if (config.Network != null)
-                foreach (var rec in config.Network.Nodes) known.Add(rec.Split('|')[0]);
+                foreach (var rec in config.Network.Nodes) known.Add(rec.Id);
             foreach (var n in All<UnityTransportNode>(root))
             {
                 if (!known.Add(n.NodeId)) continue;
                 if (config.Network == null) config.Network = new NetworkConfig();
                 Vector3 p = n.transform.position;
-                config.Network.Nodes.Add(TransportStorageConfigCodec.FormatNode(n.NodeId, p.x, p.y, p.z));
+                config.Network.Nodes.Add(NetworkNodeConfig.Of(n.NodeId, p.x, p.y, p.z));
             }
             foreach (var kv in x.ElementIds)
             {
                 if (kv.Key.location != null)
-                    config.Elements.Find(e => e.Id == kv.Value).Parameters[SimuLean.Headless.HeadlessModelFactory.LocationKey] = kv.Key.location.NodeId;
-                var work = kv.Key.workNodes?.FindAll(n => n != null);   // the resources' work points (S4)
+                    config.Elements.Find(e => e.Id == kv.Value).Set("location", kv.Key.location.NodeId);
+                var work = kv.Key.workNodes?.FindAll(n => n != null);   // the resources' work points
                 if (work != null && work.Count > 0)
-                    config.Elements.Find(e => e.Id == kv.Value).Parameters[SimuLean.Headless.HeadlessModelFactory.WorkNodesKey] = work.ConvertAll(n => n.NodeId);
+                    config.Elements.Find(e => e.Id == kv.Value).Set("workNodes", work.ConvertAll(n => n.NodeId));
             }
+
+            AddStraightTravelPoints(config, x, root);
 
             // Travel matrices, walk grids, resource teams and each element's use of them
             foreach (var m in All<UnityTravelMatrix>(root))
@@ -170,9 +188,9 @@ namespace SimuLean.Unity
                 config.WalkGrids.Add(g.ToConfig(SpaceId(g)));
             foreach (var team in All<UnityResourceTeam>(root))
             {
-                string teamId = team.TeamName + "_" + UnityCompat.ObjectId(team);
+                string teamId = TeamId(team);
                 x.TeamIds[team] = teamId;
-                config.ResourceTeams.Add(team.ToConfig(teamId,
+                config.ResourceTeams.Add(UnityResourceTeamExtractor.Extract(team, teamId,
                     team.matrix != null ? SpaceId(team.matrix) : null,
                     team.walkGrid != null ? SpaceId(team.walkGrid) : null, sceneRun));
             }
@@ -180,17 +198,22 @@ namespace SimuLean.Unity
             {
                 SElement se = x.ElementOf(ec.Id);
                 if (se == null) continue;
+                WarnIdleRequirements(se, se is IProcessResourceUser ? se.processBy : null, "processBy");
+                WarnIdleRequirements(se, Has(ec, "transportBy") ? se.transportBy : null, "transportBy");
                 if (se is IProcessResourceUser && se.processBy != null && se.processBy.IsUsed)
                     se.processBy.Export(ec, TeamIdOf(x, se, se.processBy.team, "processed"),
                                         other => x.ElementIds.TryGetValue(other, out string otherId) ? otherId : null);
-                if (se.transportBy != null && se.transportBy.IsUsed)
+                if (se.transportBy != null && se.transportBy.IsUsed && Has(ec, "transportBy"))
                     se.transportBy.Export(ec, TeamIdOf(x, se, se.transportBy.team, "transported"));
+                if (se is ISetupUser su && su.Setup != null && su.Setup.IsUsed && su.Setup.setupBy != null && su.Setup.setupBy.IsUsed)
+                    su.Setup.ExportCrew(ec, TeamIdOf(x, se, su.Setup.setupBy.team, "set up"));
             }
 
             // Downtime generators (targets resolved through the element ids)
             foreach (var downtime in All<UnityDowntime>(root))
             {
-                var dc = downtime.ToConfig(se => se != null && x.ElementIds.TryGetValue(se, out string tid) ? tid : null, calendar);
+                var dc = downtime.ToConfig(se => se != null && x.ElementIds.TryGetValue(se, out string tid) ? tid : null, calendar,
+                                           t => t != null && x.TeamIds.TryGetValue(t, out string teamId) ? teamId : null);
                 x.DowntimeIds[downtime] = dc.Id;
                 config.Downtimes.Add(dc);
             }
@@ -206,18 +229,107 @@ namespace SimuLean.Unity
             return x;
         }
 
+        // Requirements on a use with no team anywhere (neither the use's nor a requirement's) do nothing — said.
+        private static void WarnIdleRequirements(SElement se, ResourceUse use, string key)
+        {
+            if (use == null || use.IsUsed || use.requirements == null || use.requirements.Count == 0) return;
+            Debug.LogWarning($"[SimuLean] '{se.name}': {key} has {use.requirements.Count} requirement(s) but no team (neither " +
+                             $"{key}.team nor a requirement's team): it uses no resources. Set {key}.team (the default team), or " +
+                             $"each requirement's team.", se);
+        }
+
+        /// <summary>The prefix of the point a Straight team goes to at an element without a location.</summary>
+        public const string AutoPointPrefix = "pos:";
+
+        /// <summary>The id an element gets in the extracted config (its type, name and object id; unique in the scene).</summary>
+        public static string ElementId(SElement element) => $"{element.GetType().Name}_{element.name}_{UnityCompat.ObjectId(element)}";
+        /// <summary>The prefix of the work point of a robot team at an element without work nodes.</summary>
+        public const string AutoWorkPrefix = "work:";
+
+        /// <summary>
+        /// Straight travel: members go in straight lines between points, so every element without a location
+        /// gets one — where a person works at it (<see cref="StationModel.StaffPosition"/>: its staff socket, else in front of
+        /// it), on its floor — and a team without a home node starts at its own position. Robot arms work at the station's
+        /// work socket instead (a work node). Only when a team travels straight: the other models are unchanged.
+        /// </summary>
+        private static void AddStraightTravelPoints(SimulationConfig config, SceneExtraction x, GameObject root)
+        {
+            var teams = new List<UnityResourceTeam>();
+            foreach (var t in All<UnityResourceTeam>(root)) if (t.travel == TeamTravel.Straight) teams.Add(t);
+            if (teams.Count == 0) return;
+            if (config.Network == null) config.Network = new NetworkConfig();
+            var nodes = config.Network.Nodes;
+            void Add(string id, Vector3 p) => nodes.Add(NetworkNodeConfig.Of(id, p.x, p.y, p.z));
+            foreach (var team in teams)
+                if (team.homeNode == null)
+                    Add(ExtractionRules.AutoHomeId(team.TeamName + "_" + UnityCompat.ObjectId(team)), team.transform.position);
+            foreach (var kv in x.ElementIds)
+            {
+                SElement se = kv.Key;
+                var ec = config.Elements.Find(e => e.Id == kv.Value);
+                if (ec == null) continue;
+                if (se.location == null)
+                {
+                    Add(AutoPointPrefix + kv.Value, UnityResourceTeam.AutoPoint(se));
+                    ec.Set("location", AutoPointPrefix + kv.Value);
+                }
+                // a storage moved by a straight team: each lane without a node at its own position
+                if (se is UnityStorageSystem storage && storage.AutoLaneNodes)
+                    foreach (var lane in storage.ResolveLanes())
+                        if (lane.NodeId != null && lane.NodeId.StartsWith("lane:")) Add(lane.NodeId, lane.Position);
+                bool noWorkNodes = se.workNodes == null || !se.workNodes.Exists(n => n != null);
+                if (noWorkNodes && ArmsWorkHere(se))
+                {
+                    var socket = StationModel.Position(se, StationModel.SocketNames);
+                    if (socket == null) continue;
+                    Add(AutoWorkPrefix + kv.Value, socket.position);
+                    ec.Set("workNodes", new List<string> { AutoWorkPrefix + kv.Value });
+                }
+            }
+        }
+
+        // Straight-travel robot arms work at the station's socket: the teams that work at it — the process team, its
+        // requirements' teams and the setup crew (not only the process team) — when at least one
+        // is an arm team and every other spatial one is too (a walking team keeps the station's location).
+        private static bool ArmsWorkHere(SElement se)
+        {
+            var teams = new List<UnityResourceTeam>();
+            if (se.processBy != null && se.processBy.IsUsed)
+            {
+                if (se.processBy.team != null) teams.Add(se.processBy.team);
+                if (se.processBy.requirements != null)
+                    foreach (var r in se.processBy.requirements) if (r?.team != null) teams.Add(r.team);
+            }
+            if (se is ISetupUser su && su.Setup != null && su.Setup.IsUsed && su.Setup.setupBy != null && su.Setup.setupBy.IsUsed)
+            {
+                teams.Add(su.Setup.setupBy.team);   // null skipped below
+                foreach (var r in su.Setup.setupBy.requirements ?? new List<ResourceRequirementSpec>())
+                    if (r?.team != null) teams.Add(r.team);
+            }
+            bool arm = false;
+            foreach (var t in teams)
+            {
+                if (t == null || t.travel == TeamTravel.Abstract) continue;
+                if (t.travel == TeamTravel.Straight && t.MembersAreArms) arm = true;
+                else return false;
+            }
+            return arm;
+        }
+
         /// <summary>One element's config (type and parameters, without connections): what an editor shows, e.g. the
         /// optimisable keys of <see cref="SimuLean.Optimization.ModelParameterCatalog.ForElement"/>.</summary>
         public static ElementConfig ExtractElement(SElement element)
         {
             if (element == null) return null;
-            var ec = new ElementConfig(element.name, element.GetType().Name, element.name);
+            var ec = new ElementConfig(element.name, Registry.EngineTypeOf(element.GetType().Name), element.name);
             ExtractOwn(element, ec);
             // its use of resources (the team by name: an editor's view, no ids)
             if (element is IProcessResourceUser && element.processBy != null && element.processBy.IsUsed)
                 element.processBy.Export(ec, element.processBy.team != null ? element.processBy.team.TeamName : "");
-            if (element.transportBy != null && element.transportBy.IsUsed)
+            if (element.transportBy != null && element.transportBy.IsUsed && Has(ec, "transportBy"))
                 element.transportBy.Export(ec, element.transportBy.team != null ? element.transportBy.team.TeamName : "");
+            if (element is ISetupUser su && su.Setup != null && su.Setup.setupBy != null && su.Setup.setupBy.IsUsed)
+                su.Setup.ExportCrew(ec, su.Setup.setupBy.team != null ? su.Setup.setupBy.team.TeamName : "");
             return ec;
         }
 
@@ -236,26 +348,28 @@ namespace SimuLean.Unity
                 Debug.LogWarning($"[SimuLean] '{element.name}' is tilted (rotation {e.x:0}, {e.y:0}, {e.z:0}): its items and look are " +
                                  $"drawn on edge. Set its rotation to (0, {e.y:0}, 0); a model's own rotation belongs on its model.", element);
             // Its items walk by themselves (a grid / matrix by the ids the model's spaces get below).
-            element.walkBy?.Export(ec, SpaceId);
-            // User properties (SElementLabels): numbers, texts, references to other elements by name.
-            var userProps = element.GetComponent<SElementLabels>();
-            if (userProps != null && userProps.Count > 0) ec.Parameters[PropertyRecords.Key] = userProps.Records();
-            // Routing (the shared asset overrides the inline strategy) and admission, common to every element.
-            if (element.HasOutput)
-                ExtractorHelpers.ExtractOutputStrategyConfig(
-                    element.outputStrategyAsset != null ? element.outputStrategyAsset.config : element.outputStrategy, ec);
-            if (element.HasInput && element.inputStrategy != null)
+            if (Has(ec, "walkBy")) element.walkBy?.Export(ec, SpaceId);
+            // Its pull's max wait (only when it pulls from a list and a limit is set)
+            if (element.PullList != null && !string.IsNullOrWhiteSpace(element.pullMaxWait) && Has(ec, "pullMaxWait"))
+                ec.Set("pullMaxWait", element.pullMaxWait.Trim());
+            // User properties (SElementProperties): numbers, texts, references to other elements by name.
+            var userProps = element.GetComponent<SElementProperties>();
+            if (userProps != null && userProps.Count > 0) ec.Set(PropertyRecords.Key, userProps.Records());
+            // Routing and admission, common to every element.
+            if (element.HasOutput && Has(ec, "outputStrategy"))
+                ExtractorHelpers.ExtractOutputStrategyConfig(element.outputStrategy, ec);
+            if (element.HasInput && element.inputStrategy != null && Has(ec, "inputStrategy"))
                 ExtractorHelpers.ExtractInputStrategyConfig(element.inputStrategy, ec);
             // Labels set on hand-over
             if (element.HasInput && HasRecords(element.entryLabels))
-                ec.Parameters[ElementConfigKeys.EntryLabels] = new List<string>(element.entryLabels);
+                ec.Set("entryLabels", new List<string>(element.entryLabels));
             if (element.HasOutput && HasRecords(element.exitLabels))
-                ec.Parameters[ElementConfigKeys.ExitLabels] = new List<string>(element.exitLabels);
+                ec.Set("exitLabels", new List<string>(element.exitLabels));
             // Item statistics
             if (element.HasInput && HasRecords(element.tallies))
             {
-                ec.Parameters[ElementConfigKeys.Tallies] = new List<string>(element.tallies);
-                if (!string.IsNullOrWhiteSpace(element.tallySplit)) ec.Parameters[ElementConfigKeys.TallySplit] = element.tallySplit.Trim();
+                ec.Set("tallies", new List<string>(element.tallies));
+                if (!string.IsNullOrWhiteSpace(element.tallySplit)) ec.Set("tallySplit", element.tallySplit.Trim());
             }
         }
 
@@ -297,7 +411,7 @@ namespace SimuLean.Unity
             if (element.PullList != null && x.ListIds.TryGetValue(element.PullList, out string pullId))
             {
                 var conn = new ConnectionConfig(pullId, sourceId, "PullFromList");
-                conn.Parameters["query"] = element.pullQuery != null ? element.pullQuery.Encode() : "";
+                conn.Query = element.pullQuery != null ? element.pullQuery.Encode() : "";
                 connections.Add(conn);
             }
             bool pushes = element.PushList != null && x.ListIds.TryGetValue(element.PushList, out string pushId);

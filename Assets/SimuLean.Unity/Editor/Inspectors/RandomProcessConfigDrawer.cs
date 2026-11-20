@@ -89,8 +89,8 @@ namespace SimuLean.Unity
             if (type == RandomProcessType.Expression)
             {
                 var expr = property.FindPropertyRelative("expression");
-                row.height = Line * 2;
-                expr.stringValue = EditorGUI.TextArea(row, expr.stringValue);
+                row.height = EditorGUI.GetPropertyHeight(expr, GUIContent.none);
+                EditorGUI.PropertyField(row, expr, GUIContent.none);
             }
             else
             {
@@ -119,7 +119,7 @@ namespace SimuLean.Unity
         public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
         {
             var type = (RandomProcessType)property.FindPropertyRelative("strategyType").enumValueIndex;
-            if (type == RandomProcessType.Expression) return Line + Gap + Line * 2;
+            if (type == RandomProcessType.Expression) return Line + Gap + EditorGUI.GetPropertyHeight(property.FindPropertyRelative("expression"), GUIContent.none);
             return Parameters(type).Length > 0 ? Line * 2 + Gap : Line;
         }
     }

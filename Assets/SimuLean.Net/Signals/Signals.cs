@@ -24,13 +24,18 @@ namespace SimuLean.Signals
         Every,
         /// <summary>Time: once, at time <c>at</c> (no element).</summary>
         AtTime,
+        /// <summary>A wait of the element reached its max wait (<see cref="SimuLean.WaitLimit"/>), whatever its
+        /// action: the item if any (a queued item, a job's), <c>signal.kind</c> (Resource, Queue, ListPull),
+        /// <c>signal.waited</c> (the time it waited) and <c>signal.action</c> (KeepWaiting, GiveUp, Reroute).</summary>
+        WaitTimedOut,
     }
 
     /// <summary>What a signal kind carries.</summary>
     public static class SignalKinds
     {
         /// <summary>An item signal: the reaction sees the item (item labels allowed).</summary>
-        public static bool HasItem(SignalKind kind) => kind == SignalKind.ItemEntered || kind == SignalKind.ItemExited || kind == SignalKind.ProcessEnded;
+        public static bool HasItem(SignalKind kind) => kind == SignalKind.ItemEntered || kind == SignalKind.ItemExited || kind == SignalKind.ProcessEnded
+                                                       || kind == SignalKind.WaitTimedOut;   // a timeout's item, if any
         /// <summary>A time signal: raised by the clock, from no element.</summary>
         public static bool IsTime(SignalKind kind) => kind == SignalKind.RunStarted || kind == SignalKind.Every || kind == SignalKind.AtTime;
         /// <summary>A signal with a state (the state filter applies).</summary>
@@ -59,10 +64,23 @@ namespace SimuLean.Signals
         /// (<c>default</c>).</summary>
         public readonly ElementState From, To;
         public readonly double Time;
+        /// <summary>A timeout (<see cref="SignalKind.WaitTimedOut"/>): the wait's kind and action, and the time it waited;
+        /// otherwise null / NaN.</summary>
+        public readonly string WaitKind, WaitAction;
+        public readonly double Waited;
 
         public SignalArgs(SignalKind kind, Element source, Item item, ElementState from, ElementState to, double time)
         {
             Kind = kind; Source = source; Item = item; From = from; To = to; Time = time;
+            WaitKind = null; WaitAction = null; Waited = double.NaN;
+        }
+
+        /// <summary>A timeout's signal.</summary>
+        public SignalArgs(Element source, in SimuLean.WaitTimeout timeout, double time)
+        {
+            Kind = SignalKind.WaitTimedOut; Source = source; Item = timeout.Item; From = default; To = default; Time = time;
+            // the kind as the metric spells it (resource, queue, list_pull)
+            WaitKind = SimuLean.WaitLimit.KindName(timeout.Kind); WaitAction = timeout.Action.ToString(); Waited = timeout.Waited;
         }
     }
 
@@ -158,6 +176,7 @@ namespace SimuLean.Signals
             private readonly Action<Element, Item> onItem;
             private readonly Action<Element, ElementState, ElementState> onState;
             private readonly Action<Element, StopToken> onStop;
+            private readonly Action<Element, SimuLean.WaitTimeout> onTimeout;
 
             public Channel(SignalHub hub, Element element, SignalKind kind)
             {
@@ -171,6 +190,7 @@ namespace SimuLean.Signals
                     case SignalKind.StateChanged: onState = (e, from, to) => Raise(null, from, to); element.StateChanged += onState; break;
                     case SignalKind.Stopped: onStop = (e, t) => Raise(null, t.State, t.State); element.Stopped += onStop; break;
                     case SignalKind.Resumed: onStop = (e, t) => Raise(null, t.State, t.State); element.Resumed += onStop; break;
+                    case SignalKind.WaitTimedOut: onTimeout = (e, t) => Raise(new SignalArgs(element, t, hub.clock.GetSimulationTime())); element.WaitTimedOut += onTimeout; break;
                 }
             }
 
@@ -186,12 +206,15 @@ namespace SimuLean.Signals
                     case SignalKind.StateChanged: element.StateChanged -= onState; break;
                     case SignalKind.Stopped: element.Stopped -= onStop; break;
                     case SignalKind.Resumed: element.Resumed -= onStop; break;
+                    case SignalKind.WaitTimedOut: element.WaitTimedOut -= onTimeout; break;
                 }
             }
 
             private void Raise(Item item, ElementState from, ElementState to)
+                => Raise(new SignalArgs(kind, element, item, from, to, hub.clock.GetSimulationTime()));
+
+            private void Raise(in SignalArgs args)
             {
-                var args = new SignalArgs(kind, element, item, from, to, hub.clock.GetSimulationTime());
                 // In the order the subscribers registered (the reactions' build order): the immediate ones now, the
                 // next-event ones as zero-delay events, which the clock runs in the order they were scheduled.
                 for (int i = 0; i < subscribers.Count; i++)

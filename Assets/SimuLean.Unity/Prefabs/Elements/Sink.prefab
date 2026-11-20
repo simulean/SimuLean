@@ -107,7 +107,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   nextElements: []
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode

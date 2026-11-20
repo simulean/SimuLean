@@ -11,7 +11,7 @@ namespace SimuLean.Unity
     /// straight-line distances or from routes on the network; a missing pair uses the reverse one when symmetric.
     /// Exported as a <c>TravelMatrixConfig</c>; later baked from NavMesh.
     /// </summary>
-    [SimuLeanTool(SimuLeanToolCategories.Transport, "Travel Matrix",
+    [SimuLeanTool(SimuLeanToolCategories.Transport, "Travel Matrix", Order = 2,
         Description = "Distances between locations for resources that travel by matrix (operators walking, forklifts)")]
     [AddComponentMenu("SimuLean/Travel Matrix")]
     public class UnityTravelMatrix : MonoBehaviour
@@ -46,7 +46,7 @@ namespace SimuLean.Unity
             var mc = new SimuLean.Serialization.TravelMatrixConfig { Id = id, Symmetric = symmetric };
             foreach (var e in entries)
                 if (e?.from != null && e.to != null)
-                    mc.Entries.Add(SimuLean.Serialization.ResourceBuild.MatrixEntry(e.from.NodeId, e.to.NodeId, e.distance));
+                    mc.Entries.Add(SimuLean.Serialization.TravelMatrixEntryConfig.Of(e.from.NodeId, e.to.NodeId, e.distance));
             return mc;
         }
 

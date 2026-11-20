@@ -33,6 +33,23 @@ namespace SimuLean
         /// subscribes.</summary>
         public static event System.Action<Item> VisualAttached;
 
+        /// <summary>How the item looks in the 3D view (a reaction's <c>SetItemLook</c>; null = its visual's own look). View-only:
+        /// not a label, read by no rule or statistic.</summary>
+        public ItemLook Look { get; private set; }
+
+        /// <summary>Changes the look: what <paramref name="change"/> sets replaces the item's, the rest stays. Raises
+        /// <see cref="LookChanged"/> when the item has a visual (never headless).</summary>
+        public void SetLook(ItemLook change)
+        {
+            if (change == null || change.IsEmpty) return;
+            Look = Look == null ? change : Look.With(change);
+            if (visual != null) LookChanged?.Invoke(this);
+        }
+
+        /// <summary>Raised when an item with a visual gets a new <see cref="Look"/>; the Unity layer applies it to the visual
+        /// (and again to a new visual, on <see cref="VisualAttached"/>). The engine never subscribes.</summary>
+        public static event System.Action<Item> LookChanged;
+
         public List<Item> subItems;
 
 
@@ -78,16 +95,6 @@ namespace SimuLean
             this.type = newType;
         }
 
-        /// <summary>
-        /// Returns the textual type previously assigned with <see cref="SetType"/>.
-        /// This is useful for debugging when items are identified by a string
-        /// rather than the numeric id.
-        /// </summary>
-        public string GetTypeName()
-        {
-            return type;
-        }
-
         /// <summary>Name of the item: its type (see <see cref="SetType"/>).</summary>
         public override string Name => type;
 
@@ -105,6 +112,21 @@ namespace SimuLean
 
         /// <summary>Sets a text label, never parsed as a number (replaces a label of another kind with the same name).</summary>
         public void SetLabelText(string label, string text) => Properties.SetString(label, text);
+
+        /// <summary>
+        /// The item's size where it has none: <c>width</c> (across, x), <c>height</c> and <c>length</c> (z),
+        /// the labels a storage with physical dimensions, a stacker and a combiner read; a side already labelled (set by
+        /// the model) is kept, a non-positive one is not set. <paramref name="size"/> = (width, height, length[, load floor:
+        /// a walled container's inside floor, <c>loadFloor</c>]); null = none.
+        /// </summary>
+        public void SetSizeWhereMissing(double[] size)
+        {
+            if (size == null || size.Length < 3) return;
+            string[] labels = { SimuLean.Storage.StorageSystem.DefaultWidthLabel, SimuLean.Storage.StorageSystem.DefaultHeightLabel,
+                                SimuLean.Storage.StorageSystem.DefaultLengthLabel, SimuLean.Storage.StorageSystem.DefaultLoadFloorLabel };
+            for (int i = 0; i < System.Math.Min(size.Length, labels.Length); i++)
+                if (size[i] > 0 && !HasLabel(labels[i])) SetLabelValue(labels[i], size[i]);
+        }
 
         /// <summary>The label as text (a number in the invariant culture), or null.</summary>
         public string GetLabelText(string label) => HasProperties ? Properties.GetText(label) : null;

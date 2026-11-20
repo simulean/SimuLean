@@ -14,7 +14,7 @@ namespace SimuLean.Transport
 
         /// <summary>The track itself is the transporter (distributed capacity along its
         /// length). Reserved for the conveyor implementation — drawable/definable now,
-        /// simulated in a later phase.</summary>
+        /// not simulated yet.</summary>
         Conveyor = 1,
 
         /// <summary>Single-vehicle guided track (crane / ASRS aisle). Reserved: travelled like a path today (the
@@ -34,7 +34,7 @@ namespace SimuLean.Transport
         /// <summary>Reserved: a speed cap in m/s for vehicles on this track (&lt;= 0 = uncapped); not applied yet.</summary>
         public double MaxSpeed;
 
-        // ── reserved for the conveyor phase (see unified proposal §4.6) ──
+        // ── reserved for conveyors ──
         public double ItemSeparation;
         public bool Accumulating = true;
         public double Acceleration;   // reserved; not simulated

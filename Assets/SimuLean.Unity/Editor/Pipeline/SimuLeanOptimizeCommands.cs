@@ -14,8 +14,8 @@ using UnityEditor;
 namespace SimuLean.Unity.Editor
 {
     /// <summary>
-    /// Optimisation through the MCP: the agents set up, started, polled
-    /// (sleeping through <c>eval</c>) and read the Optimizer in C#. <c>simulean_optimize_start</c> runs a search in the
+    /// Optimisation through the MCP, without setting up, polling and reading the Optimizer in C# through
+    /// <c>eval</c>. <c>simulean_optimize_start</c> runs a search in the
     /// background — given in the call (parameters, metrics and fitness in the study grammar) or set up on a scene
     /// Optimizer — and <c>simulean_optimize_status</c> reports it (with <c>wait</c>). The scene is never changed.
     /// </summary>
@@ -32,14 +32,14 @@ namespace SimuLean.Unity.Editor
         private static OptimizeJob optimizeJob;
 
         [CliCommand("simulean_optimize_start", "Start an optimisation in the background and return at once (poll simulean_optimize_status " +
-                                               "with wait). Either give the search here — parameters (study paths with a range " +
+                                               "with wait). Either give the search here — factors (study paths with a range " +
                                                "'Buffer.capacity=1..10;team:Welders.members=1..4', or options 'a|b|c', searched over those values only), metrics " +
                                                "('name=path;…' as simulean_run_headless) and fitness (maximised expression over the " +
                                                "metric names; negate to minimise) — or name a scene Optimizer set up in the inspector; " +
                                                "the other arguments override its settings. Checked before it starts. One search at a time.",
                     Tags = new[] { Tag })]
         public static object OptimizeStart(
-            [CliArg("parameters", "Decision variables: 'path=lo..hi' (a range) or 'path=a|b|c' (those values only, numbers too) or JSON {\"path\": [lo, hi]} (empty = the Optimizer's).")] string parameters = "",
+            [CliArg("factors", "Decision variables: 'path=lo..hi' (a range) or 'path=a|b|c' (those values only, numbers too) or JSON {\"path\": [lo, hi]} (empty = the Optimizer's).")] string factors = "",
             [CliArg("metrics", "Observed values 'name=path;…' or JSON (empty = the Optimizer's).")] string metrics = "",
             [CliArg("fitness", "Maximised expression over the metric names, e.g. 'out - 50*operators' (empty = the Optimizer's, or the only metric).")] string fitness = "",
             [CliArg("optimizer", "A scene Optimizer (name or path) whose setup is used (empty = none: the search given here).")] string optimizer = "",
@@ -47,13 +47,13 @@ namespace SimuLean.Unity.Editor
             [CliArg("algorithmSettings", "The algorithm's settings 'populationSize=20;generations=10' or JSON.")] string algorithmSettings = "",
             [CliArg("maxEvaluations", "Stop after this many candidates (0 = the algorithm's end; -1 = the Optimizer's).")] int maxEvaluations = -1,
             [CliArg("maxSeconds", "Stop after this many seconds (0 = no limit; -1 = the Optimizer's).")] double maxSeconds = -1,
-            [CliArg("replications", "Runs per candidate, common random numbers (0 = the Optimizer's, else 1).")] int replications = 0,
-            [CliArg("runTime", "Simulated time of each run (0 = the Optimizer's, else the clock's).")] double runTime = 0,
-            [CliArg("seed", "Seed of the runs and of the algorithm (0 = the Optimizer's, else 1).")] int seed = 0,
-            [CliArg("threads", "Candidates simulated at once (0 = the Optimizer's, else one per processor up to 8).")] int threads = 0,
+            [CliArg("replications", "Runs per candidate, common random numbers (-1 = the Optimizer's, else 1).")] int replications = -1,
+            [CliArg("horizon", "Simulated time of each run (-1 = the Optimizer's, else the model's).")] double horizon = -1,
+            [CliArg("seed", "Seed of the runs and of the algorithm (-1 = the Optimizer's, else 1).")] int seed = -1,
+            [CliArg("threads", "Candidates simulated at once (-1 = the Optimizer's, else half the logical processors, 1 to 16).")] int threads = -1,
             [CliArg("root", "Model root GameObject when no Optimizer is named (empty = the scene's model).")] string root = "")
-            => AgentReply.Of(() => OptimizeStartOf(parameters, metrics, fitness, optimizer, algorithm, algorithmSettings, maxEvaluations,
-                                                   maxSeconds, replications, runTime, seed, threads, root));
+            => AgentReply.Of(() => OptimizeStartOf(factors, metrics, fitness, optimizer, algorithm, algorithmSettings, maxEvaluations,
+                                                   maxSeconds, replications, horizon, seed, threads, root));
 
         [CliCommand("simulean_optimize_status", "The search of simulean_optimize_start: 'running' (iteration, candidates, best so far), " +
                                                 "then 'completed' with the best candidate (fitness, values) and its metrics re-run for " +
@@ -64,12 +64,12 @@ namespace SimuLean.Unity.Editor
             [CliArg("wait", "Seconds to wait for the search to end (0 = answer at once; at most 55).")] double wait = 0)
         {
             if (cancel && optimizeJob != null && !optimizeJob.Task.IsCompleted) optimizeJob.Cancel.Cancel();
-            return JobWait.Until(() => JobWait.Json(AgentReply.Of(OptimizeStatusOf)), wait);
+            return JobWait.Until(() => AgentReply.Run(OptimizeStatusOf), wait);
         }
 
-        private static object OptimizeStartOf(string parameters, string metrics, string fitness, string optimizer, string algorithm,
+        private static object OptimizeStartOf(string factors, string metrics, string fitness, string optimizer, string algorithm,
                                               string algorithmSettings, int maxEvaluations, double maxSeconds, int replications,
-                                              double runTime, int seed, int threads, string root)
+                                              double horizon, int seed, int threads, string root)
         {
             if (optimizeJob != null && !optimizeJob.Task.IsCompleted)
                 throw new InvalidOperationException("A search is going on: poll simulean_optimize_status (or cancel it there).");
@@ -80,25 +80,28 @@ namespace SimuLean.Unity.Editor
             {
                 var component = FindObject(optimizer).GetComponent<Optimizer>()
                                 ?? throw new ArgumentException($"'{optimizer}' has no Optimizer component.");
-                if (!string.IsNullOrWhiteSpace(parameters) || !string.IsNullOrWhiteSpace(metrics))
-                    throw new ArgumentException("parameters / metrics come from the Optimizer when one is named: set them on it " +
+                if (!string.IsNullOrWhiteSpace(factors) || !string.IsNullOrWhiteSpace(metrics))
+                    throw new ArgumentException("factors / metrics come from the Optimizer when one is named: set them on it " +
                                                 "(simulean_set) or leave optimizer empty.");
                 setup = component.Prepare();
                 if (!string.IsNullOrWhiteSpace(fitness)) { setup.Objective = setup.Objective.WithFitness(fitness); setup.Fitness = fitness; }
             }
-            else setup = SearchOf(parameters, metrics, fitness, root, warnings);
+            else setup = SearchOf(factors, metrics, fitness, root, warnings);
 
             if (!string.IsNullOrWhiteSpace(algorithm)) setup.Algorithm = AlgorithmOf(algorithm);
             ApplySettings(setup.Algorithm, algorithmSettings);
             if (maxEvaluations >= 0) setup.Settings.MaxEvaluations = maxEvaluations;
             if (maxSeconds >= 0) setup.Settings.MaxSeconds = maxSeconds;
-            if (replications > 0) setup.Objective.Replications = replications;
-            if (runTime > 0) setup.Objective.RunTime = runTime;
-            if (seed != 0) { setup.Objective.BaseSeed = seed; setup.Settings.Seed = seed; }
-            if (threads > 0) setup.Settings.Parallelism = threads;
+            // -1 (the default) = the Optimizer's value; anything else is used as given (a seed 0 is a seed)
+            if (replications != -1) setup.Objective.Replications = replications > 0 ? replications : throw new ArgumentException($"replications: {replications} — at least 1 (-1 = the Optimizer's).");
+            if (horizon != -1) setup.Objective.RunTime = horizon > 0 ? horizon : throw new ArgumentException($"horizon: {horizon} — a time > 0 (-1 = the Optimizer's).");
+            if (seed != -1) { setup.Objective.BaseSeed = seed; setup.Settings.Seed = seed; }
+            if (threads != -1) setup.Settings.Parallelism = threads > 0 ? threads : throw new ArgumentException($"threads: {threads} — at least 1 (-1 = the Optimizer's).");
 
-            var job = new OptimizeJob { Cancel = new CancellationTokenSource(), Started = DateTime.Now, Log = new AgentReply.LogCapture() };
+            setup.Executor = ExternalRunner.Prepare();   // main thread: each generation as one batch outside the editor, or here
+            var job = new OptimizeJob { Cancel = new CancellationTokenSource(), Started = DateTime.Now, Log = new AgentReply.LogCapture(job: true) };
             string projectRoot = ResultsOutput.ProjectRoot, scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            using (job.Log.Enter(detached: true))   // its messages go to it alone
             job.Task = Task.Run(() =>
             {
                 try
@@ -114,11 +117,11 @@ namespace SimuLean.Unity.Editor
             {
                 status = "running",
                 algorithm = setup.Algorithm.Describe(),
-                parameters = setup.Objective.Parameters.Select(p => p.Variable.Name).ToList(),
+                factors = setup.Objective.Parameters.Select(p => p.Variable.Name).ToList(),
                 metrics = setup.Objective.Metrics.Select(m => m.Name).ToList(),
                 fitness = setup.Fitness,
                 replications = setup.Objective.Replications,
-                runTime = setup.Objective.RunTime,
+                horizon = setup.Objective.RunTime,
                 seed = setup.Settings.Seed,
                 maxEvaluations = setup.Settings.MaxEvaluations,
                 maxSeconds = setup.Settings.MaxSeconds,
@@ -129,18 +132,18 @@ namespace SimuLean.Unity.Editor
 
         /// <summary>The search given in the call, on the scene's model, checked like a study (the metric paths on the built
         /// model).</summary>
-        private static Optimizer.Setup SearchOf(string parameters, string metrics, string fitness, string root, List<string> warnings)
+        private static Optimizer.Setup SearchOf(string factors, string metrics, string fitness, string root, List<string> warnings)
         {
-            if (string.IsNullOrWhiteSpace(parameters)) throw new ArgumentException("parameters: give at least one (e.g. 'Buffer.capacity=1..10'), or name an optimizer.");
+            if (string.IsNullOrWhiteSpace(factors)) throw new ArgumentException("factors: give at least one (e.g. 'Buffer.capacity=1..10'), or name an optimizer.");
             if (string.IsNullOrWhiteSpace(metrics)) throw new ArgumentException("metrics: give at least one (e.g. 'out=Sink.input'), or name an optimizer.");
             var study = SceneStudy.Of(string.IsNullOrEmpty(root) ? null : FindObject(root));
-            var ps = OptimizationParametersOf(parameters).Select(p => p.options ? study.OptionsOf(p.path, p.values) : study.ParameterOf(p.path, p.values)).ToList();
+            var ps = OptimizationParametersOf(factors).Select(p => p.options ? study.OptionsOf(p.path, p.values) : study.ParameterOf(p.path, p.values)).ToList();
             foreach (var p in ps)
             {
                 string note = SimuLean.Optimization.Study.RangeNote(p);
                 if (note != null) warnings.Add(note);
             }
-            var ms = MetricsOf(metrics);
+            var ms = SimuLean.Optimization.StudyInputs.MetricsOf(metrics);
             foreach (var (name, path) in ms) study.Metric(name, path);
             var check = study.Check();
             if (!check.Ok) throw new ArgumentException("The search cannot run: " + string.Join(" | ", check.Errors));
@@ -165,7 +168,7 @@ namespace SimuLean.Unity.Editor
         internal static List<(string path, string[] values, bool options)> OptimizationParametersOf(string parameters)
         {
             bool json = (parameters ?? "").TrimStart().StartsWith("{") || (parameters ?? "").TrimStart().StartsWith("[");
-            return FactorsOf(parameters).Select(f =>
+            return SimuLean.Optimization.StudyInputs.FactorsOf(parameters).Select(f =>
             {
                 if (f.levels.Length == 1 && f.levels[0].Contains(".."))
                 {
@@ -201,7 +204,7 @@ namespace SimuLean.Unity.Editor
             IEnumerable<(string, string)> pairs = settings.Trim().StartsWith("{")
                 ? JObject.Parse(settings).Properties().Select(p => (p.Name, p.Value.Type == JTokenType.String ? (string)p.Value
                                                                      : p.Value.ToString(Newtonsoft.Json.Formatting.None)))
-                : Pairs(settings, "algorithmSettings");
+                : SimuLean.Optimization.StudyInputs.Pairs(settings, "algorithmSettings");
             foreach (var (name, value) in pairs)
             {
                 var f = fields.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))
@@ -246,7 +249,7 @@ namespace SimuLean.Unity.Editor
                 var metrics = new Dictionary<string, object>();
                 if (set != null)
                     foreach (string m in set.MetricNames)
-                        metrics[m] = Interval(set.Runs.Where(x => x.Metrics.ContainsKey(m)).Select(x => x.Metrics[m]), 0.95);
+                        metrics[m] = SimuLean.Optimization.StudySpec.IntervalOf(set.Runs.Where(x => x.Metrics.ContainsKey(m)).Select(x => x.Metrics[m]), 0.95);
                 best = new { fitness = Finite(r.BestEvaluation.Fitness), values = Values(r.Best), metrics };
             }
             return new

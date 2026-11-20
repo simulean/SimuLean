@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: "Shipyard \u2014 block assembly and erection"
+  description: 'The shipbuilding pack: the sub-blocks of a sample hull are assembled, some turned over, joined into blocks, outfitted and painted, then erected on the slipway in sequence and the ship is launched. A showcase of the naval models, the block turn, the erection dock and the Recorder (the README''s shipbuilding video), with demo-scale times.'
+  author: SimuLean
+  scenePath: Assets/Scenes/LibraryExamples/Shipyard_Library.unity
+  copiedFrom: 
+  created: 2026-11-09 12:00:00
+  modified: 2026-11-09 12:00:00
+  represents: 'Sub-Block Kits (Schedule source, the generated table naval:subblocks;interval=12:sample_hull: 7 sub-blocks, one every 12 s) -> Sub-Assembly (2 places, t_sba from the table else 6 s, 1 fitter of the team Fitters) -> Turning (1 place, 2 s) for the sub-blocks with turn == 1, else straight on -> Sub-Block Yard (8, AnyAccepted). Block Orders (naval:blocks: 4 blocks) are the main input of Block Assembly Bays (Combiner, 2 bays, t_ba else 16 s, 2 welders of the team Welders): each block pulls the sub-blocks with its label block, as many as its nsub (updateRequirements). -> Outfitting (2 places, 8 s) -> Painting (1 place, 10 s, the team Painters) -> Block Yard (6, AnyAccepted) -> Slipway (ErectionDock: blocks erected in the order of erect_seq after their erect_after predecessors, 4 + 0.02 * weight s each with the Slipway Crane; 4 blocks make the ship Ship) -> Launch. The clock starts on 2026-03-02 06:00.'
+  kpis: 'launched=Launch.input (ships), erected=Slipway.output (blocks), blocks=Block Assembly Bays.output, sub=Sub-Assembly.output, turned=Turning.output, painted=Painting.output; model.makespan (the launch time); team:Welders.utilization, team:Fitters.utilization, team:Painters.utilization, team:Slipway Crane.utilization.
+
+    All times are constant or from the table, so every seed gives the same run: 7 sub-blocks (2 turned), 4 blocks assembled, outfitted, painted and erected, one ship launched at 83.8 s (horizon 200 s); welders busy 0.16, fitters 0.12, crane 0.11 over the 200 s.'
+  parameters: 'The hull: Sub-Block Kits.tableSource / Block Orders.tableSource (naval:subblocks / naval:blocks; interval=12 between arrivals; sample_hull). Capacities: Sub-Assembly.capacity (2), Block Assembly Bays.capacity (2 bays), Outfitting.capacity (2), Sub-Block Yard.capacity (8), Block Yard.capacity (6). Crews: team:Fitters.members (2), team:Welders.members (4), Block Assembly Bays.processBy.requirements[0].count (2 welders per block), team:Painters.members (1). Times: Turning / Outfitting / Painting.delayStrategy.expression (2 / 8 / 10 s), Slipway.delayStrategy.expression (4 + 0.02 * weight). Erection: Slipway.erectionRule (Sequence), Slipway.expectedBlocks (4).'
+  assumptions: 'A showcase, not a study: time unit s with demo-scale times (seconds where a yard has days) so one short take shows a whole hull; horizon 200 s, no warm-up, deterministic. The hull is the generated sample_hull, not a real ship. The crews are abstract teams of skilled members (fitters, welders, painters) and the slipway crane a one-member team; the 3D crew is the look. No transport between the shops, no weather, no rework.'

@@ -1,8 +1,7 @@
 """
 SimuLean asset: operator (shop-floor worker in work overalls, hi-vis vest, safety boots, optional hard
 hat) in two looks -- male and female -- with the same height and the same joint names, so a view walks
-and carries both the same way and the look is a field (OperatorAppearance in Unity, as the operator
-gender in FlexSim).
+and carries both the same way and the look is a field (OperatorAppearance in Unity).
 
 The humans are generated with MPFB 2 (MakeHuman for Blender, https://static.makehumancommunity.org/mpfb.html):
 the add-on's code is GPL-3.0 and is NOT part of this repository; the assets it uses (base mesh, proxies,

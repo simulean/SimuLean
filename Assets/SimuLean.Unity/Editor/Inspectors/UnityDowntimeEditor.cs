@@ -16,20 +16,26 @@ namespace SimuLean.Unity.Editor
             var d = (UnityDowntime)target;
 
             Field("id");
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("downtimeEnabled"), new GUIContent("Enabled"));
             var kindBefore = (UnityDowntime.DowntimeKind)serializedObject.FindProperty("kind").enumValueIndex;
             Field("kind");
             Field("targets", true);
+            Field("teamTargets", true);
             var kind = (UnityDowntime.DowntimeKind)serializedObject.FindProperty("kind").enumValueIndex;
-            // a periodic stop is planned: switching to it turns the failure default (BREAKDOWN) into SCHEDULED_DOWN
+            // a state left at a kind's default follows the kind: switching kind clears it (empty = the new kind's default)
             var stateProp = serializedObject.FindProperty("stateName");
-            if (kind != kindBefore && kind == UnityDowntime.DowntimeKind.Periodic && stateProp.stringValue == "BREAKDOWN")
-                stateProp.stringValue = "SCHEDULED_DOWN";
+            if (kind != kindBefore && stateProp.stringValue == SimuLean.Serialization.DowntimeBuilder.DefaultStateName(kindBefore.ToString()))
+                stateProp.stringValue = "";
             if (kind == UnityDowntime.DowntimeKind.Timetable) Field("targetKeys", true);
 
             EditorGUILayout.Space(4);
             EditorGUILayout.LabelField("Stop behaviour", EditorStyles.boldLabel);
             Field("stateName");
+            if (string.IsNullOrEmpty(stateProp.stringValue))
+                EditorGUILayout.LabelField(" ", $"empty: {SimuLean.Serialization.DowntimeBuilder.DefaultStateName(kind.ToString())} (the kind's)", EditorStyles.miniLabel);
             Field("mode");
+            if (serializedObject.FindProperty("mode").intValue == (int)UnityDowntime.DowntimeMode.KindDefault)
+                EditorGUILayout.LabelField(" ", $"{SimuLean.Serialization.DowntimeBuilder.DefaultMode(kind.ToString())} (the kind's)", EditorStyles.miniLabel);
             Field("blockInput");
             Field("blockOutput");
 
@@ -81,7 +87,7 @@ namespace SimuLean.Unity.Editor
                     EditorGUILayout.LabelField("Timetable", EditorStyles.boldLabel);
                     Field("overlap");
                     Field("rows", true);
-                    Field("dataTable");   // The stops from a data table of the model
+                    Field("dataTable");   // the stops from a data table of the model
                     if (serializedObject.FindProperty("dataTable").objectReferenceValue != null)
                     {
                         EditorGUI.indentLevel++;
@@ -98,11 +104,19 @@ namespace SimuLean.Unity.Editor
                     break;
             }
 
+            if (kind != UnityDowntime.DowntimeKind.Shift)   // the crew that repairs each stop (a shift needs none)
+            {
+                EditorGUILayout.Space(4);
+                EditorGUILayout.LabelField("Repair", EditorStyles.boldLabel);
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("repairBy"), new GUIContent("Repair By"), true);
+            }
+
             if (Application.isPlaying && d.Generators.Count > 0)
             {
                 EditorGUILayout.Space(4);
                 EditorGUILayout.LabelField("Live", EditorStyles.boldLabel);
                 EditorGUILayout.LabelField($"{d.TotalStops} stops, {d.TotalDowntime:F1} down (all targets)");
+                if (d.TotalRepairs >= 0) EditorGUILayout.LabelField($"{d.TotalRepairs} repairs, wait for the crew {d.RepairWaitAvg:F1} on average");
                 Repaint();
             }
 

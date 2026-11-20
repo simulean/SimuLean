@@ -59,7 +59,7 @@ namespace SimuLean.Unity
 
         private bool FindLeaves()
         {
-            // no leaves last time: search again only when the hierarchy changed (a model swapped), not every frame (review2 #22)
+            // no leaves last time: search again only when the hierarchy changed (a model swapped), not every frame
             if (leaflessHierarchy == transform.hierarchyCount) return false;
             leaflessHierarchy = transform.hierarchyCount;
             foreach (var t in GetComponentsInChildren<Transform>(true))

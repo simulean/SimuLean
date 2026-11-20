@@ -74,7 +74,8 @@ namespace SimuLean
     /// a sampled delay, and sends the container out (one container at a time,
     /// <see cref="SingleJobStation"/>, optional resources). AFTER each completed pick
     /// cycle, all remaining (non-picked) stock is flushed in batch through the
-    /// <see cref="ReturnsPort"/>.
+    /// <see cref="ReturnsPort"/> — unless <see cref="ReturnLeftovers"/> is off (a goods-to-person station whose bins keep
+    /// their stock between containers).
     /// </summary>
     public class PickingStation : SingleJobStation
     {
@@ -84,6 +85,10 @@ namespace SimuLean
         private readonly ReturnsPort  returnsPort;
 
         private Dictionary<string, int> currentPickList;
+
+        /// <summary>True (the default): the stock not picked leaves through the returns port after each container (an
+        /// order kitted from stock brought for it). False: it stays in the stock port for the next containers.</summary>
+        public bool ReturnLeftovers { get; set; } = true;
 
         /// <param name="delayStrategy">Pick-cycle duration sampler (supports ExpressionSampler on the container).</param>
         /// <param name="pickListSource">Resolves the SKU→qty list per container; null/empty list → container passes through unpicked.</param>
@@ -156,8 +161,9 @@ namespace SimuLean
         /// <summary>The container left: batch-return all non-picked stock (before the slot is free).</summary>
         protected override void OnJobLeaving()
         {
-            foreach (var leftover in stockPort.DrainAll())
-                returnsPort.Dispatch(leftover);
+            if (ReturnLeftovers)
+                foreach (var leftover in stockPort.DrainAll())
+                    returnsPort.Dispatch(leftover);
             currentPickList = null;
         }
 

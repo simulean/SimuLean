@@ -68,6 +68,14 @@ static class Program
     static void TestTextViewCopy()
     {
         var b = new PropertyBag();
+        {   // Set(ExprValue): the one writer of an evaluated value
+            var e = new PropertyBag();
+            e.Set("n", SimuLean.Expressions.ExprValue.Of(4.5)); e.Set("t", SimuLean.Expressions.ExprValue.Of("007"));
+            Check(e.KindOf("n") == PropertyKind.Double && e.GetDouble("n") == 4.5, "Set(ExprValue): a number → double");
+            Check(e.KindOf("t") == PropertyKind.String && e.GetText("t") == "007", "Set(ExprValue): a text stays text ('007')");
+            e.Set("n", SimuLean.Expressions.ExprValue.None);
+            Check(!e.Has("n") && e.Count == 1, "Set(ExprValue): none removes the property");
+        }
         b.SetParsed("n", "3,5"); b.SetParsed("t", "A-12"); b.SetParsed("e", "");
         Check(b.KindOf("n") == PropertyKind.Double && b.GetDouble("n") == 3.5, "numeric text (comma) → double");
         Check(b.KindOf("t") == PropertyKind.String && !b.Has("e"), "other text → string; empty ignored");
@@ -109,20 +117,24 @@ static class Program
         b.SetDouble("rate", 0.1 + 0.2); b.SetString("note", "a|b"); b.SetArray("d", new[] { 1.5, 2.0 }); b.SetArray("s", new[] { "x", "y" });
         b.SetRef("next", new Station(new SimClock(1), "Paint"));
         var recs = SimuLean.Serialization.PropertyRecords.Encode(b);
-        Check(recs.Count == 5 && recs.Contains("ref|next|Paint") && recs.Contains("s|note|a|b"), "encoded (text may contain '|'; refs by name)");
+        Check(recs.Count == 5 && recs.Exists(r => r.Kind == SimuLean.Serialization.PropertyValueKind.Reference && r.Name == "next" && r.Text == "Paint")
+              && recs.Exists(r => r.Kind == SimuLean.Serialization.PropertyValueKind.Text && r.Text == "a|b"), "encoded (text kept as it is; refs by name)");
         var c = new PropertyBag();
         var refs = SimuLean.Serialization.PropertyRecords.Apply(recs, c, "test");
         Check(c.GetDouble("rate") == 0.1 + 0.2 && c.GetText("note") == "a|b", "number exact, text intact");
         Check(c.GetArray<double>("d").SequenceEqual(new[] { 1.5, 2.0 }) && c.GetArray<string>("s").SequenceEqual(new[] { "x", "y" }), "arrays");
         Check(refs.Count == 1 && refs[0].name == "next" && refs[0].target == "Paint" && !c.Has("next"), "references returned to resolve later");
         bool threw = false;
-        try { SimuLean.Serialization.PropertyRecords.Apply(new[] { "d|x|abc" }, c, "test"); } catch (FormatException) { threw = true; }
+        try { SimuLean.Serialization.PropertyRecords.Apply(new[] { SimuLean.Serialization.PropertySettings.Number("x", double.NaN) }, c, "test"); } catch (FormatException) { threw = true; }
         Check(threw, "a bad number fails loudly");
         threw = false;
-        try { SimuLean.Serialization.PropertyRecords.Apply(new[] { "q|x|1" }, c, "test"); } catch (FormatException) { threw = true; }
+        try { SimuLean.Serialization.PropertyRecords.Apply(new[] { new SimuLean.Serialization.PropertySettings { Name = "x", Kind = (SimuLean.Serialization.PropertyValueKind)99 } }, c, "test"); } catch (FormatException) { threw = true; }
         Check(threw, "an unknown kind fails loudly");
+        threw = false;
+        try { SimuLean.Serialization.PropertyRecords.Apply(new[] { SimuLean.Serialization.PropertySettings.Number("", 1) }, c, "test"); } catch (FormatException) { threw = true; }
+        Check(threw, "a property without a name fails loudly");
 
-        // Text arrays whose items contain ',' or '\' come back as they were
+        // text arrays whose items contain ',' or '\' come back as they were
         var e = new PropertyBag();
         var items = new[] { "a,b", @"c\d", "", @"e\,f" };
         e.SetArray("t", items);
@@ -135,9 +147,9 @@ static class Program
     static void TestFactoryProperties()
     {
         var cfg = new SimuLean.Serialization.SimulationConfig { Seed = 1, MaxSimulationTime = 10 };
-        var a = new SimuLean.Serialization.ElementConfig("q1", "UnityQueue", "Buffer"); a.Parameters["capacity"] = 5;
-        var b = new SimuLean.Serialization.ElementConfig("sink", "UnitySink", "Exit");
-        a.Parameters[SimuLean.Serialization.PropertyRecords.Key] = new List<string> { "d|zone|3", "s|owner|Line 2", "ref|exit|Exit", "ref|lost|Nowhere" };
+        var a = new SimuLean.Serialization.ElementConfig("q1", "Queue", "Buffer"); a.Set("capacity", 5);
+        var b = new SimuLean.Serialization.ElementConfig("sink", "Sink", "Exit");
+        a.Set(SimuLean.Serialization.PropertyRecords.Key, new List<SimuLean.Serialization.PropertySettings> { SimuLean.Serialization.PropertySettings.Number("zone", 3), SimuLean.Serialization.PropertySettings.OfText("owner", "Line 2"), SimuLean.Serialization.PropertySettings.Reference("exit", "Exit"), SimuLean.Serialization.PropertySettings.Reference("lost", "Nowhere") });
         cfg.Elements.Add(a); cfg.Elements.Add(b);
         var warnings = new List<string>();
         var old = SimLog.WarningSink;
@@ -169,13 +181,13 @@ static class Program
 
         var element = new Station(clock, "Press");
         element.Properties.SetDouble("tonnage", 250);
-        Check(element.Name == "Press" && element.GetName() == "Press" && element.Properties.GetDouble("tonnage") == 250, "elements have properties");
+        Check(element.Name == "Press" && element.Name == "Press" && element.Properties.GetDouble("tonnage") == 250, "elements have properties");
 
         var op = new TaskExecutor("Welder", clock);
-        op.SetLabelValue("skill", "welding");
-        op.SetLabelValue("level", "3");
-        Check(op.Properties.GetText("skill") == "welding" && op.GetLabelValue("level") == 3 && op.GetListText("skill") == "welding", "resource labels on the same model");
-        Check(op.LabelNames.Count() == 2 && op.GetListNumber("level") == 3, "list fields read them");
+        op.SetProperty("skill", "welding");
+        op.SetProperty("level", "3");
+        Check(op.Properties.GetText("skill") == "welding" && op.GetProperty("level") == 3 && op.GetListText("skill") == "welding", "resource labels on the same model");
+        Check(op.PropertyNames.Count() == 2 && op.GetListNumber("level") == 3, "list fields read them");
 
         item.Properties.SetRef("carrier", op);
         Check(item.Properties.GetRef("carrier") == op && item.GetLabelText("carrier") == "Welder", "an item refers to a resource");

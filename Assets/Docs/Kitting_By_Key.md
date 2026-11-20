@@ -2,7 +2,7 @@
 
 A buffer (a **yard**) holds parts that several **assembly bays** need, each bay only "its own" part — e.g. the
 sub-blocks of a shipyard: bay A builds block 3, then 1; bay B builds 2, then 4; the sub-blocks arrive 1, 2, 3, 4. A
-crane carries each part from the yard to its bay. SimuLean does it the way FlexSim does: **the receiver decides which
+crane carries each part from the yard to its bay. SimuLean splits the two: **the receiver decides which
 item it takes** (its pull requirement), **the holder decides whether the item is carried** (its transport).
 
 ## The bay: a Combiner that takes "the part of my block"
@@ -10,7 +10,9 @@ item it takes** (its pull requirement), **the holder decides whether the item is
 - Main input: the blocks (one main item per assembly).
 - Component input: the yard.
 - *Pull Mode* **Single Label**, *Label Name* `block`, *Label Value* **empty** — the value comes from the main item:
-  the bay admits only the sub-block whose `block` equals its block's.
+  the bay admits only the sub-block whose `block` equals its block's. The key may be a number (`block = 3`) or a text
+  (`sku = 'Garments'`): a number matches a numeric label, a text a text label. A main item without the key admits
+  nothing (a warning says so).
 - **Capacity** n = n assemblies in parallel in one element (each with its own main item and its own match), e.g. three
   bays of the same kind as one Combiner of capacity 3.
 

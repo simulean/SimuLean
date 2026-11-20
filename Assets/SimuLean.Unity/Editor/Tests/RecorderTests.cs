@@ -217,7 +217,7 @@ namespace SimuLean.Unity.Editor.Tests
                 return n;
             }
             var frame = new byte[w * h * 4];
-            SimRecorder.BurnCaptions(frame, w, h, new SimRecorder.CaptionText { title = "Consulta", subtitle = "Neumología", titleAlpha = 1f });
+            SimRecorder.BurnCaptions(frame, w, h, new SimRecorder.CaptionText { title = "Consultation", subtitle = "Zone · é", titleAlpha = 1f });
             Assert.Greater(Changed(frame, 0, h / 2, w / 2, h), 100, "the title bottom left");
             Assert.AreEqual(0, Changed(frame, w / 2, 0, w, h / 3), "no clock");
 
@@ -247,12 +247,12 @@ namespace SimuLean.Unity.Editor.Tests
                 var r = go.AddComponent<SimRecorder>();
                 element.transform.position = new Vector3(4, 0, 4);
                 SimuLeanRecordCommands.RecordShot(shot: "Overview", framing: "fixed", position: "0,30,-20", rotation: "45,0,0", seconds: "5",
-                                                  title: "Unidad del sueño", recorder: "RecorderUnderTest");
-                SimuLeanRecordCommands.RecordShot(shot: "Station", target: "RecorderTestStation", distance: "8", elevation: "25", azimuth: "30",
+                                                  title: "Test zone · é", recorder: "RecorderUnderTest");
+                SimuLeanRecordCommands.RecordShot(shot: "Station", @object: "RecorderTestStation", distance: "8", elevation: "25", azimuth: "30",
                                                   seconds: "6", recorder: "RecorderUnderTest");
                 Assert.AreEqual(2, r.shots.Count);
                 Assert.AreEqual(new Vector3(0, 30, -20), r.shots[0].position);
-                Assert.AreEqual("Unidad del sueño", r.shots[0].title);
+                Assert.AreEqual("Test zone · é", r.shots[0].title);
                 Assert.AreEqual(SimRecorder.ShotFraming.Element, r.shots[1].framing, "a target makes an element shot");
                 Assert.IsTrue(r.shots[1].glide, "a new shot after the first glides");
                 Assert.AreEqual(11f, r.TotalSeconds);
@@ -267,7 +267,7 @@ namespace SimuLean.Unity.Editor.Tests
 
                 Assert.Throws<System.ArgumentException>(() => SimuLeanRecordCommands.RecordShot(shot: "Nothing", framing: "element", recorder: "RecorderUnderTest"),
                                                         "an element shot needs a target");
-                // review2 #12: a failing call changes nothing (it edited the shot in place, then failed)
+                // a failing call changes nothing (it edited the shot in place, then failed)
                 float before = r.shots[0].distance;
                 Assert.Throws<System.ArgumentException>(() => SimuLeanRecordCommands.RecordShot(shot: "Station", distance: "20", framing: "pose",
                                                                                                  recorder: "RecorderUnderTest"));

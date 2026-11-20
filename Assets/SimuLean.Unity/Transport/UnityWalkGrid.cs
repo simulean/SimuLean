@@ -12,7 +12,7 @@ namespace SimuLean.Unity
     /// result is plain data (<see cref="rows"/>) that the engine searches with its own A* — scene and headless runs
     /// use the same grid, and a layout optimiser can change it without Unity. Re-bake after moving obstacles.
     /// </summary>
-    [SimuLeanTool(SimuLeanToolCategories.Transport, "Walk Grid",
+    [SimuLeanTool(SimuLeanToolCategories.Transport, "Walk Grid", Order = 3,
         Description = "Walkable area (baked from colliders or the NavMesh) where resources move freely, paths by A*")]
     [AddComponentMenu("SimuLean/Walk Grid")]
     public class UnityWalkGrid : MonoBehaviour

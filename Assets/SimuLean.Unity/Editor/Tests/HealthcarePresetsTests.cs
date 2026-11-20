@@ -61,6 +61,9 @@ namespace SimuLean.Unity.Editor.Tests
             var line = Place("Waiting Line").GetComponent<UnityQueue>();
             Assert.AreEqual(QueueLayoutMode.Line, line.layoutMode);
             Assert.IsFalse(line.showFootprint);
+            var marking = line.GetComponentInChildren<UnityLaneMarking>();
+            Assert.IsNotNull(marking, "the line's outline on the floor");
+            Assert.AreEqual(line.lineLength + 0.8f, marking.length, 1e-4f, "as long as the line, a little beyond its ends");
 
             var home = Place("Home Test");
             Assert.IsNotNull(home.GetComponent<UnityDelay>());
@@ -75,15 +78,16 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void PatientsComeInAndLeaveThroughHospitalDoors()
         {
-            foreach (var name in new[] { "Referrals", "Discharge" })
+            foreach (var (name, yaw) in new[] { ("Patient Arrivals", -90f), ("Discharge", 90f) })
             {
                 var go = Place(name);
                 var sm = go.GetComponent<StationModel>();
                 Assert.AreEqual("HospitalDoor", sm.Chosen.name, name);
+                Assert.AreEqual(yaw, sm.modelYaw, $"{name}: the door crossed along the flow (+X)");
                 Assert.IsNotNull(go.GetComponent<SlidingDoorView>(), $"{name}: the doors open as patients pass");
                 Assert.IsNotNull(go.GetComponentsInChildren<Transform>().FirstOrDefault(t => t.name == "Door_L"), name);
             }
-            var src = Place("Referrals").GetComponent<UnitySource>();
+            var src = Place("Patient Arrivals").GetComponent<UnitySource>();
             Assert.AreEqual("ItemSocket", src.itemPosition != null ? src.itemPosition.name : null, "patients appear inside the door");
         }
 
@@ -148,11 +152,19 @@ namespace SimuLean.Unity.Editor.Tests
             var clinic = Place("Outpatient Clinic");
             var arrows = clinic.GetComponentInChildren<UnityPathwayArrows>();
             Assert.IsNotNull(arrows);
-            Assert.AreEqual(4, arrows.Connections().Count, "referrals → agenda → waiting room → consultation → discharge");
+            Assert.AreEqual(4, arrows.Connections().Count, "arrivals → agenda → waiting room → consultation → discharge");
             Assert.Greater(arrows.ChevronCount, 0);
             Assert.IsNull(clinic.GetComponent<SElement>(), "the composite stays a plain group");
-            var door = clinic.GetComponentInChildren<UnitySource>().transform;
-            Assert.AreEqual(1f, Vector3.Dot(door.forward, clinic.transform.right), 1e-4f, "the entrance opens towards the pathway");
+            // the model frame: the elements stand unturned along +X; the door is crossed along the flow, its
+            // inside — where patients appear — towards +X, where they walk on
+            var door = clinic.GetComponentInChildren<UnitySource>();
+            Assert.AreEqual(1f, Vector3.Dot(door.transform.forward, clinic.transform.forward), 1e-4f, "the entrance is not turned");
+            Assert.Greater(door.transform.InverseTransformPoint(door.itemPosition.position).x, 0.5f, "patients appear on the door's +X side");
+            var waiting = clinic.GetComponentsInChildren<UnityQueue>().First(q => q.layoutMode == QueueLayoutMode.Seats);
+            var seats = waiting.Seats();
+            Assert.Greater(waiting.transform.InverseTransformPoint(seats[seats.Count - 1].position).x,
+                           waiting.transform.InverseTransformPoint(seats[0].position).x + 1f, "the chairs run along the flow (+X)");
+            Assert.AreEqual(-1f, Vector3.Dot(seats[0].right, waiting.transform.forward), 1e-3f, "the seats (the kit's +X) face the queue's front, −Z");
         }
 
         [Test]

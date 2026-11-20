@@ -63,7 +63,7 @@ namespace SimuLean.Unity
             float scale = (float)sim.TimeScale;
             // a paused or finished run halts the body too 
             // (it walked on while paused, so its travel was recorded short)
-            mover.Halt(executor.IsWorkPaused || !sim.SimStarted || sim.SimPaused || !sim.SimOn || scale <= 0);
+            mover.Halt(executor.IsWorkPaused || executor.IsGroupHeld || !sim.SimStarted || sim.SimPaused || !sim.SimOn || scale <= 0);
 
             var leg = executor.CurrentLeg;
             if (leg != null && leg.IsOpenEnded)
@@ -75,7 +75,7 @@ namespace SimuLean.Unity
                     if (speed > 40f && !warned)
                     {
                         warned = true;
-                        Debug.LogWarning($"[SimuLean] '{executor.GetName()}' moves at {speed:F0} units/s in the scene (speed × time scale): " +
+                        Debug.LogWarning($"[SimuLean] '{executor.Name}' moves at {speed:F0} units/s in the scene (speed × time scale): " +
                                          "physics loses accuracy that fast — lower the clock's time scale for calibration runs.");
                     }
                     mover.MoveTo(target, speed);
@@ -88,7 +88,7 @@ namespace SimuLean.Unity
                 else if (ReferenceEquals(leg, commanded) && simSpeed > 0 &&
                          now - leg.StartTime > timeoutFactor * Mathf.Max(1f, (float)(leg.Distance / simSpeed)))
                 {
-                    Debug.LogWarning($"[SimuLean] '{executor.GetName()}' did not reach '{leg.To}' in {timeoutFactor}× its estimated time: ended there.");
+                    Debug.LogWarning($"[SimuLean] '{executor.Name}' did not reach '{leg.To}' in {timeoutFactor}× its estimated time: ended there.");
                     if (Node(leg.To, out Vector3 t)) mover.Warp(t);
                     commanded = null;
                     executor.Arrive();

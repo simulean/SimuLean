@@ -14,10 +14,13 @@ Tools/Blender/
                           (Piece, seamless-tiling bake, per-piece LODs and export)
   assets/<name>.py        one script per asset (forklift.py, rail_shuttle.py, gantry_stacker.py, ship_block.py,
                           block_workspace.py, level_luffing_crane.py, spmt.py, goliath_crane.py
-                          --variant goliath|welding) or kit (ship_items.py, shipyard_people.py)
-                          (industrial_building.py, overhead_crane.py)
+                          --variant goliath|welding) or kit (ship_items.py, shipyard_people.py,
+                          industrial_building.py, overhead_crane.py, robot_tools.py, load_units.py, warehouse_load_units.py, small_carton.py,
+                          tugger_train.py, truck_trailer.py, car_body.py, assembly_line.py); the station
+                          scripts (cnc_machine.py, assembly_bench.py, inspection_station.py, unpacking_station.py,
+                          picking_station.py, ... on station_parts.py)
   assets/workshop_preview.py  assembles both kits into a 24 x 18 m workshop and renders it
-  export_flexsim.py       re-export a built asset for FlexSim
+  export_external.py      re-export a built asset for another 3D / simulation tool
   previews/               turntable/LOD renders written by each asset script (git-ignored)
   build/                  regenerable .blend sources (git-ignored)
 ```
@@ -44,23 +47,23 @@ that shipped a black Forklift atlas in commit `fbd5990`.)
 | `--no-render` | Skip the preview renders. |
 | `--cpu` | Bake and render on the CPU (forklift, rail shuttle, gantry stacker, AGV, operator). |
 
-### Exporting for FlexSim (comparison / reuse)
+### Exporting for other tools (comparison / reuse)
 
 ```bash
-"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/export_flexsim.py -- --asset Forklift
+"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/export_external.py -- --asset Forklift
 ```
 
-This reads `build/<Asset>.blend` and writes files to `build/FlexSim/`:
+This reads `build/<Asset>.blend` and writes files to `build/External/`:
 
 - `<Asset>_LOD0/1/2.fbx`, with embedded textures;
 - a `.glb` fallback for each LOD.
 
-The files are prepared for FlexSim as follows:
+The files are prepared for tools that expect Z-up and +X forward:
 
 - Z-up, in metres.
-- Facing +X, which is FlexSim's travel direction.
+- Facing +X, the usual travel direction of mobile objects.
 - Asset hierarchy only, with no preview props.
-- Baked AO multiplied into the albedo, because FlexSim has no occlusion input.
+- Baked AO multiplied into the albedo, because many tools have no occlusion input.
 
 ## Modular kits (building, overhead crane)
 
@@ -220,7 +223,7 @@ helmet). `build_preview(look, helmet)` builds the dressed rig in an open Blender
 
 `assets/people_animations.py` keys the people's clips on the operator rig (`operator.build_preview`) and exports
 them as the takes of one armature-only FBX, `Operator/People_Animations.fbx` (30 fps, in place, no root motion):
-`Idle`, `Idle2`, `Walk` (1.4 m a cycle), `CarryIdle`, `CarryWalk`, `WorkDesk`, `Examine`, `SitIdle`, `LieOnBed`, and (A4)
+`Idle`, `Idle2`, `Walk` (1.4 m a cycle), `CarryIdle`, `CarryWalk`, `WorkDesk`, `Examine`, `SitIdle`, `LieOnBed`, and
 `PushWalk`, `HandOver`, `MachineTend`, `Weld`, `Paint`.
 Poses are rotations about armature axes relative to the rest pose (front −Y, lateral X): − about X swings a hanging
 limb forward, + leans an upright bone (spine, neck) forward; the rest already bends the elbows 45° (`flex()`).
@@ -320,7 +323,7 @@ a ShipBlock on the stools and four scaffold bays along its side.
 
 ## Level-luffing crane (shipyard)
 
-`assets/level_luffing_crane.py` builds a double-link level-luffing portal crane ("grúa cigüeña").
+`assets/level_luffing_crane.py` builds a double-link level-luffing portal crane.
 It writes one FBX, `Art/Models/LevelLuffingCrane/LevelLuffingCrane.fbx`, with
 `LevelLuffingCrane_*.png` and `LevelLuffingCrane.mat`. LOD0 / LOD1 / LOD2 have 9.8 k / 6.8 k /
 2.8 k tris on 7 renderers.
@@ -367,6 +370,137 @@ the table above describes.
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/level_luffing_crane.py -- --quick
 ```
 
+## Warehouse load units (kit)
+
+`assets/warehouse_load_units.py` builds the load units of an intralogistics / automotive-supply model as a kit (its own atlas; the older `LoadUnits/` kit — Euro pallet, roll cage, tote — keeps its own) in
+`Art/Models/WarehouseLoadUnits/`: one FBX per piece, one shared texture set `WarehouseLoadUnits_*.png` and material
+`WarehouseLoadUnits.mat`, plus the colour set `WarehouseLoadUnits_Blue_*.png` (the postprocessor makes `WarehouseLoadUnits_Blue.mat`:
+the small load carriers in blue instead of grey; same UVs, so it can go on any piece). Generic, no
+brands. Pivot = bottom centre, the long side along local +Z, `TopSocket` = where the next load stacks.
+Every dimension is in the script docstring.
+
+| FBX | what | LOD0 / LOD1 / LOD2 tris |
+|---|---|---|
+| `EuroPallet` | 1200 × 800 × 144 block pallet (EPAL construction: 3 bottom boards, 9 chip blocks, 3 stringers, 5 deck boards, nails) | 880 / 156 / 12 |
+| `IndustrialPallet` | 1200 × 1000 × 144, 7 deck boards | 968 / 156 / 12 |
+| `SmallLoadCarrier_300x200x147`, `_400x300x147`, `_400x300x280`, `_600x400x280` | KLT-type bins (L × W × H): stacking foot, ribbed walls, rim band, open handle slots, label holders with a barcode card | ≈ 870 / 76 / 12 |
+| `CardboardCarton_300x200x200`, `_400x300x250`, `_600x400x300` | corrugated cartons: tape over the flap seam, shipping label, print, glue flap | 244 / 12 / 12 |
+| `LargeLoadCarrier` | 1200 × 1000 × 975 GLT-type container (dark base, grey ribbed fold walls, access flap); `ContentSocket` 0.17 | 1456 / 204 / 12 |
+| `MetalMeshBoxPallet` | 1240 × 835 × 970 galvanised mesh box pallet, real 50 mm wires, drop gate; `ContentSocket` 0.17 | 1300 / 172 / 12 |
+| `PalletCollar` | Euro pallet + 3 wooden collars (200 mm), hinges; `ContentSocket` 0.144, top 0.744 | 955 / 180 / 12 |
+| `PalletLoad_Cartons` | Euro pallet + 4 layers × 8 cartons, stretch-wrapped (one piece, top 1.144) | 1116 / 168 / 12 |
+| `PalletLoad_SmallLoadCarriers` | Euro pallet + 3 layers × 4 carriers 600 × 400 × 280, lid, 2 straps (top 1.014) | 1302 / 180 / 12 |
+
+Every LOD is **one renderer** on the shared material (GPU instancing), so thousands of units cost few
+draw calls. Detail is baked, not modelled: ribs, labels, nails, tape and film are in the maps.
+
+**Proxy LODs (new, `simulean_kit.transfer_to_proxies`).** Decimation cannot reach 12–300 triangles
+without wrecking a pallet or a bin, so LOD1 / LOD2 are hand-made proxies (boxes, an open box, blocks +
+deck slab) with their **own islands in the same atlas** (texel weight 0.30 / 0.18). After the LOD0 bake,
+each proxy is baked *selected-to-active* from its LOD0 parts through the baked atlas (albedo, metal /
+smoothness, normal re-baked into the proxy's tangent space, occlusion): rays leave the proxy surface
+inwards and copy what they hit within a reach (e.g. a KLT's LOD2 top face shows the floor of the bin
+0.15 m down, a pallet box shows its fork pockets). Texels whose ray finds nothing (an open handle
+slot, a mesh gap) get a dim fallback colour. During the LOD0 bake the proxies are hidden from render
+so they do not occlude the AO.
+
+**Mesh wires.** The 136 wires of the mesh box (4.8 mm) are UV-*pinned* onto one texel of the frame
+(`pin_uvs`) instead of getting islands: as islands they took a large share of the atlas and baked
+dark.
+
+```bash
+"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/warehouse_load_units.py -- --quick
+"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/warehouse_load_units.py -- --look --only EuroPallet,PalletLoad_Cartons
+```
+
+**Small carton** (`assets/small_carton.py`): `Art/Models/SmallCarton/SmallCarton.fbx`, a corrugated carton
+255 × 170 × 120 (L × W × H; drawn 260 × 175 with its bulge) — the kit's carton material and geometry, but a model of its own with its own texture set
+`SmallCarton_*.png` (512 px), so the kit's atlas is not rebaked. Four make one 2 × 2 layer inside the library tote
+(600 × 400, interior 556 × 356; the view packs a walled container in 86 % of its outer footprint, which 2 × 270 mm would
+not fit): the Tote Packer preset. 244 / 12 / 12 tris; `TopSocket` 0.12. Built through Blender's MCP (the script also
+runs headless: `reset_scene` falls back to `read_homefile` where the MCP sandbox refuses `read_factory_settings`).
+
+`--look` renders the LOD0 source materials without baking (seconds; for tuning). `--only` builds some
+pieces into `build/WarehouseLoadUnits_test/` and never writes to Unity. The scripts bake on CUDA first: on the
+RTX 5090 workstation OptiX faulted twice on the 4096 px bake (illegal address).
+
+## Tugger train (kit)
+
+`assets/tugger_train.py` builds a route train for sequenced supply in `Art/Models/TuggerTrain/` (one atlas
+`TuggerTrain_*`, `TuggerTrain.mat`): the stand-on electric `TowTractor` (orange, 1.86 × 0.90 m), four
+wagons and two sequenced parts. Every hitch is 0.30 m high: a wagon's `Hitch_Front` (the drawbar eye,
+under the yaw node `Drawbar`) goes on the `Hitch_Rear` pin of the unit in front. Wheels `Wheel_*` spin
+about local X; the tractor steers with `Steer_FL/FR`, the wagons' front castors swivel with
+`Castor_FL/FR` (yaw about local Y). A standing `Operator` goes on the tractor's `DriverSocket`. Far
+LODs merge the wheels into the body.
+
+| FBX | sockets | LOD0 / LOD1 / LOD2 tris (renderers) |
+|---|---|---|
+| `TowTractor` | `DriverSocket`, `Hitch_Rear`, `Beacon` (amber, emissive) | 6.2 k (6) / 2.4 k (6) / 0.7 k (1) |
+| `PlatformTrolley` | `LoadSocket` (1200 × 1000 chequer deck at 0.33 m) | 4.5 k (8) / 1.8 k (8) / 0.35 k (2) |
+| `ConsoleWagon` | `Slot_0..8` (3 shelves × 3, yaw −90° so a console lies across) | 6.2 k (8) / 2.5 k (8) / 0.58 k (2) |
+| `SteeringWheelWagon` | `Slot_0..35` (3 levels × 12 cradles, hub centres) | 6.9 k (8) / 2.8 k (8) / 0.53 k (2) |
+| `ToteTrolley` | `Slot_0..5` (2 shelves × 3 totes 600 × 400, yaw −90°; the totes are `WarehouseLoadUnits/SmallLoadCarrier_600x400x280`) | 5.2 k (8) / 2.1 k (8) / 0.54 k (2) |
+| `CentralConsole` | — (0.60 × 0.30 × 0.35, pivot bottom centre; proxy LODs) | 598 / 24 / 12 (1) |
+| `SteeringWheel` | — (dia 0.38, pivot = hub centre; proxy LODs) | 460 / 128 / 28 (1) |
+
+```bash
+"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/tugger_train.py -- --quick
+```
+
+## Truck and trailer (kit)
+
+`assets/truck_trailer.py` builds `Art/Models/TruckTrailer/`: `SemiTrailer` (13.6 m curtain-sider, deck
+1.27 m, the +X curtain drawn open to the ends for side loading; sockets `Deck`, `KingPin`; nodes
+`Axle_1..3`) and `TractorUnit` (cab-over 4x2; `Steer_FL/FR` › `Wheel_FL/FR`, `Axle_R`, socket
+`FifthWheel`). Put the trailer's `KingPin` on the tractor's `FifthWheel`.
+
+| FBX | LOD0 / LOD1 / LOD2 tris (renderers) |
+|---|---|
+| `SemiTrailer` | 9.3 k (4) / 3.4 k (4) / 1.2 k (1) |
+| `TractorUnit` | 6.8 k (4) / 2.3 k (4) / 0.5 k (1) |
+
+## Car body (trim assembly)
+
+`assets/car_body.py` builds `Art/Models/CarBody/`: `CarBody` (a generic compact SUV, 4.30 × 1.80 ×
+1.63 m, no brand) in the trim-assembly state — painted, doors on, **no glass fitted yet** (windscreen,
+rear and side windows open, so the painted cabin, the dashboard and fitted parts are visible), empty
+wheel arches with dark wheelhouse tubs — and the option piece `CarWheel` (215/60 R17, pivot = hub
+centre). Paint is a texture set per colour on the same UVs: `CarBody_*` (white, `CarBody.mat`),
+`CarBody_Red_*` and `CarBody_Blue_*` (`CarBody_Red.mat`, `CarBody_Blue.mat`). The pivot is the
+ground under the body centre as if it stood on its wheels (ground clearance 0.19 m).
+
+| FBX | sockets | LOD0 / LOD1 / LOD2 tris |
+|---|---|---|
+| `CarBody` | `ConsoleSocket` (cabin floor, for `CentralConsole`), `SteeringSocket` (hub, tilted 25°, for `SteeringWheel`), `DoorSocket_L/R` (front-door centre, +Z out), `Wheel_FL/FR/RL/RR` (hub centres for `CarWheel`; left ones turned 180°) | 7.0 k / 500 / 156 (1) |
+| `CarWheel` | — | 1116 / 164 / 28 (1) |
+
+LOD1 / LOD2 are proxies baked from LOD0 (one renderer each).
+
+```bash
+"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/car_body.py -- --quick
+```
+
+## Assembly-line kit
+
+`assets/assembly_line.py` builds the kit `Art/Models/AssemblyLineKit/` (`AssemblyLineKit_*`, one
+material). Floor pieces have their pivot on the floor; hanging pieces at the suspension point.
+
+| FBX | what / nodes | LOD0 / LOD1 / LOD2 tris (renderers) |
+|---|---|---|
+| `AssemblySkid` | 5.0 × 2.2 × 0.40 m body carrier, pads at the jacking points; `BodySocket` (0.21 m: a `CarBody` root, its sills on the pads) | 841 / 361 / 245 (1) |
+| `SlatConveyor_6m` | segment: 4.0 m wide slat platform (top 5 mm above the floor, so it never z-fights with it) with yellow edges, tiles along Z over [0, 6] | 168 (1), one level |
+| `WagonParkingFrame` | 2 wagon bays with floor guide rails, rear stop, bay signs; `Bay_0/1` | 662 / 296 / 132 (1) |
+| `WorkstationPost` | 2.4 m post, HMI, `Lamp` (LED work lamp) and `StackLight` (green / amber / red) | 1.1 k / 588 / 280 (3) |
+| `AndonBoard` | 1.8 × 0.6 m LED board on rods | 312 / 156 / 92 (1) |
+| `ToolBalancer` | rail trolley + balancer, `Cable` (scale Y = drop), `Tool` › `ToolSocket` | 764 / 390 / 222 (3) |
+| `LineLight` | 1.5 m hanging LED light | 176 / 104 / 70 (1) |
+| `FloorTape_1m`, `FloorTape_Hazard_1m` | segments: 75 mm yellow / 100 mm hazard floor tape, 2 mm above the floor | 8 / 8 |
+
+```bash
+"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/assembly_line.py -- --quick
+```
+
 ## Load units, pallet truck, safety fencing, AS/RS
 
 Generic warehouse / cell assets in the library palette (no marks). Kits share one atlas per folder; sockets
@@ -374,10 +508,10 @@ are named nodes (`LoadSocket` etc.) and their positions are in each script's doc
 
 | Script | Folder | Pieces (LOD0 tris) | Nodes / sockets |
 |---|---|---|---|
-| `assets/load_units.py` (kit) | `LoadUnits/` | `EuroPallet` 1200 × 800 × 144 mm, wood (0.9 k); `Tote` KLT-type 600 × 400 × 280 mm, stackable (1.3 k); `RollCage` 800 × 720 × 1800 mm, galvanised mesh on three sides, 4 casters (3.3 k) | `LoadSocket` (deck top / inside floor); the tote's `StackSocket` (rim) |
+| `assets/load_units.py` (kit) | `LoadUnits/` | `RollCage` (the pallet and the tote it built — 0.9 k / 1.3 k — are now `warehouse_load_units.py`'s `EuroPallet` / `SmallLoadCarrier_600x400x280`, lighter: one renderer per LOD, proxy LODs); `RollCage` 800 × 720 × 1800 mm, galvanised mesh on three sides, 4 casters (3.3 k) | `LoadSocket` (deck top / inside floor); the tote's `StackSocket` (rim) |
 | `assets/pallet_truck.py` | `PalletTruck/` | hand pallet truck, forks 1150 × 540 mm, library yellow (3.3 k / 5 renderers) | `Lift` › `LoadSocket` (raise by `liftStroke`), `Handle` (tiller), `Wheel_L` / `Wheel_R` (r 0.10 m), `DriverSocket` — the tiller goes first: an operator pulls it |
 | `assets/safety_fence.py` (kit) | `SafetyFence/` | `Fence_Panel` segment, 1.0 m (post + 2.0 m black wire mesh; 0.9 k, mesh dropped at LOD1), `Fence_End` cap (end post), `Fence_Door` 1.0 m (2.2 k) | the door's `Door` (hinge, rotate about local Y) |
-| `assets/asrs.py` (kit) | `ASRS/` | `Rack_Bay` segment, 1.4 m along the aisle, single-deep EUR pallet racking, 5 levels (1.8 k, bracing / supports dropped at LOD1 → 0.6 k); `Rack_End` cap; `Aisle_Rail` segment; `StackerCrane` 8.2 m single mast (2.7 k / 3 renderers) | rack `Slot_1..5` (pallet seats); crane `Carriage` (lift) › `Forks` (telescope along X, either side) › `LoadSocket` |
+| `assets/asrs.py` (kit) | `ASRS/` | `Rack_Bay` segment, 1.4 m along the aisle, single-deep EUR pallet racking, 5 levels (1.8 k, bracing / supports dropped at LOD1 → 0.6 k); `Rack_End` cap; `Aisle_Rail` segment; `StackerCrane` 8.2 m single mast (2.7 k / 3 renderers; `StackerCraneView` stretches the mast above 2.3 m to a taller rack, so keep the base plain there) | rack `Slot_1..5` (pallet seats); crane `Carriage` (lift) › `Forks` (telescope along X, either side) › `LoadSocket` |
 
 New material `simulean_materials.wood` (sawn softwood: grain along a given axis, knots, grime).
 
@@ -410,12 +544,16 @@ is the shared bake / LOD / rig / export command line of the station scripts (`--
 | `assets/cnc_machine.py` | `CncMachine/` | compact vertical machining centre, 1.5 × 1.1 × 2.1 m (the old `WorkstationProcessor` footprint): full guarding, two sliding doors with open sight windows, stainless interior, chip conveyor, coolant tank, swivel pendant | `Door_L` / `Door_R` (translate local X, ∓0.38 open), `Table` (X axis) › `WorkSocket` (vise), `Head` (Z axis, translate Y) › `Spindle` (rotate Y), `Beacon` |
 | `assets/assembly_bench.py` | `AssemblyBench/` | manual ESD assembly workbench of aluminium profile, 1.6 × 0.8 m, worktop 0.90 m (the old `AssemblyWorkstation` footprint): 2 × 3 picking bins, LED light bar, tool balancer, drawer unit, instruction monitor | `Screwdriver` (on the balancer cable, translate Y −0.30 … 0), `WorkSocket` (mat), `PartsSocket` (middle lower bin), `Beacon` |
 | `assets/inspection_station.py` | `InspectionStation/` | vision inspection: belt conveyor, aluminium-profile gantry with a camera hood, LED bars, side camera, monitor arm, pneumatic reject pusher and bin | `Lights` (the LED bars, to flash), `Pusher` (translate local Z 0 … 0.72), `WorkSocket` (belt under the camera), `RejectSocket` (bin), `Beacon` |
+| `assets/unpacking_station.py` | `UnpackingStation/` | decanting / unpacking station (the Separator's model), 2.7 × 1.5 m: 1.25 m gravity roller section at 0.75 m (a EUR pallet fits) with a side guide and a pop-up stop, 1.4 × 0.8 m worktop at 0.90 m, light bar, terminal and hand scanner, an inclined empties chute behind the rollers, a cardboard waste cage | `Stop` (translate local Y 0 … −0.06), `WorkSocket` (roller top, where the container is opened), `PiecesSocket` (worktop centre), `EmptiesSocket`, `StaffSocket`, `Beacon` |
+| `assets/picking_station.py` | `PickingStation/` | pick-to-light workstation (the Picking Station's model), 1.8 × 1.4 m: 1.7 × 0.7 m worktop at 0.90 m with the tote's place marked, a shelf of 3 × 4 open-fronted bins (0.38 × 0.50 m) behind it with a pick module (display + confirm button) under each, terminal, light bar, confirm button | `PickLights` (the modules' lit faces), `WorkSocket` (the order tote's place), `StockSocket_0..11` (bin floor centres, bottom row first, left to right from the front), `StaffSocket`, `Beacon` |
 
 ```bash
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/weld_positioner.py
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/paint_booth.py
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/palletizer.py
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/inspection_station.py
+"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/unpacking_station.py
+"C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/picking_station.py
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/cnc_machine.py
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --factory-startup -P Tools/Blender/assets/assembly_bench.py
 ```
@@ -438,7 +576,7 @@ stack light, so the same state view drives it).
 | `assets/hospital_wall.py` | `HospitalWall/` | hospital wing kit: cut-away 1.6 m partitions, 1 m pieces — panel (white, teal skirting, cap rail), glazed panel, door (0.9 m leaf with a vision panel), end post | `HWall_Door` › `Door` (hinge on the far jamb) |
 | `assets/hospital_door.py` | `HospitalDoor/` | 3.6 m automatic sliding glass entrance: 1.9 m opening, glazed side lights, operator box with the teal band, canopy, entrance mat | `Door_L` / `Door_R` (slide along local X, `SlidingDoorView`), `ItemSocket` (inside, 0.9 m in front) |
 | `assets/consultation_box.py` | `ConsultationBox/` | 3.0 × 2.6 m emergency / consultation bay: partitions, curtain track, exam couch, desk, sink, wall monitor | `Curtain` (scale local X 1 → 0.15 to draw it), `PatientSocket` (couch), `StaffSocket`, `VisitorSocket`, `EntrySocket`, `Beacon` |
-| `assets/waiting_chairs.py` (kit) | `WaitingChairs/` | beam seating: `Seat_Row` segment 0.60 m (seat, armrest + T-leg), `Seat_Table` segment, `Seat_End` cap | each seat's `Seat` socket (facing +X) |
+| `assets/waiting_chairs.py` (kit) | `WaitingChairs/` | beam seating: `Seat_Row` segment 0.60 m (seat, armrest + T-leg), `Seat_Table` segment, `Seat_End` cap | each seat's `Seat` socket (facing the kit's +X; kit frame, run along +Z) |
 
 **People** (`assets/hospital_people.py`, `HospitalPeople/`, a kit sharing one atlas): `Doctor`, `Nurse`,
 `Patient` and their `_Female` looks, built exactly like the operator (MPFB / MakeHuman CC0, 1.74 m, the same
@@ -489,12 +627,36 @@ vehicles are member prefabs (`Prefabs/ResourceMembers`); pallets, totes, roll ca
    LOD reuses the same material and atlas. Normals are re-sharpened and
    re-weighted afterwards. Far LODs also merge renderers to cut draw calls
    (see *Performance*).
+   Bulk items (load units, sequenced parts) instead use hand-made **proxy** LODs baked
+   from LOD0 through the finished atlas (`transfer_to_proxies`, see *Warehouse load units*).
 5. **Rig.** Every animated part is an **Empty** (a bare Unity Transform) with
    its meshes hanging under it as `<Name>_LOD0/1/2` at identity.
    `export_fbx` converts the axes itself, so Blender -Y (front) becomes Unity +Z
    and every node has an identity rotation. Before export it sets each node's
-   local matrix to `G·L·G⁻¹` and each mesh to `G·v`; the exporter's
-   `bake_space_transform` stays **off**.
+   local matrix to `M·L·M⁻¹` and each mesh to `M·v`, with `M = G·Rz(turn)` (G the
+   axis conversion, `turn` the optional turn about the vertical, see *The model frame*);
+   the exporter's `bake_space_transform` stays **off**.
+
+## The model frame
+
+Every station / element model has its **flow along Unity +X** (in on −X, out on +X) and its **front** — operator
+side, control panel, stack light, doors, screens — **towards Unity −Z**, the side the default camera sees; the element
+views lay their items out in the same frame (architecture §4.6.1). The station scripts author their front on −Y, which
+the axis conversion exports to Unity +Z, so they export **turned 180°**: `station_main(..., turn=STATION_TURN)` /
+`export_fbx(root, path, turn=station_parts.STATION_TURN)` (`assembly_bench`, `cnc_machine`, `inspection_station`,
+`paint_booth`, `palletizer`, `weld_positioner`, `unpacking_station`, `picking_station`). With that turn an authored point
+(x, y, z) lands at Unity (x, z, y): authored +X is the flow, −Y the front; `unpacking_station` and `picking_station`
+quote their sockets in those Unity coordinates. The turn is rigid — nodes and meshes alike, every node keeps an identity
+rotation — so a node's motion along its parent's axes changes sign in Unity (the CNC's doors: `MachineStateView`). The
+Unity coordinates quoted in those scripts' docstrings are the authored ones (x and z change sign in the export).
+The hospital rooms and furniture follow it too: `reception_desk` (public side), `consultation_box`
+(curtain / corridor side) and `hospital_door` (the building's inside) export turned 180°, their front on Unity −Z.
+Carriers, people, robots, cranes and the hospital bed keep the vehicle frame (front = travel = Unity +Z, `turn` 0). The
+modular kits (building, fence, `hospital_wall`, `waiting_chairs`) keep the kit frame — they tile along Unity +Z, the run
+of `UnityModularStrip` — and are turned where they are laid: the Waiting Room preset turns its chair strip +90° so the
+row runs along the queue's +X and the seats (the kit's +X) face its front, −Z; a wall has no front. The load units are
+unchanged. The hand-made models under `Art/Models/` (no script) are
+turned into the frame on import by `Editor/Tools/HandMadeModelFrame`.
 
 ## Conventions (the Unity side relies on these)
 

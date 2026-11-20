@@ -32,8 +32,8 @@ namespace SimuLean.Unity
     ///
     /// Purely visual: this component does not participate in the DES engine,
     /// serialization, or headless runs. Rollers are separate geometry in the
-    /// mesh; to animate them spinning, drive a shader or replace this with a
-    /// per-roller variant — the single-mesh form here is the efficient default.
+    /// one mesh; in Play under a conveying lane they turn — their material's texture (marks round each roller, U = arc
+    /// length) scrolled at the conveying speed, so the single mesh stays.
     /// </summary>
     [SelectionBase]
     [RequireComponent(typeof(MeshFilter))]
@@ -153,18 +153,19 @@ namespace SimuLean.Unity
 
         /// <summary>
         /// Fits the rollers under a lane of a length-limited queue (the Conveyor preset): <paramref name="laneLength"/>
-        /// long, from the lane's exit (its origin) backwards, at <paramref name="x"/> across. Rebuilt only when something
-        /// changed. Visual only.
+        /// long, from the lane's exit (its origin) backwards along the lane's −X (the element frame: flow along +X; the
+        /// rollers, which run along their own +Z, are turned onto it), <paramref name="across"/> towards the lane's front
+        /// (−Z). Rebuilt only when something changed. Visual only.
         /// </summary>
-        public void FitTo(float laneLength, float x)
+        public void FitTo(float laneLength, float across)
         {
             laneLength = Mathf.Max(0.1f, laneLength);
-            var at = new Vector3(x, 0f, -laneLength);
-            if (Mathf.Approximately(length, laneLength) && transform.localPosition == at && transform.localRotation == Quaternion.identity
+            var at = new Vector3(-laneLength, 0f, -across);
+            if (Mathf.Approximately(length, laneLength) && transform.localPosition == at && transform.localRotation == ItemVisuals.AlongFlow
                 && GetComponent<MeshFilter>() != null && GetComponent<MeshFilter>().sharedMesh != null) return;
             length = laneLength;
             transform.localPosition = at;
-            transform.localRotation = Quaternion.identity;
+            transform.localRotation = ItemVisuals.AlongFlow;
             Rebuild();
         }
 
@@ -236,8 +237,59 @@ namespace SimuLean.Unity
         {
             if (rollerMaterial != null) return rollerMaterial;
             if (_defaultRollerMat == null)
-                _defaultRollerMat = RollerConveyorMesh.CreateMaterial("ConveyorRoller(default)", new Color(0.60f, 0.62f, 0.65f), 0.85f, 0.55f, PaintTex);
+            {
+                // marked rollers (two marks per turn of a default roller): they are seen to turn while the conveyor runs
+                _defaultRollerMat = RollerConveyorMesh.CreateMaterial("ConveyorRoller(default)", new Color(0.60f, 0.62f, 0.65f), 0.85f, 0.55f,
+                                                                      RollerConveyorMesh.CreateRollerTexture());
+                SetRollerTiling(_defaultRollerMat, MarksPerTurnScale(0.03f), 0f);
+            }
             return _defaultRollerMat;
+        }
+
+        // ── turning rollers ─────────────────────────────────────
+
+        private UnityLengthLimitedQueue lane;
+        private MaterialPropertyBlock rollerBlock;
+        private float turned;          // metres of roller surface turned so far
+        private double lastSimTime = double.NaN;
+
+        // U is the arc length round a roller (metres): two marks per turn.
+        private static float MarksPerTurnScale(float radius) => 1f / (Mathf.PI * Mathf.Max(0.004f, radius));
+
+        private static void SetRollerTiling(Material m, float scaleU, float offsetU)
+        {
+            foreach (var prop in new[] { "_BaseMap", "_MainTex" })
+                if (m.HasProperty(prop)) { m.SetTextureScale(prop, new Vector2(scaleU, 1f)); m.SetTextureOffset(prop, new Vector2(offsetU, 0f)); }
+        }
+
+        /// <summary>
+        /// In Play, under a conveying lane (<see cref="UnityLengthLimitedQueue"/> with a speed): the rollers' surface turns at
+        /// the conveying speed in simulation time (the roller material's texture scrolled round them, the frame untouched),
+        /// while the lane is not stopped. Read-only: it reads the clock and the lane's state.
+        /// </summary>
+        private void LateUpdate()
+        {
+            if (!Application.isPlaying) return;
+            if (lane == null) lane = GetComponentInParent<UnityLengthLimitedQueue>();
+            var clock = UnitySimClock.Instance;
+            if (lane == null || !(lane.speed > 0f) || clock == null || clock.clock == null) return;
+            double now = clock.clock.GetSimulationTime();
+            double dt = double.IsNaN(lastSimTime) ? 0 : now - lastSimTime;
+            lastSimTime = now;
+            var e = lane.GetElement();
+            bool stopped = e != null && MachineStateView.LampFor(e.CurrentState.Name) == MachineStateView.Lamp.Red;
+            if (dt <= 0 || stopped) return;
+            turned = (turned + (float)(lane.speed * dt)) % 1000f;
+            var mr = GetComponent<MeshRenderer>();
+            if (mr == null || mr.sharedMaterials.Length < 2) return;
+            if (rollerBlock == null) rollerBlock = new MaterialPropertyBlock();
+            float scale = MarksPerTurnScale(rollerRadius);
+            // the top of a roller moves with the flow (+Z): the texture runs the other way round
+            var st = new Vector4(scale, 1f, -turned * scale % 1f, 0f);
+            mr.GetPropertyBlock(rollerBlock, 1);
+            rollerBlock.SetVector("_BaseMap_ST", st);
+            rollerBlock.SetVector("_MainTex_ST", st);
+            mr.SetPropertyBlock(rollerBlock, 1);
         }
 
         private Material ResolveBedMat()

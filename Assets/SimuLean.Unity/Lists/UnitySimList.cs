@@ -20,13 +20,15 @@ namespace SimuLean.Unity
         public string listName = "";
 
         [Tooltip("Fields of the list: item labels (under their own or another name), built-ins (age, pushTime, " +
-                 "itemPriority, owner, type) or formulas over other fields (e.g. prio * 10 + age). Queries and orders " +
+                 "item.type, item.priority, item.id, origin.name) or formulas over other fields (e.g. prio * 10 + age). Queries and orders " +
                  "use them by name; monitored fields record their values when entries are pushed and pulled.")]
-        public List<ListFieldSpec> fields = new List<ListFieldSpec> { new ListFieldSpec("prio", ListFieldKind.Label, "prio") };
+        public List<ListFieldSpec> fields = new List<ListFieldSpec>();
 
         [Tooltip("Field the pulls without their own order use (one of the list's fields, a built-in or any item label). " +
                  "Empty = first pushed, first pulled. Entries without the field rank as 0.")]
-        public string defaultOrderBy = "prio";
+        // no default order: a new list is first pushed, first pulled; it ordered by a 'prio'
+        // label that most pushed items (pallets, totes) do not carry
+        public string defaultOrderBy = "";
 
         [Tooltip("Highest value first for the default order.")]
         public bool defaultDescending = true;

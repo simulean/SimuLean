@@ -56,7 +56,7 @@ namespace SimuLean.Unity.Editor.Tests
             var go = new GameObject("Orders") { hideFlags = HideFlags.HideAndDontSave };
             try
             {
-                // A file imported into the project database (here a temporary one), read by an SQL data table
+                // a file imported into the project database (here a temporary one), read by an SQL data table
                 var database = SimuLean.Data.ProjectDatabaseRegistry.GetOrOpen(db);
                 database.ImportTable("orders", new Dictionary<string, List<string>>
                 {

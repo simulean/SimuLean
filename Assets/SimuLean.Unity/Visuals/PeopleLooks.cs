@@ -12,7 +12,6 @@ namespace SimuLean.Unity
     /// library is one element (the operator) and a role is a field — the Doctor, Fitter… prefabs are variants of the
     /// operator that only set it. Add your own looks here (any model on the operator's bones).
     /// </summary>
-    [CreateAssetMenu(menuName = "SimuLean/People Looks", fileName = "PeopleLooks")]
     public class PeopleLooks : ScriptableObject
     {
         [Serializable]

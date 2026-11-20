@@ -14,7 +14,7 @@ namespace SimuLean.Unity
     /// color-coded per track type; <see cref="showNetwork"/> hides the whole
     /// overlay when the network is not being edited.
     /// </summary>
-    [SimuLean.Unity.SimuLeanTool(SimuLean.Unity.SimuLeanToolCategories.Transport, "Transport Network", Description = "Nodes and tracks used by transport systems")]
+    [SimuLean.Unity.SimuLeanTool(SimuLean.Unity.SimuLeanToolCategories.Transport, "Transport Network", Order = 0, Description = "Nodes and tracks used by transport systems")]
     public class UnityTransportNetwork : MonoBehaviour
     {
         [Serializable]
@@ -168,11 +168,11 @@ namespace SimuLean.Unity
             foreach (UnityTransportNode n in EffectiveNodes())
             {
                 Vector3 p = n.transform.position;
-                cfg.Nodes.Add(SimuLean.Serialization.TransportStorageConfigCodec.FormatNode(n.NodeId, p.x, p.y, p.z));
+                cfg.Nodes.Add(SimuLean.Serialization.NetworkNodeConfig.Of(n.NodeId, p.x, p.y, p.z));
             }
             foreach (EdgeDefinition e in edges)
                 if (e.nodeA != null && e.nodeB != null)
-                    cfg.Tracks.Add(SimuLean.Serialization.TransportStorageConfigCodec.FormatTrack(
+                    cfg.Tracks.Add(SimuLean.Serialization.NetworkTrackConfig.Of(
                         e.nodeA.NodeId, e.nodeB.NodeId, e.manualLength >= 0 ? e.manualLength : -1, e.bidirectional, e.trackType));
             return cfg;
         }

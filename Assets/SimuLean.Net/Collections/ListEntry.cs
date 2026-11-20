@@ -31,6 +31,6 @@ namespace SimuLean.Collections
         internal long Sequence;
 
         public override string ToString()
-            => (Item != null ? "item " + Item.GetId() : "value " + Value) + (Owner != null ? " @" + Owner.GetName() : "");
+            => (Item != null ? "item " + Item.GetId() : "value " + Value) + (Owner != null ? " @" + Owner.Name : "");
     }
 }

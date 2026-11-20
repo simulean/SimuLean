@@ -26,6 +26,12 @@ KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = os.path.abspath(os.path.join(KIT, '..', '..'))
 BUILD_DIR = os.path.join(KIT, 'build')
 
+# The library's model frame (2026-11-02): front (operator side, panel, stack light, doors) on Unity -Z, flow along
+# Unity +X.  The stations are authored with their front on -Y, which export_fbx maps to Unity +Z: they export turned
+# by this (degrees about the vertical); so do the hospital rooms and furniture (reception desk, consultation box,
+# hospital door; 2026-11-03).  The carriers, people and the hospital bed keep 0 (the vehicle frame).
+STATION_TURN = 180.0
+
 SP_H = 0.07                      # one segment (size 1)
 SP_R = 0.035
 
@@ -154,9 +160,10 @@ def rig(lods, root_name, nodes_plan):
     return nodes[root_name]
 
 
-def station_main(name, build, lod_plan, nodes_plan, weights=None):
+def station_main(name, build, lod_plan, nodes_plan, weights=None, turn=0.0):
     """The command line of a station script: build() -> objects named after their nodes; bake one atlas,
-    LODs, rig, export Assets/SimuLean.Unity/Art/Models/<name>/<name>.fbx and Tools/Blender/build/<name>.blend."""
+    LODs, rig, export Assets/SimuLean.Unity/Art/Models/<name>/<name>.fbx (turned by `turn`, see STATION_TURN) and
+    Tools/Blender/build/<name>.blend."""
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     ap = argparse.ArgumentParser()
     ap.add_argument('--bake', type=int, default=2048)
@@ -189,6 +196,6 @@ def station_main(name, build, lod_plan, nodes_plan, weights=None):
         obs = [ls[lvl] for ls in lods.values() if len(ls) > lvl]
         print(f'    LOD{lvl}  {sum(K.tri_count(o) for o in obs):>7}  ({len(obs)})')
     root = rig(lods, name, nodes_plan)
-    K.export_fbx(root, os.path.join(out_dir, name + '.fbx'))
+    K.export_fbx(root, os.path.join(out_dir, name + '.fbx'), turn=turn)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(BUILD_DIR, name + '.blend'))
     print(f'[{name}] done in {time.time() - t0:.1f}s')

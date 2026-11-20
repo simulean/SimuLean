@@ -50,6 +50,9 @@ namespace SimuLean.Optimization
         public double min = 1;
         [Tooltip("Highest value (numbers; every value of a vector).")]
         public double max = 10;
+        [Tooltip("A text setting (a priority expression, a request order written in place): the texts to try, one per entry. " +
+                 "The Optimizer chooses among them; the Experimenter takes each scenario's text instead.")]
+        public List<string> texts = new List<string>();
 
         public string Label
         {
@@ -79,9 +82,9 @@ namespace SimuLean.Optimization
                 case ParameterTarget.Element:
                     return element != null ? ModelParameterCatalog.ForElement(SceneExtractor.ExtractElement(element)) : new List<ParameterInfo>();
                 case ParameterTarget.Team:
-                    return team != null ? ModelParameterCatalog.ForTeam(team.ToConfig(team.TeamName)) : new List<ParameterInfo>();
+                    return team != null ? ModelParameterCatalog.ForTeam(UnityResourceTeamExtractor.Extract(team, team.TeamName)) : new List<ParameterInfo>();
                 case ParameterTarget.Downtime:
-                    return downtime != null ? ModelParameterCatalog.ForDowntime(downtime.ToConfig(se => se != null ? se.name : null, SimCalendar.Default))
+                    return downtime != null ? ModelParameterCatalog.ForDowntime(downtime.ToConfig(se => se != null ? se.name : null, SimCalendar.Default, t => t != null ? t.name : null))
                                             : new List<ParameterInfo>();
                 case ParameterTarget.Reaction:
                     return reaction != null ? ModelParameterCatalog.ForReaction(reaction.ToConfig(se => se != null ? se.name : null))
@@ -97,8 +100,26 @@ namespace SimuLean.Optimization
             return null;
         }
 
-        /// <summary>The model parameter over <paramref name="config"/> (the extracted scene). Throws when incomplete.</summary>
+        /// <summary>The model parameter over <paramref name="config"/> (the extracted scene). Throws when incomplete. A text
+        /// setting is a choice among <see cref="texts"/>.</summary>
         public ModelParameter ToModelParameter(SimulationConfig config) => ToModelParameter(config, min, max);
+
+        /// <summary>True when the parameter is a text setting of <paramref name="config"/> (varied by texts, never by a
+        /// range: <see cref="TextSettingParameter.Applies"/>).</summary>
+        public bool IsText(SimulationConfig config)
+            => (target == ParameterTarget.Element || target == ParameterTarget.Team || target == ParameterTarget.Downtime
+                || target == ParameterTarget.Reaction) && Owner != null && !string.IsNullOrEmpty(key)
+               && TextSettingParameter.Applies(config, Scope, Owner, key);
+
+        /// <summary>A text setting varied over <paramref name="values"/> (the Experimenter: its scenarios' texts; the
+        /// Optimizer: <see cref="texts"/>).</summary>
+        public ModelParameter ToTextParameter(SimulationConfig config, IEnumerable<string> values)
+        {
+            if (!IsText(config)) throw new InvalidOperationException($"Parameter '{Label}': '{key}' is not a text setting.");
+            var list = new List<string>(values ?? new string[0]);
+            if (list.Count == 0) throw new InvalidOperationException($"Parameter '{Label}': a text setting needs the texts to try.");
+            return new TextSettingParameter(Scope, Owner, key, list, Label);
+        }
 
         /// <summary>The same with another range (the Experimenter: the scenarios' values).</summary>
         public ModelParameter ToModelParameter(SimulationConfig config, double min, double max)
@@ -111,6 +132,7 @@ namespace SimuLean.Optimization
                 case ParameterTarget.Reaction:
                     if (Owner == null) throw new InvalidOperationException($"Parameter '{Label}': choose the {target.ToString().ToLowerInvariant()}.");
                     if (string.IsNullOrEmpty(key)) throw new InvalidOperationException($"Parameter '{Label}': choose which parameter.");
+                    if (IsText(config)) return ToTextParameter(config, texts);
                     try { return ConfigParameter.Of(config, Scope, Owner, key, min, max, Label); }
                     catch (ArgumentException e) { throw new InvalidOperationException($"Parameter '{Label}': {e.Message}"); }
                 case ParameterTarget.ScheduleSequence:
@@ -140,6 +162,8 @@ namespace SimuLean.Optimization
         public UnityResourceTeam team;
         public UnitySimList list;
         public UnityReaction reaction;
+        [Tooltip("The downtime (Downtime): its stops, downtime total and, with a repair crew, repairs and repair waits / times.")]
+        public UnityDowntime downtime;
         [Tooltip("The statistic (from the list; state:NAME = share of time in a state; member:NAME = a public number of the engine element).")]
         public string statistic = "input";
 
@@ -147,7 +171,8 @@ namespace SimuLean.Optimization
         {
             string target = scope == MetricScope.Model ? "model"
                           : scope == MetricScope.Element ? element?.name : scope == MetricScope.Team ? team?.TeamName
-                          : scope == MetricScope.Reaction ? (reaction != null ? reaction.ConfigId : null) : list?.ListName;
+                          : scope == MetricScope.Reaction ? (reaction != null ? reaction.ConfigId : null)
+                          : scope == MetricScope.Downtime ? downtime?.ConfigId : list?.ListName;
             if (string.IsNullOrEmpty(target)) throw new InvalidOperationException($"Metric '{name}': choose the {scope.ToString().ToLowerInvariant()}.");
             return new ModelMetric(name, scope, target, statistic);
         }
@@ -156,7 +181,8 @@ namespace SimuLean.Optimization
             => scope == MetricScope.Element ? MetricCatalog.ElementStatistics
              : scope == MetricScope.Team ? MetricCatalog.TeamStatistics
              : scope == MetricScope.Model ? MetricCatalog.ModelStatistics
-             : scope == MetricScope.Reaction ? MetricCatalog.ReactionStatistics : MetricCatalog.ListStatistics;
+             : scope == MetricScope.Reaction ? MetricCatalog.ReactionStatistics
+             : scope == MetricScope.Downtime ? MetricCatalog.DowntimeStatistics : MetricCatalog.ListStatistics;
     }
 
     /// <summary>

@@ -53,10 +53,11 @@ namespace SimuLean.Statistics
                 string name = raw.Substring(0, eq).Trim(), expr = raw.Substring(eq + 1).Trim();
                 if (name.Length == 0 || expr.Length == 0 || name.IndexOf(':') >= 0)
                     throw new FormatException($"Element '{owner}': statistic record '{raw}' is not 'name = expression' (no ':' in the name).");
-                string error = Expression.Check(expr);
-                if (error != null) throw new FormatException($"Element '{owner}': statistic '{name}': {error}");
+                Expression parsed;
+                try { parsed = Expression.Parse(expr, ExpressionContext.Tally, owner, "tally:" + name); }
+                catch (FormatException e) { throw new FormatException($"Element '{owner}': statistic '{name}': {e.Message}", e); }
                 n.Add(name);
-                v.Add(Expression.Parse(expr));
+                v.Add(parsed);
             }
             return n.Count == 0 ? null : new ItemTallies(n.ToArray(), v.ToArray(), splitBy);
         }
@@ -65,11 +66,11 @@ namespace SimuLean.Statistics
         private SimuLean.Stochastics.Streams.IRandomEngine random;
 
         /// <summary>Records every tally for <paramref name="item"/> (a missing value is skipped). Random functions draw from
-        /// the tallies' own stream <c>element/tally</c>, not the element's (review2 #27: observing changed the model).</summary>
+        /// the tallies' own stream <c>element/tally</c>, not the element's.</summary>
         public void Record(Item item, Element element)
         {
             var s = (scope ?? (scope = new EntityScope())).Set(item, element);
-            if (random == null && element?.GetSimClock() != null) random = element.GetSimClock().Context.CreateRandomStream(element.GetName(), "tally");
+            if (random == null && element?.GetSimClock() != null) random = element.GetSimClock().Context.CreateRandomStream(element.Name, "tally");
             s.RandomStream = random;
             string split = null;
             if (splitBy != null)

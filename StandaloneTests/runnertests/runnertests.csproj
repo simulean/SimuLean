@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <Import Project="..\Tests.props" />
+  <Import Project="..\..\Tools\Runner\Fingerprint.targets" />
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\..\Tools\Runner\RunnerCli.cs" />
+  </ItemGroup>
+</Project>

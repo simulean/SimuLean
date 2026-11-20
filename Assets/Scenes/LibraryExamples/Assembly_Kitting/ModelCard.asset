@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: "Assembly kitting \u2014 components packed into a tote"
+  description: 'The Combiner example: a kitting bench packs 2 cartons and 2 small bins into each empty tote, and the components travel inside the tote to the exit. Library 3D stations, rebuildable from Tools > SimuLean > Developer > Rebuild Kitting Scene.'
+  author: SimuLean
+  scenePath: Assets/Scenes/LibraryExamples/Assembly_Kitting.unity
+  copiedFrom: 
+  created: 2026-11-09 12:00:00
+  modified: 2026-11-09 12:00:00
+  represents: Totes (an empty tote every 20 s) -> TotesBuffer (3) is the main input of KittingBench (Combiner, 1 slot, constant 12 s); Cartons (every 8 s) -> CartonsBuffer (6) and Bins (every 9 s) -> BinsBuffer (6) are its two component inputs (inputOrder TotesBuffer, CartonsBuffer, BinsBuffer), requirements 2 cartons + 2 bins per tote. The components wait at their own entry beside the bench (componentEntries) and travel into the tote one after another during the process (view only); the packed tote, its parts attached, goes to Kits.
+  kpis: 'kits=Kits.input, util=KittingBench.utilization, waits cartonsWait=CartonsBuffer.stay_avg, binsWait=BinsBuffer.stay_avg, totesWait=TotesBuffer.stay_avg.
+
+    All times are constant, so every seed gives the same run (3600 s): 179 kits, the bench busy 0.60, totes never wait (the totes are the bottleneck: one every 20 s), cartons wait about 54 s and bins about 52 s (their buffers fill and their sources wait).'
+  parameters: 'Arrivals: Totes / Cartons / Bins.interArrivalDistribution.constantValue (20 / 8 / 9 s). Kit content: KittingBench.requirements (2, 2). Packing time: KittingBench.delayStrategy.constantValue (12 s); KittingBench.capacity (1). Buffers: TotesBuffer.capacity (3), CartonsBuffer.capacity / BinsBuffer.capacity (6).'
+  assumptions: 'A feature demo, not a real system: time unit s, horizon 3600 s (1 h), no warm-up, constant times (the seed does not matter). The bench needs no operator and never fails. The way the parts travel into the tote is the Combiner''s assembly view (componentEntries, OnLoad / Attach): view only, the engine results are the same without it.'

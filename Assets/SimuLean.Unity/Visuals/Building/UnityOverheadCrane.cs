@@ -5,7 +5,7 @@ using UnityEngine;
 namespace SimuLean.Unity
 {
     /// <summary>
-    /// Single-girder overhead travelling crane ("grúa puente") from the OverheadCrane kit:
+    /// Single-girder overhead travelling crane from the OverheadCrane kit:
     /// two runway beams with rails and end stops (tiling, any length), the bridge (two
     /// end trucks that keep their aspect ratio + a tiling box girder of any span with the
     /// SimuLean logo segment in the middle) and the trolley/hoist with ropes, hook block

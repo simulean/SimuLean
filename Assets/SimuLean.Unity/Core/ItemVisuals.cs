@@ -8,6 +8,12 @@ namespace SimuLean.Unity
     /// </summary>
     public static class ItemVisuals
     {
+        /// <summary>The turn of an item lying on an element's flow axis: items travel along their own +Z (as
+        /// the library's carriers do), an element's flow runs along its +X (the library's element frame), so an element
+        /// that lays its items along its flow (a lane, a stacker's row, a sink's kept items) turns them by this from its
+        /// own rotation.</summary>
+        public static readonly Quaternion AlongFlow = Quaternion.Euler(0f, 90f, 0f);
+
         /// <summary>
         /// The element's footprint (x = width, y = height, z = depth; in its own axes for a single mesh) and the centre of
         /// its top — the element's own mesh, else its largest horizontal part.
@@ -47,7 +53,7 @@ namespace SimuLean.Unity
         /// <summary>
         /// Height of an item's pivot above the bottom of its visual: placing the pivot this high
         /// over a point puts the item's bottom on it, whatever the model's pivot — half the height for a centred pivot (the
-        /// layouts' former assumption, so those items lie as before), 0 for a model with its pivot at the base.
+        /// layouts' assumption), 0 for a model with its pivot at the base.
         /// </summary>
         public static float PivotHeight(GameObject item)
         {
@@ -125,6 +131,44 @@ namespace SimuLean.Unity
             Bounds b = rends[0].bounds;
             for (int k = 1; k < rends.Length; k++) b.Encapsulate(rends[k].bounds);
             return b.size;
+        }
+
+        /// <summary>The size of a prefab as it is drawn (its meshes, LOD0, times the root's scale), as (width, height,
+        /// length) in metres rounded to 0.1 mm, or null when it has no mesh. What an element's extractor writes so that the
+        /// items it creates get the size of their 3D model where their labels set none (source, replenisher, pick face).</summary>
+        public static double[] ModelSize(GameObject prefab)
+        {
+            double[] size = ModelSize(prefab, Quaternion.identity);
+            double floor = LoadFloor(prefab);
+            return size == null || !(floor > 0) ? size : new[] { size[0], size[1], size[2], floor };
+        }
+
+        /// <summary>A walled container's inside floor above its bottom (its <c>LoadSocket</c> more than 5 cm below its top:
+        /// a tote, a roll cage; the Combiner packs inside it), in metres rounded to 0.1 mm; 0 = its load rests on its top (a
+        /// pallet) or it has no socket. The item label <c>loadFloor</c>.</summary>
+        public static double LoadFloor(GameObject prefab)
+        {
+            Transform socket = prefab != null ? LoadSocket(prefab) : null;
+            if (socket == null) return 0;
+            Bounds b = ModularKit.LocalBounds(prefab);
+            float scale = Mathf.Abs(prefab.transform.localScale.y);
+            float y = prefab.transform.InverseTransformPoint(socket.position).y;
+            float bottom = b.min.y, top = b.max.y;
+            return top - y > 0.05f / scale && y > bottom ? System.Math.Round((y - bottom) * scale, 4) : 0;
+        }
+
+        /// <summary><see cref="ModelSize(GameObject)"/> of the prefab turned by <paramref name="turn"/> (the box around it,
+        /// e.g. a pick face's piece rotation that lays a wheel flat).</summary>
+        public static double[] ModelSize(GameObject prefab, Quaternion turn)
+        {
+            if (prefab == null) return null;
+            Vector3 s = Vector3.Scale(ModularKit.LocalBounds(prefab).size, prefab.transform.localScale);
+            Matrix4x4 r = Matrix4x4.Rotate(turn);
+            var size = new double[3];
+            for (int i = 0; i < 3; i++)
+                size[i] = System.Math.Round(Mathf.Abs(r[i, 0]) * Mathf.Abs(s.x) + Mathf.Abs(r[i, 1]) * Mathf.Abs(s.y)
+                                            + Mathf.Abs(r[i, 2]) * Mathf.Abs(s.z), 4);
+            return size[0] > 0 || size[1] > 0 || size[2] > 0 ? size : null;
         }
     }
 }

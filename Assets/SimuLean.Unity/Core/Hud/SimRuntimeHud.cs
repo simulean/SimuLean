@@ -39,9 +39,10 @@ namespace SimuLean.Unity
         private bool collapsed;
         private readonly List<Connection> connections = new List<Connection>();
         private float nextConnectionScan;
-        private static Material lineMaterial;
 
         private static readonly List<Rect> hudRects = new List<Rect>();
+        // the previous frame's panels: the names are drawn before some panels register in the frame (IMGUI order)
+        private static readonly List<Rect> lastHudRects = new List<Rect>();
         private static int hudRectsFrame = -1;
 
         private bool showViews;
@@ -61,8 +62,24 @@ namespace SimuLean.Unity
         public static void RegisterScreenRect(Rect r)
         {
             if (Event.current == null || Event.current.type != EventType.Layout) return;
-            if (hudRectsFrame != Time.frameCount) { hudRects.Clear(); hudRectsFrame = Time.frameCount; }
+            if (hudRectsFrame != Time.frameCount) NewHudFrame();
             hudRects.Add(r);
+        }
+
+        private static void NewHudFrame()
+        {
+            lastHudRects.Clear();
+            lastHudRects.AddRange(hudRects);
+            hudRects.Clear();
+            hudRectsFrame = Time.frameCount;
+        }
+
+        /// <summary>True when a GUI rect (top-left origin, screen pixels) overlaps a panel of this frame or the last one.</summary>
+        public static bool UnderPanel(Rect r)
+        {
+            foreach (var h in hudRects) if (h.Overlaps(r)) return true;
+            foreach (var h in lastHudRects) if (h.Overlaps(r)) return true;
+            return false;
         }
 
         /// <summary>True when the screen point (Input.mousePosition, bottom-left origin) is over a HUD panel.</summary>
@@ -77,8 +94,9 @@ namespace SimuLean.Unity
 #if UNITY_EDITOR
         private void Reset()
         {
-            simClock = UnityCompat.FindAny<UnitySimClock>();
-            cameraController = UnityCompat.FindAny<SimCameraController>();
+            // this scene's clock and camera (another open scene's would be a cross-scene reference, dropped on save)
+            simClock = UnityCompat.FindInScene<UnitySimClock>(gameObject.scene);
+            cameraController = UnityCompat.FindInScene<SimCameraController>(gameObject.scene);
         }
 #endif
 
@@ -90,7 +108,7 @@ namespace SimuLean.Unity
             if (cameraController == null) cameraController = UnityCompat.FindAny<SimCameraController>();
             elements = UnityCompat.FindAll<SElement>();
             if (elements.Length > 40) showNames = false;   // a large model: names on demand (N)
-            // the help opens by itself the first time only (review2 #45)
+            // the help opens by itself the first time only
             if (PlayerPrefs.GetInt(HelpSeenKey, 0) == 1) showHelp = false;
             else PlayerPrefs.SetInt(HelpSeenKey, 1);
         }
@@ -99,7 +117,7 @@ namespace SimuLean.Unity
         private SElement[] elements = new SElement[0];
         private GUIStyle nameStyle;
 
-        // the elements' names over them (review2 #45: nothing told which object was which in Play)
+        // the elements' names over them (nothing told which object was which in Play)
         private void DrawNames()
         {
             var cam = Camera.main;
@@ -113,6 +131,8 @@ namespace SimuLean.Unity
                 Vector3 p = cam.WorldToScreenPoint(e.transform.position + Vector3.up * 2.2f);
                 if (p.z <= 0) continue;
                 var rect = new Rect(p.x / ui - 80, (Screen.height - p.y) / ui - 10, 160, 20);
+                // a name never shows through a panel (the dashboard, the inspector)
+                if (UnderPanel(new Rect(rect.x * ui, rect.y * ui, rect.width * ui, rect.height * ui))) continue;
                 GUI.color = new Color(0, 0, 0, 0.6f);
                 GUI.Label(new Rect(rect.x + 1, rect.y + 1, rect.width, rect.height), e.name, nameStyle);
                 GUI.color = Color.white;
@@ -148,8 +168,7 @@ namespace SimuLean.Unity
         private void OnGUI()
         {
             if (simClock == null) return;
-            if (hudRectsFrame != Time.frameCount && Event.current.type == EventType.Layout)
-            { hudRects.Clear(); hudRectsFrame = Time.frameCount; }
+            if (hudRectsFrame != Time.frameCount && Event.current.type == EventType.Layout) NewHudFrame();
             EnsureStyles();
             var old = GUI.matrix;
             ui = Scale();
@@ -183,7 +202,7 @@ namespace SimuLean.Unity
             if (GUI.Button(new Rect(r.xMax - 30, r.y + 6, 22, 20), collapsed ? "+" : "−")) collapsed = !collapsed;
             GUILayout.BeginArea(new Rect(r.x + 8, r.y + 6, r.width - 16, r.height - 10));
 
-            // model time in its unit, numbers in one format; the calendar date only when the model has one (review2 #45)
+            // model time in its unit, numbers in one format; the calendar date only when the model has one
             double t = simClock.clock.GetSimulationTime();
             double unitSeconds = simClock.TimeUnitSeconds > 0 ? simClock.TimeUnitSeconds : 1;
             string unit = SimuLean.Results.ResultMetrics.TimeUnitName(unitSeconds);
@@ -287,7 +306,7 @@ namespace SimuLean.Unity
             Register(r);
             GUI.Box(r, GUIContent.none, box);
             GUILayout.BeginArea(new Rect(r.x + 8, r.y + 6, r.width - 16, r.height - 10));
-            GUILayout.Label(el != null ? el.GetName() : owner.name, bold);
+            GUILayout.Label(el != null ? el.Name : owner.name, bold);
             if (el != null)
             {
                 GUILayout.Label($"State: {el.CurrentState}", label);
@@ -359,16 +378,7 @@ namespace SimuLean.Unity
                 connections.AddRange(SceneConnections.All());
                 nextConnectionScan = Time.unscaledTime + 1f;
             }
-            if (lineMaterial == null)
-            {
-                lineMaterial = new Material(Shader.Find("Hidden/Internal-Colored")) { hideFlags = HideFlags.HideAndDontSave };
-                lineMaterial.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
-                lineMaterial.SetInt("_ZWrite", 0);
-                lineMaterial.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
-                lineMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-                lineMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            }
-            lineMaterial.SetPass(0);
+            ConnectionOverlay.Material.SetPass(0);
             GL.PushMatrix();
             GL.Begin(GL.QUADS);
             foreach (var c in connections)
@@ -376,25 +386,10 @@ namespace SimuLean.Unity
                 if (!c.IsValid || !GroupShown(SceneConnections.GroupOf(c.Kind))) continue;
                 Color col = SceneConnections.ColorOf(SceneConnections.GroupOf(c.Kind));
                 col.a = 0.85f;
-                Ribbon(cam, SceneConnections.Anchor(c.From), SceneConnections.Anchor(c.To), col, SceneConnections.IsDirected(c));
+                ConnectionOverlay.Ribbon(cam.transform.position, SceneConnections.Anchor(c.From), SceneConnections.Anchor(c.To), col, SceneConnections.IsDirected(c));
             }
             GL.End();
             GL.PopMatrix();
-        }
-
-        // a camera-facing band from a to b (width proportional to the distance to the camera) and an arrow head
-        private static void Ribbon(Camera cam, Vector3 a, Vector3 b, Color col, bool arrow)
-        {
-            Vector3 dir = b - a;
-            if (dir.sqrMagnitude < 1e-6f) return;
-            Vector3 mid = (a + b) * 0.5f;
-            float w = Vector3.Distance(cam.transform.position, mid) * 0.0025f;
-            Vector3 side = Vector3.Cross(dir, cam.transform.position - mid).normalized * w;
-            GL.Color(col);
-            GL.Vertex(a - side); GL.Vertex(a + side); GL.Vertex(b + side); GL.Vertex(b - side);
-            if (!arrow) return;
-            Vector3 tip = Vector3.Lerp(a, b, 0.6f), f = dir.normalized * w * 8f;
-            GL.Vertex(tip + f); GL.Vertex(tip - f * 0.2f + side * 4f); GL.Vertex(tip - f * 0.2f); GL.Vertex(tip - f * 0.2f - side * 4f);
         }
 
         private static string FormatScale(double s)
@@ -443,7 +438,7 @@ namespace SimuLean.Unity
 
         private Texture2D boxTexture;
 
-        // the panel background goes with the HUD (a texture per HUD instance was never released)
+        // the panel background goes with the HUD (a texture per HUD instance would never be released)
         private void OnDestroy()
         {
             if (boxTexture != null) Destroy(boxTexture);

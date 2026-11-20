@@ -11,7 +11,8 @@ namespace SimuLean
     /// gathering, has room on that input and admits it. With one assembly it is the single-job combiner it always was —
     /// an assembly waiting for its resources already gathers the components of its next job.
     /// </summary>
-    public class Combiner : Element, IWorkStation, SimuLean.Resources.IResourceUser
+    public class Combiner : Element, IWorkStation, SimuLean.Resources.IResourceUser, SimuLean.Resources.IInterruptibleStation,
+                            ISetupStation, ISetupHost
     {
         /// <summary>One assembly of the combiner: its job slot, main item, components per input and matching.</summary>
         public sealed class Assembly
@@ -30,8 +31,10 @@ namespace SimuLean
             public Item Main => Process.GetState() != ElementState.IDLE ? Process.GetItem() : null;
             /// <summary>The components gathered on input <paramref name="input"/> (not attached yet).</summary>
             public IReadOnlyList<Item> PartsOf(int input) => Parts[input];
-            /// <summary>Gathering: the main item is here (also while waiting for resources: components of its next job).</summary>
-            public bool Gathering => State == ElementState.RECEIVING || State == ElementState.WAITING_FOR_RESOURCE;
+            /// <summary>Gathering: the main item is here (also while waiting for resources or setting up: components of its
+            /// next job).</summary>
+            public bool Gathering => State == ElementState.RECEIVING || State == ElementState.WAITING_FOR_RESOURCE
+                                     || State == ElementState.SETUP;
         }
 
         private readonly int[] requirements;      // the template of every assembly
@@ -82,6 +85,18 @@ namespace SimuLean
         /// <summary>Assemblies in parallel.</summary>
         public int Capacity { get; }
 
+        /// <summary>
+        /// Numeric label the assembled item gets as its load height (a palletizer's pallet with its load, so a
+        /// storage with physical dimensions or a stacker's height limit can check it): the main item's own height plus the
+        /// layers of components on it (<see cref="LoadHeight"/>). Not set when it cannot be known (a component without a
+        /// height, or no layers per <see cref="PartsPerLayer"/> nor footprints). Null / empty = off.
+        /// </summary>
+        public string HeightLabel { get; set; } = SimuLean.Storage.StorageSystem.DefaultHeightLabel;
+
+        /// <summary>Components per layer of the load (in arrival order); 0 = from the footprints (labels <c>length</c> /
+        /// <c>width</c> of the main item and the components), packed as the view lays them out.</summary>
+        public int PartsPerLayer { get; set; }
+
         /// <summary>Resources each assembly needs (dispatcher, requirements, release); null = none.</summary>
         public SimuLean.Resources.StationResources Resources { get; set; }
 
@@ -107,8 +122,11 @@ namespace SimuLean
                 assemblies[k] = a;
             }
             blocked.Clear();
+            awaitingExit.Clear();
+            ForgetExitReservations();
             totalServiceTime = 0;
             completedJobs = 0;
+            Setup?.ResetStatistics();
             foreach (var input in inputs) input.Start();
         }
 
@@ -117,6 +135,7 @@ namespace SimuLean
             base.ResetStatistics();
             totalServiceTime = 0;
             completedJobs = 0;
+            Setup?.ResetStatistics();
             if (assemblies != null) foreach (var a in assemblies) a.Process.ResetStatistics();
         }
 
@@ -258,9 +277,13 @@ namespace SimuLean
         public override bool CheckAvailability(Item theItem)
         {
             if (assemblies == null) return false;
-            foreach (var a in assemblies) if (a.State == ElementState.IDLE) return true;
-            return false;
+            int idle = 0;
+            foreach (var a in assemblies) if (a.State == ElementState.IDLE) idle++;
+            return idle > 0;
         }
+
+        // Assemblies whose set is complete and waits for a place downstream, oldest first.
+        private readonly List<Assembly> awaitingExit = new List<Assembly>();
 
         public override int GetFreeCapacity()
         {
@@ -284,6 +307,7 @@ namespace SimuLean
             foreach (var x in assemblies) if (x.State == ElementState.IDLE) { a = x; break; }
             if (a == null) return false;
             a.Process.SetItem(theItem);
+            a.Process.job = null;
             SetSlot(a, ElementState.RECEIVING);
             // The main item sets what its assembly admits and needs; the inputs offer what they have and ask for more.
             a.Match.UpdateStrategy(theItem);
@@ -297,8 +321,9 @@ namespace SimuLean
             if (!updateRequirementsEnabled || updateLabels == null) return;
             for (int i = 0; i < updateLabels.Count && i < inputs.Length; i++)
             {
+                // a main item without the label needs the configured number (it kept the previous job's)
                 var labelValue = theItem.GetLabelValue(updateLabels[i]);
-                if (labelValue != null) a.Requirements[i] = Convert.ToInt32(labelValue);
+                a.Requirements[i] = labelValue != null ? Convert.ToInt32(labelValue) : requirements[i];
             }
         }
 
@@ -324,11 +349,95 @@ namespace SimuLean
                     a.Cycle.Add(c);
                 }
             }
+            if (!string.IsNullOrEmpty(HeightLabel))
+            {
+                double h = LoadHeight(main, a.Cycle, HeightLabel, PartsPerLayer);
+                if (!double.IsNaN(h)) main.SetLabelValue(HeightLabel, h);
+            }
             StartJob(a);
             return true;
         }
 
+        /// <summary>
+        /// Height of <paramref name="main"/> with <paramref name="parts"/> on its top: its own height (label
+        /// <paramref name="heightLabel"/>, 0 when missing) plus the layers, each as high as its highest part. Layers of
+        /// <paramref name="perLayer"/> parts in order, or (0) packed on the main item's footprint as the Combiner's view does:
+        /// side by side across its width, a new row along its length when the row is full, a new layer when the top is full
+        /// (labels <c>width</c> / <c>length</c>; also with the parts turned a quarter, the lower of the two, as the view). A
+        /// walled container (label <c>loadFloor</c>: its inside floor, below its height) takes the parts inside, on its floor
+        /// and in <see cref="ContainerInside"/> of its footprint: its own height, or its contents' top when they stand out of
+        /// it (a tote with a carton in it is not a tote with a carton on it). NaN when unknown: a part without
+        /// a height, or footprints missing.
+        /// </summary>
+        public static double LoadHeight(Item main, IList<Item> parts, string heightLabel, int perLayer)
+        {
+            string lengthLabel = SimuLean.Storage.StorageSystem.DefaultLengthLabel, widthLabel = SimuLean.Storage.StorageSystem.DefaultWidthLabel;
+            double baseHeight = Math.Max(0, main.GetLabelOrDefault(heightLabel, 0));
+            if (parts == null || parts.Count == 0) return main.HasLabel(heightLabel) ? baseHeight : double.NaN;
+            foreach (Item p in parts) if (!(p.GetLabelOrDefault(heightLabel, 0) > 0)) return double.NaN;
+            double floor = main.GetLabelOrDefault(SimuLean.Storage.StorageSystem.DefaultLoadFloorLabel, 0);
+            bool inside = floor > 0 && floor < baseHeight;
+            double LoadOn(double layers) => inside ? Math.Max(baseHeight, floor + layers) : baseHeight + layers;
+
+            if (perLayer > 0)
+            {
+                double total = 0, layer = 0;
+                for (int k = 0; k < parts.Count; k++)
+                {
+                    if (k > 0 && k % perLayer == 0) { total += layer; layer = 0; }
+                    layer = Math.Max(layer, parts[k].GetLabelOrDefault(heightLabel, 0));
+                }
+                return LoadOn(total + layer);
+            }
+
+            double width = main.GetLabelOrDefault(widthLabel, 0), length = main.GetLabelOrDefault(lengthLabel, 0);
+            if (!(width > 0) || !(length > 0)) return double.NaN;
+            foreach (Item p in parts)
+                if (!(p.GetLabelOrDefault(widthLabel, 0) > 0) || !(p.GetLabelOrDefault(lengthLabel, 0) > 0)) return double.NaN;
+            if (inside) { width *= ContainerInside; length *= ContainerInside; }
+            return LoadOn(Math.Min(Layers(parts, width, length, heightLabel, widthLabel, lengthLabel, false),
+                                   Layers(parts, width, length, heightLabel, widthLabel, lengthLabel, true)));
+        }
+
+        /// <summary>The share of a walled container's outer footprint its inside floor offers (the library tote: 0.356 /
+        /// 0.404); the Combiner's view packs inside it too.</summary>
+        public const double ContainerInside = 0.86;
+
+        // the height of the layers of parts packed on a width x length top (turned: each part a quarter turned), as the
+        // view lays them out (TopPacking)
+        private static double Layers(IList<Item> parts, double width, double length, string heightLabel, string widthLabel,
+                                     string lengthLabel, bool turned)
+        {
+            var sizes = new List<(double x, double y, double z)>(parts.Count);
+            foreach (Item p in parts)
+            {
+                double w = p.GetLabelOrDefault(widthLabel, 0), l = p.GetLabelOrDefault(lengthLabel, 0);
+                if (turned) (w, l) = (l, w);
+                sizes.Add((w, p.GetLabelOrDefault(heightLabel, 0), l));
+            }
+            return TopPacking.Height(width, length, sizes);
+        }
+
+        // The set is complete: set up (if its Setup says so), then the process resources (if any), then the process.
         private void StartJob(Assembly a)
+        {
+            if (!TryReserveExit(a.Process.GetItem()))
+            {
+                // no place downstream can be promised: the set waits (BLOCKED) until one can
+                if (!awaitingExit.Contains(a)) awaitingExit.Add(a);
+                SetSlot(a, ElementState.BLOCKED);
+                return;
+            }
+            bool setup = Setup != null && Setup.Needed(a.Process, a.Process.GetItem());
+            if (setup)
+            {
+                Setup.Begin(this, a.Process, Resources, this);
+                return;
+            }
+            BeginProcess(a);
+        }
+
+        private void BeginProcess(Assembly a)
         {
             if (Resources != null)
             {
@@ -337,6 +446,25 @@ namespace SimuLean
                 p.job = Resources.Acquire(this, p.GetItem(), () => ((IWorkStation)this).StartProcessing(p));
             }
             else ((IWorkStation)this).StartProcessing(a.Process);
+        }
+
+        /// <summary>Its setup before each assembly's process (null = none); the previous main item is tracked per assembly.</summary>
+        public StationSetup Setup { get; set; }
+
+        /// <summary>The idle assembly that takes the next main item (the first idle one) is set up for <paramref name="item"/>.</summary>
+        public bool IsSetUpFor(Item item)
+        {
+            if (Setup == null || assemblies == null) return false;
+            foreach (var a in assemblies) if (a.State == ElementState.IDLE) return Setup.Matches(a.Process, item);
+            return false;
+        }
+
+        void ISetupHost.SetupState(ServerProcess slot, ElementState state) => SetSlot(assemblies[slot.Index], state);
+
+        void ISetupHost.SetupEnded(ServerProcess slot, bool keptResources)
+        {
+            if (keptResources) ((IWorkStation)this).StartProcessing(slot);   // the setup's resources stay for the process
+            else BeginProcess(assemblies[slot.Index]);
         }
 
         void IWorkStation.StartProcessing(ServerProcess p)
@@ -354,7 +482,22 @@ namespace SimuLean
                 if (subs != null) foreach (Item c in a.Cycle) subs.Remove(c);
             }
             a.Cycle.Clear();
-            ScheduleWork(p, time);
+            var work = ScheduleWork(p, time);
+            Resources?.ProcessStarted(p, work);   // its resources may be taken while it works
+        }
+
+        /// <summary>An assembly lost a resource: it waits for it, its process paused; then it processes again.</summary>
+        void SimuLean.Resources.IInterruptibleStation.JobPaused(SimuLean.Resources.ResourceJob job, bool paused, bool restart)
+        {
+            var p = job.Slot;
+            if (p == null) return;
+            if (!paused)
+            {
+                if (p.InSetup) { if (restart) p.SetupStart = simClock.GetSimulationTime(); else p.SetupStart += job.LastPause; }
+                else if (restart) p.loadTime = simClock.GetSimulationTime();
+                else p.loadTime += job.LastPause;
+            }
+            SetSlot(assemblies[p.Index], paused ? ElementState.WAITING_FOR_RESOURCE : p.InSetup ? ElementState.SETUP : ElementState.PROCESSING);
         }
 
         void IWorkStation.CompleteServerProcess(ServerProcess p)
@@ -375,9 +518,19 @@ namespace SimuLean
 
         public override bool Unblock()
         {
-            if (blocked.Count == 0) return false;
+            bool started = false;
+            for (int i = 0; i < awaitingExit.Count;)
+            {
+                // the sets waiting for a place downstream start, oldest first, as far as places can be reserved
+                var w = awaitingExit[i];
+                if (!TryReserveExit(w.Process.GetItem())) { i++; continue; }
+                awaitingExit.RemoveAt(i);
+                started = true;
+                StartJob(w);
+            }
+            if (blocked.Count == 0) return started;
             var a = blocked.Peek();
-            if (!SendOut(a.Process.GetItem())) return false;
+            if (!SendOut(a.Process.GetItem())) return started;
             blocked.Dequeue();
             JobLeft(a);
             return true;
@@ -397,16 +550,17 @@ namespace SimuLean
         {
             a.Process.SetState(state);
             if (Capacity == 1) { SetState(state); return; }
-            bool processing = false, waiting = false, isBlocked = false, receiving = false;
+            bool processing = false, setup = false, waiting = false, isBlocked = false, receiving = false;
             foreach (var x in assemblies)
             {
                 var s = x.State;
                 if (s == ElementState.PROCESSING) processing = true;
+                else if (s == ElementState.SETUP) setup = true;
                 else if (s == ElementState.WAITING_FOR_RESOURCE) waiting = true;
                 else if (s == ElementState.BLOCKED) isBlocked = true;
                 else if (s == ElementState.RECEIVING) receiving = true;
             }
-            SetState(processing ? ElementState.PROCESSING : waiting ? ElementState.WAITING_FOR_RESOURCE
+            SetState(processing ? ElementState.PROCESSING : setup ? ElementState.SETUP : waiting ? ElementState.WAITING_FOR_RESOURCE
                    : isBlocked ? ElementState.BLOCKED : receiving ? ElementState.RECEIVING : ElementState.IDLE);
         }
 
@@ -417,14 +571,19 @@ namespace SimuLean
             if (assemblies != null) foreach (var a in assemblies) a.Process.ShowStop(stop);
         }
 
-        /// <summary>Progress views: shift the running jobs' load times by the part of the pause they spent loaded.</summary>
+        /// <summary>Progress views: shift the running jobs' load times by the part of the pause they spent loaded. The
+        /// component inputs, stopped with the combiner, ask upstream again (the main input is the combiner's own).</summary>
         protected override void OnResumed(StopToken token)
         {
-            if (!ResumedWork(token) || assemblies == null) return;
-            foreach (var a in assemblies)
-                if (a.State == ElementState.PROCESSING) a.Process.loadTime += PauseShiftFor(a.Process.loadTime);
+            if (ResumedWork(token) && assemblies != null)
+                foreach (var a in assemblies)
+                {
+                    if (a.State == ElementState.PROCESSING) a.Process.loadTime += PauseShiftFor(a.Process.loadTime);
+                    else if (a.State == ElementState.SETUP) a.Process.SetupStart += PauseShiftFor(a.Process.SetupStart);
+                }
+            if (!IsInputBlocked)
+                foreach (var input in inputs) input.Unblock();
         }
 
-        string IWorkStation.GetName() => GetName();
     }
 }

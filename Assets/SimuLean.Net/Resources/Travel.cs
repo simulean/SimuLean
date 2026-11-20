@@ -107,7 +107,7 @@ namespace SimuLean.Resources
         {
             var route = Network.GetRoute(from, to, allowed);
             if (route == null)
-                throw new InvalidOperationException($"'{executor?.GetName()}' cannot reach node '{to}' from '{from}' on the network.");
+                throw new InvalidOperationException($"'{executor?.Name}' cannot reach node '{to}' from '{from}' on the network.");
             var ids = new List<string>(route.Nodes.Count);
             foreach (var n in route.Nodes) ids.Add(n.Id);
             return new TravelPlan { Route = ids, Distance = route.Distance, Duration = route.Distance / Speed };
@@ -168,7 +168,44 @@ namespace SimuLean.Resources
         {
             double d = Matrix.Distance(from, to);
             if (double.IsPositiveInfinity(d))
-                throw new InvalidOperationException($"'{executor?.GetName()}': the travel matrix has no distance {from} → {to}.");
+                throw new InvalidOperationException($"'{executor?.Name}': the travel matrix has no distance {from} → {to}.");
+            return new TravelPlan { Route = new[] { from, to }, Distance = d, Duration = d / Speed };
+        }
+    }
+
+    /// <summary>
+    /// <b>Straight-line travel</b> (the default of a team in a scene): between the
+    /// coordinates of two locations (points of a <see cref="TransportNetwork"/>; tracks are not used) in a straight line at
+    /// a speed, no obstacles and no collisions — distance = the Euclidean distance (x, y, z), time = distance ÷ speed.
+    /// Views go straight from one point to the other. A team that must go round obstacles uses a walk grid
+    /// (<see cref="GridTravel"/>) or the network.
+    /// </summary>
+    public sealed class StraightTravel : ITravelModel
+    {
+        public StraightTravel(TransportNetwork points, double speed)
+        {
+            Points = points ?? throw new ArgumentNullException(nameof(points));
+            if (!(speed > 0)) throw new ArgumentException("speed must be > 0.", nameof(speed));
+            Speed = speed;
+        }
+
+        public TransportNetwork Points { get; }
+        public double Speed { get; }
+
+        public double Distance(string from, string to)
+        {
+            if (from == to) return 0;
+            var a = Points.GetNode(from); var b = Points.GetNode(to);
+            if (a == null || b == null) return double.PositiveInfinity;
+            double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        public TravelPlan Plan(TaskExecutor executor, string from, string to)
+        {
+            double d = Distance(from, to);
+            if (double.IsPositiveInfinity(d))
+                throw new InvalidOperationException($"'{executor?.Name}' cannot travel to '{to}' from '{from}': both must be points of the model.");
             return new TravelPlan { Route = new[] { from, to }, Distance = d, Duration = d / Speed };
         }
     }
@@ -249,7 +286,7 @@ namespace SimuLean.Resources
         {
             double t = Time(from, to);
             if (double.IsPositiveInfinity(t))
-                throw new InvalidOperationException($"'{executor?.GetName()}' cannot reach '{to}' from '{from}' by its axes (unknown point or an axis without speed).");
+                throw new InvalidOperationException($"'{executor?.Name}' cannot reach '{to}' from '{from}' by its axes (unknown point or an axis without speed).");
             var a = Points.GetNode(from); var b = Points.GetNode(to);
             double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
             return new TravelPlan { Route = new[] { from, to }, Distance = Math.Sqrt(dx * dx + dy * dy + dz * dz), Duration = t };

@@ -7,7 +7,7 @@ using UnityEngine;
 namespace SimuLean.Unity.Editor.Tests
 {
     /// <summary>
-    /// Naval library N4, the yard's resources: the member prefabs (SPMT, Goliath crane, welding gantry, hall crane) carry
+    /// Naval library, the yard's resources: the member prefabs (SPMT, Goliath crane, welding gantry, hall crane) carry
     /// the view a team drives them with; the crane rigs (<see cref="ICraneRig"/>) put the head where the engine says,
     /// fit around the points they work at, and the vehicle view finds every wheel of the SPMT with its own radius.
     /// </summary>
@@ -54,11 +54,11 @@ namespace SimuLean.Unity.Editor.Tests
         }
 
         [Test]
-        public void TheTravellingGantriesPutTheirHeadWhereAsked([Values("GoliathCrane.prefab", "WeldingGantry.prefab")] string prefab)
+        public void TheTravelingGantriesPutTheirHeadWhereAsked([Values("GoliathCrane.prefab", "WeldingGantry.prefab")] string prefab)
         {
             InPreview(prefab, go =>
             {
-                var rig = go.GetComponent<TravellingGantryRig>();
+                var rig = go.GetComponent<TravelingGantryRig>();
                 Assert.IsNotNull(rig, prefab);
                 ICraneRig crane = rig;
                 Assert.IsTrue(crane.HasHead);
@@ -93,6 +93,54 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.AreEqual(12f, rig.CupWorld.z, 0.05f);
                 Assert.AreEqual(2f, rig.CupWorld.y, 0.05f);
             });
+        }
+
+        [Test]
+        public void ACraneTeamsPreviewStandsAsInTheRun([Values(true, false)] bool lengthwise)
+        {
+            // the run fits the crane around the team's points (its home and the stations it serves): the preview does too
+            var home = lengthwise ? new Vector3(2, 0, -20) : new Vector3(-20, 0, 2);
+            var station = lengthwise ? new Vector3(-4, 0, 26) : new Vector3(26, 0, -4);
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(Members + "GoliathCrane.prefab");
+            using (var t = new TestScene("CranePreview", activate: true, revertUndo: true))
+            {
+                var team = t.Make<UnityResourceTeam>("Goliath");
+                team.travel = TeamTravel.Axes;
+                team.memberPrefab = prefab;
+                team.members.Add(new ResourceMemberSpec());
+                team.homeNode = t.Make<UnityTransportNode>("Home");
+                team.homeNode.transform.position = home;
+                var stop = t.Make<UnityTransportNode>("Station");
+                stop.transform.position = station;
+                var server = t.Make<UnityMultiServer>("Assembly");
+                server.location = stop;
+                server.processBy.team = team;
+
+                TeamMemberPreviews.EnsureAll();
+                var holder = team.transform.Find(TeamMemberPreviews.Child);
+                Assert.IsNotNull(holder, "the team has its preview");
+                var shown = holder.GetChild(0).GetComponent<TravelingGantryRig>();
+                Assert.IsNotNull(shown, "the member is the Goliath crane");
+
+                // the run's member: the prefab fitted around the same points (UnityResourceTeam binding)
+                InPreview("GoliathCrane.prefab", go =>
+                {
+                    var run = (TravelingGantryRig)UnityResourceTeam.CraneRigOf(go);
+                    run.FitAround(team.ReachPoints(), 1f);
+                    Assert.AreEqual(lengthwise ? 0f : 90f, shown.transform.eulerAngles.y, 0.1f, "the runway along the points' longer side");
+                    Assert.AreEqual(run.transform.eulerAngles.y, shown.transform.eulerAngles.y, 0.1f, "turned as in the run");
+                    Assert.Less(Vector3.Distance(run.transform.position, shown.transform.position), 0.01f, "centred as in the run");
+                    Assert.AreEqual(run.Span, shown.Span, 0.01f, "the span as in the run");
+                    Assert.AreEqual(run.Length, shown.Length, 0.01f, "the runway length as in the run");
+                    Assert.Greater(shown.Length, 46f, "the runway covers both points");
+                });
+
+                // a served element moved: the preview follows
+                stop.transform.position = station + (lengthwise ? new Vector3(0, 0, 10) : new Vector3(10, 0, 0));
+                TeamMemberPreviews.EnsureAll();
+                var refit = team.transform.Find(TeamMemberPreviews.Child).GetChild(0).GetComponent<TravelingGantryRig>();
+                Assert.Greater(refit.Length, 56f, "refitted to the moved station");
+            }
         }
 
         [Test]

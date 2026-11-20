@@ -6,13 +6,14 @@ using SimuLean.Resources;
 namespace SimuLean.Headless
 {
     /// <summary>
-    /// The state of a built model at the current time, for finding why it stalls or deadlocks (the
-    /// agents wrote their own dump scripts): the run monitor's verdict, every element
+    /// The state of a built model at the current time, for finding why it stalls or deadlocks (so no
+    /// dump script of one's own is needed): the run monitor's verdict, every element
     /// that holds items, is stopped or is not idle (state, items, what it waits for — <see cref="RunMonitor.WaitsFor"/>),
     /// each resource team (its pending requests: who asks, how many, since when; each member: state, task, for whom, since
     /// when) and each list. <c>progress</c> (the last item movement, the oldest request, the longest task) and <c>notes</c>
     /// (<see cref="Notes"/>) report a model that has not moved for long although events keep the run monitor from calling it
-    /// stalled. Read-only: it moves nothing and schedules nothing.
+    /// stalled, and each circular wait (<see cref="RunMonitor.CircularWaits"/>: elements that wait for room in each other
+    /// round a loop). Read-only: it moves nothing and schedules nothing.
     /// </summary>
     public static class ModelDiagnosis
     {
@@ -23,29 +24,34 @@ namespace SimuLean.Headless
             var run = clock.Context.Run;
             var monitor = model.Monitor;
             var elements = new List<object>();
-            double now = clock.GetSimulationTime(), lastMovement = double.NaN;
+            double now = clock.GetSimulationTime(), lastMovement = RunMonitor.LastMovement(model.GetAllElements().Values);
             int itemsInModel = 0;
             foreach (var e in model.GetAllElements().Values)
             {
                 if (e is Resource) continue;
-                var sc = e.StatsCollector;
-                if (sc != null)
-                    foreach (double t in new[] { sc.LastEntryTime, sc.LastExitTime })
-                        if (!double.IsNaN(t) && (double.IsNaN(lastMovement) || t > lastMovement)) lastMovement = t;
                 if (!all && e is Sink) continue;                     // a sink's items have left the model
                 int held = RunMonitor.ItemsHeld(e);
                 if (!(e is Sink)) itemsInModel += held;
                 bool idle = e.CurrentState == ElementState.IDLE;
                 if (!all && held == 0 && idle && !e.IsDown) continue;
-                elements.Add(new Dictionary<string, object>
+                var row = new Dictionary<string, object>
                 {
-                    ["name"] = e.GetName(),
+                    ["name"] = e.Name,
                     ["type"] = e.GetType().Name,
                     ["state"] = e.CurrentState.Name,
                     ["items"] = held,
                     ["stopped"] = e.IsDown,
                     ["waitsFor"] = held > 0 && monitor != null ? After(monitor.WaitsFor(e), " → ") : null,
-                });
+                };
+                // an unpacker's content counts its carriers and the pieces in them: both apart, against its capacity in
+                // carriers ("items 5" with capacity 2)
+                if (e is Separator sep && sep.Mode == SeparatorMode.Unpack)
+                {
+                    row["carriers"] = sep.PlacesUsed;
+                    row["pieces"] = Math.Max(0, held - sep.ItemsHeldCount);
+                    row["capacity"] = sep.Capacity;
+                }
+                elements.Add(row);
             }
 
             var teams = new List<object>();
@@ -55,14 +61,14 @@ namespace SimuLean.Headless
             {
                 foreach (var r in d.Requests.Entries.Select(x => x.Value as ResourceRequest).Where(r => r != null && r.State == RequestState.Pending))
                     if (!double.IsNaN(r.RequestTime) && (double.IsNaN(oldestRequest) || now - r.RequestTime > oldestRequest))
-                    { oldestRequest = now - r.RequestTime; oldestRequester = r.Requester?.GetName(); }
+                    { oldestRequest = now - r.RequestTime; oldestRequester = r.Requester?.Name; }
                 foreach (var m in d.Members)
                     if (m.CurrentTask != null && !double.IsNaN(m.CurrentTask.StartTime) && (double.IsNaN(longestTask) || now - m.CurrentTask.StartTime > longestTask))
-                    { longestTask = now - m.CurrentTask.StartTime; longestMember = m.GetName(); }
+                    { longestTask = now - m.CurrentTask.StartTime; longestMember = m.Name; }
                 var requests = d.Requests.Entries.Select(x => x.Value as ResourceRequest).Where(r => r != null && r.State == RequestState.Pending)
                     .Select(r => new Dictionary<string, object>
                     {
-                        ["requester"] = r.Requester?.GetName(),
+                        ["requester"] = r.Requester?.Name,
                         ["task"] = r.TaskType.ToString(),
                         ["count"] = r.Requirements.Sum(q => q.Count),
                         ["label"] = string.Join(", ", r.Requirements.Where(q => !string.IsNullOrEmpty(q.Label)).Select(q => q.Label)) is string l && l.Length > 0 ? l : null,
@@ -70,11 +76,11 @@ namespace SimuLean.Headless
                     }).ToList<object>();
                 var members = d.Members.Select(m => new Dictionary<string, object>
                 {
-                    ["name"] = m.GetName(),
+                    ["name"] = m.Name,
                     ["state"] = m.CurrentState.Name,
                     ["stopped"] = m.IsDown,
-                    ["task"] = m.CurrentTask == null ? null : $"{m.CurrentTask.Type} {m.CurrentTask.Name}".Trim(),
-                    ["for"] = m.CurrentTask?.Requester?.GetName(),
+                    ["task"] = TaskName(m.CurrentTask),
+                    ["for"] = m.CurrentTask?.Requester?.Name,
                     ["step"] = m.CurrentTask == null ? (int?)null : m.CurrentTask.CurrentStep,
                     ["taskSince"] = m.CurrentTask == null || double.IsNaN(m.CurrentTask.StartTime) ? (double?)null : m.CurrentTask.StartTime,
                     ["carried"] = m.Carried.Count,
@@ -99,6 +105,8 @@ namespace SimuLean.Headless
                 ["deadlocked"] = run.Deadlocked,
                 ["deadlockTime"] = double.IsNaN(run.DeadlockTime) ? (double?)null : run.DeadlockTime,
                 ["endReason"] = run.EndReason.ToString(),
+                // the time the end condition "no progress" ended the run (null = it did not)
+                ["noProgress"] = !run.NoProgress || double.IsNaN(run.NoProgressTime) ? (double?)null : run.NoProgressTime,
                 ["waiting"] = new List<string>(run.Waiting),
                 ["progress"] = new Dictionary<string, object>
                 {
@@ -110,10 +118,13 @@ namespace SimuLean.Headless
                     ["longestTask"] = Nullable(longestTask),
                     ["longestTaskMember"] = longestMember,
                 },
-                ["notes"] = Notes(now, lastMovement, itemsInModel, oldestRequest, oldestRequester, longestTask, longestMember, run.Stalled || run.Deadlocked),
+                ["notes"] = Notes(now, lastMovement, itemsInModel, oldestRequest, oldestRequester, longestTask, longestMember, run.Stalled || run.Deadlocked || run.NoProgress)
+                            .Concat(monitor == null ? Enumerable.Empty<string>() : monitor.CircularWaits().Select(CircularWaitNote)).ToList(),
                 ["elements"] = elements,
                 ["teams"] = teams,
                 ["lists"] = lists,
+                // what the model warned about while it ran: an unroutable item, an item label read but not set...
+                ["warnings"] = new List<string>(clock.Context.ModelWarnings),
             };
         }
 
@@ -143,7 +154,22 @@ namespace SimuLean.Headless
             return notes;
         }
 
+        /// <summary>The note of a circular wait (<see cref="RunMonitor.CircularWaits"/>): given even beside a deadlock
+        /// verdict, which names the elements but not the loop they form.</summary>
+        public static string CircularWaitNote(List<string> cycle)
+            => $"Circular wait: {string.Join(" → ", cycle)} — each holds items and waits for room in the next, which is full: " +
+               "none can move. Give the loop more room than the items it can hold, or limit the items let into it.";
+
         private static double R(double v) => Math.Round(v, 3);
+        // a member's task as "Process" or "Transport Move 12": the type, then the name when it says more (a task named by
+        // its type read "Process Process")
+        internal static string TaskName(SimuLean.Resources.TaskSequence task)
+        {
+            if (task == null) return null;
+            string type = task.Type.ToString(), name = task.Name ?? "";
+            return name.Length == 0 || string.Equals(name, type, StringComparison.OrdinalIgnoreCase) ? type : $"{type} {name}";
+        }
+
         private static double? Nullable(double v) => double.IsNaN(v) ? (double?)null : Math.Round(v, 6);
 
         private static string After(string text, string mark)

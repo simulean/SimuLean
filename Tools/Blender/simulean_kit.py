@@ -48,7 +48,10 @@ V = Vector
 # =============================================================================
 
 def reset_scene():
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+    try:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+    except RuntimeError:                    # inside Blender's MCP (its sandbox refuses resetting the preferences)
+        bpy.ops.wm.read_homefile(use_empty=True, use_factory_startup=True)
     scene = bpy.context.scene
     scene.unit_settings.system = 'METRIC'
     scene.unit_settings.scale_length = 1.0
@@ -1155,6 +1158,117 @@ def bake_texture_set(objs, out_dir, prefix, bake_size=4096, save_size=2048,
     return paths
 
 
+def transfer_to_proxies(jobs, maps, margin=2, extrusion=0.02, samples=4, scale=None):
+    """Bake hand-made low-poly LOD meshes ("proxies") from their LOD0 sources through the
+    atlas that was ALREADY baked for the sources (selected-to-active).  Used where a far LOD
+    must stay far below what decimation can reach (load units: a 12-triangle box for LOD2)
+    while still showing the LOD0 detail (plank gaps, ribs, handle openings) in its maps.
+
+    jobs  [(proxy, [source objects], reach)]: the proxy has its own islands in the same
+          atlas (atlas_unwrap'd together with the sources, usually with a low texel
+          weight); rays leave the proxy surface (+ `extrusion` along its normal) inwards
+          and copy what they hit on the sources within `reach` metres.
+    maps  [(png path, kind, fallback RGBA)]: kind 'rgb' copies RGB, 'rgba' RGB and alpha
+          (MetallicSmoothness), 'normal' re-bakes the source normal map into the proxy's
+          tangent space.  Proxy texels whose ray finds nothing (an open top seen into the
+          void, a mesh gap) get `fallback`.
+    scale {png path: RGBA multipliers} applied to the proxies' texels of that map afterwards
+          (e.g. damp the metal of a wire-mesh proxy, whose texels average wire and gap).
+    The PNGs are rewritten in place (only proxy texels change).  The sources' materials
+    are replaced by the transfer material: call this after every bake that needs them."""
+    scene = bpy.context.scene
+    proxies = [j[0] for j in jobs]
+    sources = list({s.name: s for j in jobs for s in j[1]}.values())
+
+    src = bpy.data.materials.new('_XferSrc')
+    nb = NB(src, period={})
+    tex = nb.node('ShaderNodeTexImage', props={'interpolation': 'Linear', 'extension': 'EXTEND'})
+    nb.link(nb.node('ShaderNodeUVMap').outputs[0], tex.inputs['Vector'])
+    emit = nb.node('ShaderNodeEmission')
+    out = nb.node('ShaderNodeOutputMaterial')
+    nmap = nb.node('ShaderNodeNormalMap')
+    nb.nt.links.new(tex.outputs['Color'], nmap.inputs['Color'])
+    bsdf = nb.node('ShaderNodeBsdfPrincipled')
+    nb.nt.links.new(nmap.outputs[0], bsdf.inputs['Normal'])
+
+    dst = bpy.data.materials.new('_XferDst')
+    nd = NB(dst, period={})
+    e2 = nd.node('ShaderNodeEmission')
+    e2.inputs['Color'].default_value = (1, 1, 1, 1)
+    nd.nt.links.new(e2.outputs[0], nd.node('ShaderNodeOutputMaterial').inputs['Surface'])
+    target = nd.node('ShaderNodeTexImage')
+    nd.nt.nodes.active = target
+
+    def assign(objs, mat):
+        for o in objs:
+            o.data.materials.clear()
+            o.data.materials.append(mat)
+            o.data.polygons.foreach_set('material_index', [0] * len(o.data.polygons))
+    assign(sources, src)
+    assign(proxies, dst)
+    scene.cycles.samples = samples
+
+    def blank(size):
+        img = bpy.data.images.new('_xfer', size[0], size[1], alpha=True, float_buffer=True)
+        img.colorspace_settings.name = 'Non-Color'
+        img.pixels.foreach_set(np.zeros(size[0] * size[1] * 4, np.float32))
+        return img
+
+    def bake(objs, active, kind, reach):
+        select_only(objs, active)
+        kw = dict(type='NORMAL' if kind == 'normal' else 'EMIT', margin=margin, use_clear=False,
+                  use_selected_to_active=reach is not None)
+        if reach is not None:
+            kw.update(cage_extrusion=extrusion, max_ray_distance=reach)
+        if kind == 'normal':
+            kw.update(normal_space='TANGENT')
+        bpy.ops.object.bake(**kw)
+
+    cover, cover_size = None, None
+    for path, kind, fallback in maps:
+        img = bpy.data.images.load(path, check_existing=False)
+        img.colorspace_settings.name = 'Non-Color'
+        img.alpha_mode = 'CHANNEL_PACKED'
+        arr = image_array(img).copy()
+        size = tuple(img.size)
+        if cover_size != size:                       # which texels belong to proxies
+            ci = blank(size)
+            target.image = ci
+            bake(proxies, proxies[0], 'rgb', None)
+            cover = image_array(ci)[..., 3] > 0.5
+            cover_size = size
+            bpy.data.images.remove(ci)
+        for ch in (('n',) if kind == 'normal' else ('rgb', 'a') if kind == 'rgba' else ('rgb',)):
+            links = src.node_tree.links
+            for l in list(out.inputs['Surface'].links) + list(emit.inputs['Color'].links):
+                links.remove(l)
+            tex.image = img
+            if ch == 'n':
+                links.new(bsdf.outputs[0], out.inputs['Surface'])
+            else:
+                links.new(tex.outputs['Color' if ch == 'rgb' else 'Alpha'], emit.inputs['Color'])
+                links.new(emit.outputs[0], out.inputs['Surface'])
+            t = blank(size)
+            target.image = t
+            for proxy, srcs, reach in jobs:
+                bake(list(srcs) + [proxy], proxy, 'normal' if ch == 'n' else 'rgb', reach)
+            res = image_array(t)
+            hit = res[..., 3] > 0.5
+            miss = cover & ~hit
+            if ch == 'a':
+                arr[..., 3][cover & hit] = res[..., 0][cover & hit]
+                arr[..., 3][miss] = fallback[3]
+            else:
+                arr[..., :3][cover & hit] = res[..., :3][cover & hit]
+                arr[..., :3][miss] = fallback[:3]
+            bpy.data.images.remove(t)
+        if scale and path in scale:
+            arr[cover] *= np.array(scale[path], np.float32)
+        print(f"[kit] proxies <- {os.path.basename(path)} ({int(cover.sum())} texels)")
+        write_png(path, arr, 4 if kind == 'rgba' else 3)
+        bpy.data.images.remove(img)
+
+
 def make_runtime_material(name, paths, emission_strength=2.0):
     """The single material the exported asset uses (mirrors Unity Standard)."""
     mat = bpy.data.materials.new(name)
@@ -1290,9 +1404,15 @@ def render_text_image(text, path, height_px=256, font_path=None, bold_offset=0.0
 # Export
 # =============================================================================
 
-def export_fbx(root, path):
+def export_fbx(root, path, turn=0.0):
     """Export `root` and its descendants for Unity (scale 1, Y-up, +Z forward,
     identity local rotations on every node).
+
+    `turn` (degrees about the vertical, authored Rz) turns the whole asset rigidly at export, nodes and meshes
+    alike, so every node keeps an identity rotation.  The library's model frame (2026-11-02): a station or element
+    model has its front (operator side, panel, stack light, doors) on Unity -Z and its flow along Unity +X (in on
+    -X, out on +X).  The station scripts author their front on -Y, which this mapping exports to Unity +Z, so they
+    pass turn=180 (station_parts.STATION_TURN); vehicles and people keep turn=0 (front = travel = Unity +Z).
 
     The space conversion is done here, not by the exporter's
     bake_space_transform: that option only handles the root and its direct
@@ -1305,17 +1425,20 @@ def export_fbx(root, path):
     G onto the root only.  Blender world placement is unchanged throughout, and
     everything is restored after export."""
     from bpy_extras.io_utils import axis_conversion
+    from mathutils import Matrix
     G = axis_conversion(to_forward='-Z', to_up='Y').to_4x4()
     Gi = G.inverted()
+    M = G @ Matrix.Rotation(math.radians(turn), 4, 'Z')     # the descendants: turned, then converted
+    Mi = M.inverted()
     kids = list(root.children_recursive)
     saved = {o.name: (o.matrix_basis.copy(), o.matrix_parent_inverse.copy()) for o in [root] + kids}
     meshes = {o.data for o in kids if o.type == 'MESH'}     # each mesh once, even if shared
     for o in kids:
         local = o.matrix_parent_inverse @ o.matrix_basis
         o.matrix_parent_inverse.identity()
-        o.matrix_basis = G @ local @ Gi
+        o.matrix_basis = M @ local @ Mi
     for me in meshes:
-        me.transform(G)
+        me.transform(M)
     root.matrix_basis = root.matrix_basis @ Gi
     bpy.context.view_layer.update()
 
@@ -1332,7 +1455,7 @@ def export_fbx(root, path):
             path_mode='STRIP', embed_textures=False, use_custom_props=False)
     finally:
         for me in meshes:
-            me.transform(Gi)
+            me.transform(Mi)
         for o in [root] + kids:
             o.matrix_basis, o.matrix_parent_inverse = saved[o.name]
         bpy.context.view_layer.update()

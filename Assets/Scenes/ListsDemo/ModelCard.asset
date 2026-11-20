@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: "Lists \u2014 priority dispatch and parts pulled by a combiner"
+  description: 'Lists at their simplest: two prioritised streams advertise their items on the list Work and two servers pull the highest priority first; a second list, Parts, feeds the component input of an assembly.'
+  author: SimuLean
+  scenePath: Assets/Scenes/ListsDemo.unity
+  copiedFrom: 
+  created: 2026-11-09 12:00:00
+  modified: 2026-11-09 12:00:00
+  represents: 'Priority dispatch: Low Priority Orders (exponential, mean 4 s, label prio = 1) -> Low Priority Buffer and High Priority Orders (exponential, mean 6 s, prio = 5) -> High Priority Buffer; both buffers push their items to the list Work (order prio desc), from which Server 1 and Server 2 (1 slot, constant 4 s each) pull the highest priority first, then -> Served.
+
+    Assembly from a list: Bases (exponential, mean 5 s) is the main input of Assembly (Combiner, 2 s, batch mode: the parts travel inside); Parts In (exponential, mean 4.5 s) -> Parts Buffer pushes to the list Parts, and Assembly''s component input pulls 2 parts per base from it -> Assemblies.'
+  kpis: 'served=Served.input, s1=Server 1.input, s2=Server 2.input, util1=Server 1.utilization; waits by priority highWait=High Priority Buffer.stay_avg, lowWait=Low Priority Buffer.stay_avg; workWait=list:Work.wait_avg; assemblies=Assemblies.input, partsWait=Parts Buffer.stay_avg.
+
+    Seeds 1..3, 2000 s: about 848 served (425 / 425 per server, utilisation 0.85), high-priority wait about 1.4 s against 8.2 s for low priority, list Work wait about 5.4 s; about 222 assemblies, parts wait about 2.8 s.'
+  parameters: 'Arrivals: Low Priority Orders / High Priority Orders / Bases / Parts In.interArrivalDistribution.exponentialRate (0.25 / 0.167 / 0.2 / 0.222 per s). Service: Server 1 / Server 2.delayStrategy.constantValue (4 s), Server 1.capacity. Assembly: Assembly.requirements (2 parts per base), Assembly.delayStrategy.constantValue (2 s).'
+  assumptions: 'A feature demo, not a real system: time unit s, horizon 2000 s, no warm-up, a fresh seed per run (fix it in the clock to reproduce a run). Buffers of 100 (never full). The servers are otherwise identical, so the list decides only which item goes next, not where. The list engine behaviour is pinned down by the reference models list_priority_dispatch, list_filtered_pull and list_combiner.'

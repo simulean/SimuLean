@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: Hospital emergency department
+  description: 'The healthcare pack in a small emergency department: patients go through reception, wait for triage and are seen in one of two consultation boxes. A showcase of the healthcare models, floor zones and the Recorder (the README''s healthcare video), with demo-scale times.'
+  author: SimuLean
+  scenePath: Assets/Scenes/LibraryExamples/Hospital_Emergency.unity
+  copiedFrom: 
+  created: 2026-11-09 12:00:00
+  modified: 2026-11-09 12:00:00
+  represents: Arrivals (a patient every 3 s) -> Waiting Room (6 seats) -> Reception (2 desks, 4 s) -> Triage Waiting (6 seats) -> Box 1 / Box 2 (consultation boxes, 1 patient each, 14 s; the first one free) -> Discharge. The clock starts on 2026-03-10 08:00. Floor zones, doors and labels are scenery; the Recorder holds the shots of a demo take.
+  kpis: 'out=Discharge.input, arrived=Arrivals.output, wait=Waiting Room.stay_avg, triageWait=Triage Waiting.stay_avg, b1=Box 1.utilization, b2=Box 2.utilization, rec=Reception.utilization, srcBlocked=Arrivals.state:BLOCKED (the share of time the door is closed because the waiting room is full).
+
+    All times are constant, so every seed gives the same run (1000 s): 156 patients in, 140 discharged, waits about 37 s in the waiting room and 40 s for triage, both boxes busy 0.99 and the arrivals blocked 0.53 of the time: the two boxes (one patient every 7 s together) are the bottleneck for one arrival every 3 s.'
+  parameters: Arrivals.interArrivalDistribution.constantValue (3 s); Reception.capacity (2), Reception.delayStrategy.constantValue (4 s); Box 1 / Box 2.delayStrategy.constantValue (14 s), Box 1.capacity; Waiting Room.capacity / Triage Waiting.capacity (6).
+  assumptions: 'A showcase, not a study: time unit s with demo-scale times (seconds where a real department has minutes) so a short take shows a busy department; horizon 1000 s, no warm-up, constant times (the seed does not matter). Patients who find the waiting room full wait outside (the source blocks), none leave; no priorities by acuity, no staff as resources. The pack''s patient, bed and clinician models are the look only.'

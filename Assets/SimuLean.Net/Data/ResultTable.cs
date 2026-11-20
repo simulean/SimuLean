@@ -63,7 +63,7 @@ namespace SimuLean.Data
             if (!replace)
             {
                 // appending to a table written before with other columns (an optimisation over other parameters): the
-                // missing columns are added and every value goes under its column by name, not by position (code
+                // missing columns are added and every value goes under its column by name, not by position (otherwise
                 // "N columns but M values", or values under the first set's column names)
                 var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var row in db.Query("PRAGMA table_info(" + table + ")")) existing.Add(Convert.ToString(row["name"], CultureInfo.InvariantCulture));

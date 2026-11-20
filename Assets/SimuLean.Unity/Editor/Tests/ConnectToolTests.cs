@@ -53,6 +53,47 @@ namespace SimuLean.Unity.Editor.Tests
             }
         }
 
+        /// <summary>The first element connected is the main input, whatever the hierarchy order (a pallet
+        /// supply placed after the cartons' conveyor became a carton carrying 12 pallets): the Connect tool and
+        /// <c>simulean_connect</c> append to <see cref="UnityCombiner.inputOrder"/>.</summary>
+        [Test]
+        public void TheFirstConnectionIsTheMainInput()
+        {
+            var active = SceneManager.GetActiveScene();
+            bool temporary = !string.IsNullOrEmpty(active.path);
+            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
+            if (temporary) SceneManager.SetActiveScene(scene);
+            var root = new GameObject("ConnectOrderModel");
+            SceneManager.MoveGameObjectToScene(root, scene);
+            try
+            {
+                var parts = Make<UnitySource>("CTOParts", root);       // first in the hierarchy
+                var pallets = Make<UnitySource>("CTOPallets", root);
+                var bins = Make<UnitySource>("CTOBins", root);
+                var comb = Make<UnityCombiner>("CTOComb", root);
+                comb.requirements = new[] { 4, 1 };
+
+                ConnectionModel.OptionsFor(pallets, comb, false, out _).First(o => o.Kind == ConnectionKind.Flow).Apply();
+                ConnectionModel.OptionsFor(parts, comb, false, out _).First(o => o.Kind == ConnectionKind.Flow).Apply();
+                SimuLeanCommands.Connect("CTOBins", "CTOComb");
+                CollectionAssert.AreEqual(new SElement[] { pallets, parts, bins }, comb.ResolveInputOrder(),
+                    "connection order, not hierarchy order");
+
+                pallets.nextElements.Remove(comb);   // a removed connection frees its place; a new one goes last
+                ConnectionModel.OptionsFor(pallets, comb, false, out _).First(o => o.Kind == ConnectionKind.Flow).Apply();
+                CollectionAssert.AreEqual(new SElement[] { parts, bins, pallets }, comb.ResolveInputOrder());
+            }
+            finally
+            {
+                if (temporary)
+                {
+                    if (active.IsValid()) SceneManager.SetActiveScene(active);
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+                else Object.DestroyImmediate(root);
+            }
+        }
+
         private static T Make<T>(string name, GameObject root) where T : Component
         {
             var go = new GameObject(name);

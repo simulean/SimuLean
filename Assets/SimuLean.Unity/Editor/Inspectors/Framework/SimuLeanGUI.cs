@@ -29,7 +29,7 @@ namespace SimuLean.Unity.Editor
         private static GUIStyle sectionStyle, rowValueStyle, badgeStyle, titleStyle;
 
         /// <summary>The model's time unit (the scene clock's <i>Seconds per Time Unit</i>: s, min, h, d): shown next to
-        /// every time an inspector edits (review2 #38).</summary>
+        /// every time an inspector edits.</summary>
         public static string TimeUnit
         {
             get
@@ -119,7 +119,7 @@ namespace SimuLean.Unity.Editor
         }
 
         /// <summary>The inspector standard's header for a SimuLean tool (clock, experimenter, optimizer…): its name, its Library
-        /// entry and description (review2 #41).</summary>
+        /// entry and description.</summary>
         public static void ToolHeader(Component tool, string status = null)
         {
             var info = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<SimuLeanToolAttribute>(tool.GetType());

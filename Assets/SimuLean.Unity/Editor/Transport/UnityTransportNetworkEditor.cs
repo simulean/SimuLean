@@ -6,8 +6,7 @@ using SimuLean.Transport;
 namespace SimuLean.Unity.Editor
 {
     /// <summary>
-    /// Scene-view editor for <see cref="UnityTransportNetwork"/> (unified
-    /// proposal §7 / backlog Tarea 2-B & 2-C):
+    /// Scene-view editor for <see cref="UnityTransportNetwork"/>:
     ///
     ///  - **Add Nodes** mode: Shift+Click places a node on the ground
     ///    (raycast against <c>groundMask</c>, falling back to the network's
@@ -226,7 +225,7 @@ namespace SimuLean.Unity.Editor
             MarkDirty();
         }
 
-        // ── MST generation (Tarea 2-C, Prim) ─────────────────────────────────
+        // ── MST generation (Prim) ─────────────────────────────────
 
         private void GenerateMst()
         {

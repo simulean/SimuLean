@@ -35,8 +35,7 @@ namespace SimuLean.Unity.Editor.Tests
             Assert.IsEmpty(diffs, string.Join("\n", diffs));
         }
 
-        [TestCase("Assets/Scenes/CombinerScene.unity")]
-        [TestCase("Assets/Scenes/AssemblyLine.unity")]
+        [TestCase("Assets/Scenes/LibraryExamples/Assembly_Kitting.unity")]
         [TestCase("Assets/Scenes/ListsDemo.unity")]
         public void SampleSceneRunsHeadless(string path)
         {
@@ -54,9 +53,9 @@ namespace SimuLean.Unity.Editor.Tests
                 var combiners = elements.Values.OfType<Combiner>().ToList();
                 Assert.IsNotEmpty(combiners, "scene has a combiner");
                 foreach (var c in combiners)
-                    Assert.Greater(c.GetStatsOutputCount(), 0, $"{c.GetName()} produced units headless");
+                    Assert.Greater(c.GetStatsOutputCount(), 0, $"{c.Name} produced units headless");
                 foreach (var s in elements.Values.OfType<Sink>())
-                    Assert.Greater(s.GetStatsInputCount(), 0, $"{s.GetName()} received items headless");
+                    Assert.Greater(s.GetStatsInputCount(), 0, $"{s.Name} received items headless");
                 foreach (var l in factory.Lists)
                     Assert.Greater(l.Value.Pulled, 0, $"list {l.Key} was pulled from");
             }

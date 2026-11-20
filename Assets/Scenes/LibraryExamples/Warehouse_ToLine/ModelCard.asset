@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: "Warehouse to line \u2014 rack, pick faces and a milk run"
+  description: 'A warehouse that supplies an assembly line: trucks restock a pallet rack, a forklift feeds the pick faces, totes are picked and a tugger train (milk run) takes them to the line side, where they are unpacked for the assembly of car bodies.'
+  author: SimuLean
+  scenePath: Assets/Scenes/LibraryExamples/Warehouse_ToLine.unity
+  copiedFrom: 
+  created: 2026-11-09 12:00:00
+  modified: 2026-11-09 12:00:00
+  represents: 'One 8 h shift in seconds. The line: Bodies (a car body every 60 s) -> BodyBuffer (5) -> Assembly (Combiner: one part A and one part B per body, 50 s) -> Cars.
+
+    Warehouse: Trucks (BaseStockReplenisher: 4 pallets of 40 pieces per SKU A / B at the start; trucks of 4 pallets of the consumed mix, lead time 3600 s) store the pallets in Rack (pallet rack, 2 bays x 3 positions x 2 levels, single-deep), which publishes its stock on the list Stock; the forklift team Forklifts (1, on the network dock - rack - faces) carries each pulled pallet to its pick face. FaceA / FaceB (PickFace, one per SKU, 2 positions: open + reserve, reorder point 1) pull their SKU from Stock (query sku == A / B) and send the empty pallets to EmptyPallets.
+
+    Picking: TotesA / TotesB (an empty tote always waiting) -> PickA / PickB (PickingStation: 4 pieces of the SKU per tote, 20 s) -> DepotA / DepotB (2 totes).
+
+    Milk run: TuggerTrain (team Tuggers, 1 train, capacity 4 totes, at most 2 per flow, leaves when any flow is ready, 60 s each way, 10 s to load / unload a tote, 5 s per empty) takes the totes to the stop LineSide and brings the empties of EmptyA / EmptyB back to TotesBack.
+
+    Line side: LineA (LineSideUnpacker, 2 totes) and UnpackB (Separator in Unpack mode, 2 totes, 8 s) hand the pieces to Assembly one by one.'
+  kpis: 'cars=Cars.input, asmUtil=Assembly.utilization, asmIdle=Assembly.state:IDLE (starved of parts or bodies), bodyWait=BodyBuffer.stay_avg, pallets=EmptyPallets.input, totesBack=TotesBack.input, forklift=team:Forklifts.utilization, tugger=team:Tuggers.utilization; list:Stock statistics for the rack''s stock.
+
+    All times are constant, so every seed gives the same run (28800 s): 479 cars, Assembly busy 0.83 (idle 0.16), bodies wait 6.1 s on average, 24 empty pallets, 238 empty totes back, forklift busy 0.05, the tugger train busy 0.75 (the wait at the depot for departure is not busy time). The code twin is the reference model warehouse_to_line (ReferenceModels.WarehouseExample.cs, baseline warehouse_to_line.json: also 479 cars); the scene uses picking stations and a separator where the twin uses combiners and a second unpacker.'
+  parameters: 'Line pace: Bodies.interArrivalDistribution.constantValue (60 s), Assembly.delayStrategy.constantValue (50 s), BodyBuffer.capacity (5).
+
+    Warehouse: Trucks.truckloadSize (4), Trucks.leadTime.constantValue (3600 s), Trucks.skus[0].initialLoads / skus[1].initialLoads (4), Trucks.skus[i].piecesPerLoad (40); team:Forklifts.members, team:Forklifts.speed.
+
+    Picking: PickA / PickB.delayStrategy.constantValue (20 s), PickA.staticPickList[0].qty (4 pieces per tote); DepotA / DepotB.capacity (2).
+
+    Milk run: TuggerTrain.capacity (4), TuggerTrain.flows[0].maxPerTour / flows[1].maxPerTour (2), TuggerTrain.legs[0].time.constantValue (60 s), TuggerTrain.trains (1), TuggerTrain.departure / readyRule.
+
+    Line side: UnpackB.capacity (2), UnpackB.processTime.constantValue (8 s).'
+  assumptions: 'One shift of 8 h (horizon 28800 s, time unit s), no warm-up: the run starts with the rack stocked and the line empty; constant times, so the seed does not matter. The forklift travels on the network at 1.5 m/s; the tugger''s legs are fixed times, not distances. Empty totes are always available at the picking stations (a source that always has one waiting). No breakdowns, no shifts, no scrap. Built by the editor tool WarehouseToLineExample; illustrative times, not calibrated to any plant.'

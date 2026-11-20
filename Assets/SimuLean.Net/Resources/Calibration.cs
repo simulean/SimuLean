@@ -15,7 +15,7 @@ namespace SimuLean.Resources
     }
 
     /// <summary>
-    /// A move whose end is <b>reported from outside</b> — Unity physics (a NavMeshAgent, a rigidbody, any controller),
+    /// A move whose end is <b>reported from outside</b> — Unity physics (a NavMeshAgent, a rigidbody, any controller):
     /// <see cref="Plan"/> is open-ended (duration NaN) and whoever moves the resource calls
     /// <see cref="TaskExecutor.Arrive"/>. Scene only (no headless run: there is nobody to report). An
     /// <see cref="Estimate"/> model (grid, matrix, network…) gives the distances "nearest resource" rules compare and
@@ -33,7 +33,7 @@ namespace SimuLean.Resources
         {
             double d = Estimate.Distance(from, to);
             if (double.IsPositiveInfinity(d))
-                throw new InvalidOperationException($"'{executor?.GetName()}' cannot reach '{to}' from '{from}' (estimate model).");
+                throw new InvalidOperationException($"'{executor?.Name}' cannot reach '{to}' from '{from}' (estimate model).");
             return new TravelPlan { Route = new[] { from, to }, Distance = d, Duration = double.NaN };
         }
     }
@@ -82,35 +82,20 @@ namespace SimuLean.Resources
             bool loaded = executor != null && executor.Carried.Count > 0;
             double t = Time(from, to, loaded, out _);
             if (double.IsPositiveInfinity(t))
-                throw new InvalidOperationException($"'{executor?.GetName()}' cannot reach '{to}' from '{from}' (estimate model).");
+                throw new InvalidOperationException($"'{executor?.Name}' cannot reach '{to}' from '{from}' (estimate model).");
             var basePlan = Estimate.Plan(executor, from, to);   // route / path for views
             return new TravelPlan { Route = basePlan.Route, Path = basePlan.Path, Distance = basePlan.Distance, Duration = t };
         }
 
         internal static string Key(string from, string to, bool loaded) => from + "\u0001" + to + (loaded ? "\u0001L" : "\u0001E");
 
-        /// <summary>Observed times of one pair: <c>from|to|loaded|mean|sd|n</c> in configs.</summary>
+        /// <summary>Observed times of one pair (a team's <c>calibrationPairs[i]</c> in configs).</summary>
         public struct PairStat
         {
             public string From, To;
             public bool Loaded;
             public double Mean, Sd;
             public int N;
-
-            public string Encode() => string.Join("|", From, To, Loaded ? "1" : "0",
-                Mean.ToString("R", CultureInfo.InvariantCulture), Sd.ToString("R", CultureInfo.InvariantCulture), N.ToString(CultureInfo.InvariantCulture));
-
-            public static PairStat Decode(string rec)
-            {
-                string[] f = rec.Split('|');
-                if (f.Length != 6) throw new FormatException("Calibration pair '" + rec + "': expected 'from|to|loaded|mean|sd|n'.");
-                return new PairStat
-                {
-                    From = f[0], To = f[1], Loaded = f[2] == "1",
-                    Mean = double.Parse(f[3], CultureInfo.InvariantCulture), Sd = double.Parse(f[4], CultureInfo.InvariantCulture),
-                    N = int.Parse(f[5], CultureInfo.InvariantCulture),
-                };
-            }
         }
     }
 

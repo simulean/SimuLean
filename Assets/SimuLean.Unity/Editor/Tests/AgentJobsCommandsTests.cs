@@ -16,39 +16,21 @@ namespace SimuLean.Unity.Editor.Tests
     /// The wait of the long-job status commands, optimisation and
     /// diagnosis through the MCP commands. Each test builds its model in a scene of its own, closed at the end.
     /// </summary>
-    public class AgentJobsCommandsTests
+    public class AgentJobsCommandsTests : SceneTestFixture
     {
-        private Scene active, scene;
-        private bool temporary;
-        private GameObject root;
-        private int undoGroup;
         private const string Root = "JobsModel";
+        protected override string RootName => Root;
 
         [SetUp]
         public void SetUp()
         {
-            active = SceneManager.GetActiveScene();
-            temporary = !string.IsNullOrEmpty(active.path);
-            scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            if (temporary) SceneManager.SetActiveScene(scene);
-            root = new GameObject(Root);
-            SceneManager.MoveGameObjectToScene(root, scene);
             ResultsOutput.StoreOverride = System.IO.Path.GetFullPath($"Temp/simulean_store_test_{Guid.NewGuid():N}.db");
-            UnityEditor.Undo.IncrementCurrentGroup();
-            undoGroup = UnityEditor.Undo.GetCurrentGroup();
         }
 
         [TearDown]
         public void TearDown()
         {
             ResultsOutput.StoreOverride = null;
-            UnityEditor.Undo.RevertAllDownToGroup(undoGroup);
-            if (temporary)
-            {
-                if (active.IsValid()) SceneManager.SetActiveScene(active);
-                EditorSceneManager.CloseScene(scene, true);
-            }
-            else Object.DestroyImmediate(root);
         }
 
         private static JObject J(object answer) => (JObject)answer;
@@ -122,13 +104,13 @@ namespace SimuLean.Unity.Editor.Tests
         {
             Line("V", 1);
             var e = Assert.Throws<ArgumentException>(() => SimuLeanCommands.OptimizeStart("VSrv.capacity=1..3", "out=VSnk.input", "", "", "", "",
-                                                                                         -1, -1, 0, 10, 0, 1, Root));
+                                                                                         -1, -1, -1, 10, -1, 1, Root));
             StringAssert.Contains("VSnk", e.Message, "the unknown element of a metric, before anything runs");
             e = Assert.Throws<ArgumentException>(() => SimuLeanCommands.OptimizeStart("VSrv.capacity=1..3", "out=VSink.input", "", "", "annealing",
-                                                                                     "", -1, -1, 0, 10, 0, 1, Root));
+                                                                                     "", -1, -1, -1, 10, -1, 1, Root));
             StringAssert.Contains("Genetic", e.Message, "the algorithms there are");
             e = Assert.Throws<ArgumentException>(() => SimuLeanCommands.OptimizeStart("VSrv.capacity=1..3", "out=VSink.input", "", "", "genetic",
-                                                                                     "population=4", -1, -1, 0, 10, 0, 1, Root));
+                                                                                     "population=4", -1, -1, -1, 10, -1, 1, Root));
             StringAssert.Contains("populationSize", e.Message, "the settings there are");
         }
 
@@ -182,7 +164,8 @@ namespace SimuLean.Unity.Editor.Tests
             SimuLeanCommands.Set("YSrv", "delayStrategy.exponentialRate", "2");
             var a = Run("", "out=YSink.input", derived: "half=out/2", confidence: 0.9, replications: 3);
             var m = a["scenarios"][0]["metrics"];
-            Assert.AreEqual((double)m["out"]["mean"] / 2, (double)m["half"]["mean"], 1e-9);
+            // the compact answer gives 6 significant digits (detail=full every digit)
+            Assert.AreEqual((double)m["out"]["mean"] / 2, (double)m["half"]["mean"], 1e-5 * (double)m["out"]["mean"]);
             Assert.AreEqual(3, (int)m["half"]["n"]);
             Assert.AreEqual(0.9, (double)a["settings"]["confidence"], 1e-12);
             var e = Assert.Throws<ArgumentException>(() => Run("", "out=YSink.input", derived: "x=foo*2"));
@@ -193,7 +176,7 @@ namespace SimuLean.Unity.Editor.Tests
         public void AWildcardSplitsAMetricByLabelValue()
         {
             Line("Z", 0.5);
-            SimuLeanCommands.Set("ZSrc", "assignLabels[0].value", "7");
+            SimuLeanCommands.Set("ZSrc", "createLabels[0]", "prio = 7");
             SimuLeanCommands.Set("ZSink", "tallies", "tis = age");
             SimuLeanCommands.Set("ZSink", "tallySplit", "prio");
             var a = Run("", "w=ZSink.tally:tis[*]:count");

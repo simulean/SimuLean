@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: "Factory 3D models \u2014 a gallery of the library"
+  description: 'A gallery of the library''s 3D models, not a study model: a line that shows the infeed conveyor, CNC, inspection with its reject pusher, robot weld cell, paint booth, assembly, palletizer, pallet rack, AS/RS with its stacker crane, AGVs, forklifts, pallet trucks, roll cages and a dashboard in one scene. Use it to see the models move; build studies from the other examples.'
+  author: SimuLean
+  scenePath: Assets/Scenes/LibraryExamples/Factory_3DModels.unity
+  copiedFrom: 
+  created: 2026-11-09 12:00:00
+  modified: 2026-11-09 12:00:00
+  represents: 'A showcase line chosen to put every 3D model to work, not a real plant: Parts In -> Infeed Conveyor (length-limited lane) -> CNC -> Inspection, which sends part of the parts to Rejects and the rest to Weld Buffer -> Weld Cell (team Weld Robots) -> Paint -> Assembly (Combiner with Components In, team Assemblers) -> Palletizer (Combiner on pallets from Pallets In) -> Pallet Rack. Beside it, independent displays: Roll Cages In -> Cage Return; Pallets To Store -> ASRS Rack (stacker crane), which publishes on the list ASRS Stock pulled by Picking. Teams AGVs, Forklifts, Pallet Trucks and Stacker Crane move the loads; a dashboard shows live charts.'
+  kpis: 'Shown, not studied: CNC.output, Rejects.input, Weld Cell.output, Assembly.output, Palletizer.output, Picking.input, Cage Return.input and the teams'' utilisation on the dashboard. Seed 1, 7200 s (a smoke check, not a target): 377 parts in, 374 inspected, 82 rejected, 251 welded, 250 assembled, 62 pallets, 305 picks from the AS/RS, 92 roll cages.'
+  parameters: 'None worth studying: the times and capacities were chosen to keep every model busy on screen. To look at the models, change the team sizes (team:AGVs.members, team:Forklifts.members) or the arrivals (Parts In.interArrivalDistribution) and watch in Play.'
+  assumptions: 'A gallery: time unit s, horizon 7200 s, fixed seed 1, illustrative times and layout. The side flows (roll cages, the AS/RS picking) are independent of the line and exist to show their models. It is the heaviest example (embedded meshes and textures); open it to see the library, not to start a model.'

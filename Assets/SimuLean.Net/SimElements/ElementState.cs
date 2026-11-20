@@ -13,9 +13,9 @@ namespace SimuLean
     ///
     /// <para><b>Closed core set, open extension.</b> The engine defines a small
     /// predefined set (<see cref="IDLE"/>, <see cref="RECEIVING"/>,
-    /// <see cref="PROCESSING"/>, <see cref="BLOCKED"/>, <see cref="TRAVELLING"/>,
+    /// <see cref="PROCESSING"/>, <see cref="BLOCKED"/>, <see cref="TRAVELING"/>,
     /// <see cref="WAITING_FOR_RESOURCE"/>). Subsystems that need their own states
-    /// (e.g. resources: TRAVELLING_EMPTY / LOADING / TRAVELLING_LOADED
+    /// (e.g. resources: TRAVELING_EMPTY / LOADING / TRAVELING_LOADED
     /// / UNLOADING) obtain a token via <see cref="Of"/>, which <b>interns</b> by
     /// name so equal names always resolve to the same value. This gives a limited,
     /// predefined vocabulary for the common cases while still allowing
@@ -37,7 +37,7 @@ namespace SimuLean
         /// <summary>The stable state name (what shows up in reports / CSV / inspector).</summary>
         public string Name { get; }
 
-        // the name's hash, computed once: every state lookup (trackers, utilisation) hashed the name again (review2 #15)
+        // the name's hash, computed once: every state lookup (trackers, utilisation) hashed the name again
         private readonly int hash;
 
         private ElementState(string name)
@@ -76,7 +76,7 @@ namespace SimuLean
         public static readonly ElementState BLOCKED              = Of("BLOCKED");
 
         /// <summary>Item / carrier is in transit.</summary>
-        public static readonly ElementState TRAVELLING           = Of("TRAVELLING");
+        public static readonly ElementState TRAVELING           = Of("TRAVELING");
 
         /// <summary>Element is waiting to collect items.</summary>
         public static readonly ElementState RECEIVING            = Of("RECEIVING");
@@ -84,11 +84,15 @@ namespace SimuLean
         /// <summary>Element is waiting for a shared operator resource.</summary>
         public static readonly ElementState WAITING_FOR_RESOURCE = Of("WAITING_FOR_RESOURCE");
 
-        /// <summary>Element is changing over (setup) between jobs.
-        /// <b>Reserved:</b> no built-in element sets it yet (no setup / changeover time is modelled);
-        /// custom elements may use it, scheduling the setup with <see cref="Element.ScheduleWork"/>
-        /// so stops pause it. See docs/architecture.md §8.</summary>
+        /// <summary>Element is changing over (setup) between jobs: a station with a setup rule (<see cref="StationSetup"/>)
+        /// while its setup runs, an erection dock's front; a setup crew's members hold in it. Its share of time is the
+        /// metric <c>state:SETUP</c> (not part of <c>utilization</c>).</summary>
         public static readonly ElementState SETUP                = Of("SETUP");
+
+        /// <summary>Element cannot go on because material / components are missing: e.g. a paced
+        /// line that cannot index because a station has no part, a pick face out of stock. Distinct from IDLE (nothing to
+        /// do) and BLOCKED (output refused).</summary>
+        public static readonly ElementState STARVED              = Of("STARVED");
 
         // ── downtime states (set by Element.Stop, see Downtime/) ─────────────
         /// <summary>Generic unplanned stop (default state of a stop request).</summary>
@@ -96,6 +100,10 @@ namespace SimuLean
 
         /// <summary>Failure / breakdown (e.g. MTBF/MTTR generated).</summary>
         public static readonly ElementState BREAKDOWN            = Of("BREAKDOWN");
+
+        /// <summary>Stopped by a downtime with a repair crew, waiting for the crew to arrive (its request queued, then its
+        /// travel): the repair itself shows the downtime's state (BREAKDOWN by default).</summary>
+        public static readonly ElementState WAITING_FOR_REPAIR   = Of("WAITING_FOR_REPAIR");
 
         /// <summary>Planned stop: breaks, planned maintenance, start-up.</summary>
         public static readonly ElementState SCHEDULED_DOWN       = Of("SCHEDULED_DOWN");

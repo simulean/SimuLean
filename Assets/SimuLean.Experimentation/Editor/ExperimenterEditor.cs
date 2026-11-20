@@ -37,13 +37,15 @@ namespace SimuLean.Experimentation.Editor
             EditorGUILayout.PropertyField(serializedObject.FindProperty("warmupTime"), new GUIContent($"Warm-up Time ({unit})", "Statistics start after it; 0 = none."));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("headlessMode"));
             if (headless.boolValue) EditorGUILayout.PropertyField(serializedObject.FindProperty("threads"),
-                new GUIContent("Threads (0 = auto)", "Runs at once: 0 = one per processor up to 8, 1 = one after another."));
+                new GUIContent($"Threads (0 = auto: {SimuLean.Optimization.Study.DefaultThreads} here)",
+                    "Runs at once. 0 = automatic: half the logical processors (about one per physical core), 1 to 16. 1 = one after " +
+                    "another. More threads than physical cores rarely help: the runs are bound by memory."));
             else EditorGUILayout.HelpBox("In the scene: every scenario × replication runs visibly in Play mode, one after another, with the same seeds as the headless runs.", MessageType.Info);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("randomSeed"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("exportFormats"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("exportElementStats"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("seriesInterval"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("recordTimeline"));   // It had no field
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("recordTimeline"));
 
             EditorGUILayout.Space(6);
             EditorGUILayout.BeginHorizontal();
@@ -98,9 +100,8 @@ namespace SimuLean.Experimentation.Editor
         }
 
         /// <summary>
-        /// Removes parameter <paramref name="index"/> and its value in every scenario (only the list was
-        /// shortened, so each scenario lost its LAST value and the values after <paramref name="index"/> moved to the
-        /// next parameter).
+        /// Removes parameter <paramref name="index"/> and its value in every scenario (shortening only the list would make each
+        /// scenario lose its LAST value and the values after <paramref name="index"/> move to the next parameter).
         /// </summary>
         public static void RemoveParameter(SerializedProperty parameters, SerializedProperty scenarios, int index)
         {

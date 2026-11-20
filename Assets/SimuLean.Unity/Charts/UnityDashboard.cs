@@ -10,7 +10,9 @@ namespace SimuLean.Unity
     /// A live dashboard in Play: <see cref="ChartDefinition"/>s drawn over the scene while the model runs, from the
     /// run going on (<see cref="UnitySimClock.CaptureLive"/>: the statistics so far and, with the clock's Series Interval, the
     /// series) — or from their stored sets. Refreshed every <see cref="refreshSeconds"/> of real time, drawn by the engine
-    /// (<see cref="ChartRenderer"/>, the Results tab's charts). <b>Read-only</b>: it reads the statistics and never schedules an
+    /// (<see cref="ChartRenderer"/>, the Results tab's charts) <b>on a worker thread</b>: the frame only captures the
+    /// run (a copy, ≈ 2 ms) and uploads the finished images, so a long run's Gantt (≈ 360 ms to build and draw at a few
+    /// thousand intervals in Debug) no longer stalls the scene every second. <b>Read-only</b>: it reads the statistics and never schedules an
     /// event or moves an item, so the run is unchanged. Optional (create it from the SimuLean window ▸ Experiments ▸ Analysis).
     /// </summary>
     [SimuLeanTool(SimuLeanToolCategories.Analysis, "Dashboard",
@@ -53,39 +55,99 @@ namespace SimuLean.Unity
         private void Update()
         {
             if (toggleKey != KeyCode.None && Input.GetKeyDown(toggleKey)) expanded = !expanded;
+            if (job != null)
+            {
+                if (!job.IsCompleted) return;   // one refresh at a time
+                Finish(job);
+                job = null;
+            }
             if (!expanded || Time.unscaledTime < nextRefresh) return;
             nextRefresh = Time.unscaledTime + refreshSeconds;
-            Refresh();
+            job = Begin().Draw();
         }
 
-        /// <summary>Rebuilds every chart from the run now (also called by the refresh timer).</summary>
+        /// <summary>Rebuilds every chart from the run now, on this thread (the timer does it on a worker thread).</summary>
         public void Refresh()
         {
-            bool gantt = charts.Exists(c => c != null && (c.spec.Kind == ChartKind.Gantt || c.spec.Kind == ChartKind.JobGantt));
-            var live = simClock != null ? simClock.CaptureLive(gantt) : null;
-            Dictionary<string, ResultTable> tables = null;
-            if (live != null)
+            var work = Begin();
+            if (job != null) work.Buffers = new ChartBuffers[work.Charts.Count];   // a refresh in flight draws into the kept ones
+            work.Run();
+            var done = new System.Threading.Tasks.TaskCompletionSource<Work>();
+            done.SetResult(work);
+            Finish(done.Task);
+        }
+
+        // One refresh: what the frame captured (the run's copy, each chart's query, the size), then built and drawn on a
+        // worker thread — engine code only (the charts, the renderer; the fonts' cache is locked) — and uploaded by the frame.
+        private sealed class Work
+        {
+            public RunResults Live;
+            public string Model;
+            public Vector2Int Size;
+            public float Ui;
+            public readonly List<(ChartQuery spec, string title, ChartData stored)> Charts = new List<(ChartQuery, string, ChartData)>();
+            public ChartImage[] Images;
+            public ChartBuffers[] Buffers;   // the dashboard's, one per chart: drawn into again (one refresh at a time)
+
+            public System.Threading.Tasks.Task<Work> Draw() => System.Threading.Tasks.Task.Run(() => { Run(); return this; });
+
+            public void Run()
             {
-                var set = ResultsOutput.SingleRun(live, gameObject.scene.name, System.DateTime.Now);
-                tables = ChartDefinition.Tables(set);
-                status = $"t = {live.Info.EndTime:0.##}";
-            }
-            float ui = SimRuntimeHud.ReferenceScale;
-            var size = new Vector2Int(Mathf.Max(80, Mathf.RoundToInt(chartSize.x * ui)), Mathf.Max(60, Mathf.RoundToInt(chartSize.y * ui)));
-            ChartTextures.UseResourceFonts();
-            string root = ResultsOutput.ProjectRoot;
-            for (int i = 0; i < charts.Count; i++)
-            {
-                var def = charts[i];
-                while (textures.Count <= i) textures.Add(null);
-                if (def == null) continue;
-                ChartData data;
-                if (def.source == ChartDataSource.StoredSets)   // stored sets don't change during the run: read once
+                Dictionary<string, ResultTable> tables = Live != null
+                    ? ChartDefinition.Tables(ResultsOutput.SingleRun(Live, Model, System.DateTime.Now)) : null;
+                Images = new ChartImage[Charts.Count];
+                for (int i = 0; i < Charts.Count; i++)
                 {
-                    if (!stored.TryGetValue(def, out data)) stored[def] = data = def.Build((IReadOnlyDictionary<string, ResultTable>)null, root);
+                    var (spec, title, stored) = Charts[i];
+                    if (spec == null) continue;
+                    var data = stored ?? (tables != null ? ChartBuilder.Build(spec, tables)
+                                                         : new ChartData { Title = title, Message = "No results yet: run the model." });
+                    if (string.IsNullOrWhiteSpace(data.Title)) data.Title = title;
+                    Images[i] = ChartRenderer.Render(data, Size.x, Size.y, ChartTheme.Panel, Ui, Buffers[i]);
                 }
-                else data = def.Build(tables, root);
-                textures[i] = ChartTextures.ToTexture(ChartRenderer.Render(data, size.x, size.y, ChartTheme.Panel, ui), textures[i]);
+            }
+        }
+
+        private System.Threading.Tasks.Task<Work> job;
+        private readonly List<ChartBuffers> buffers = new List<ChartBuffers>();
+
+        private Work Begin()
+        {
+            bool gantt = charts.Exists(c => c != null && (c.spec.Kind == ChartKind.Gantt || c.spec.Kind == ChartKind.JobGantt));
+            float ui = SimRuntimeHud.ReferenceScale;
+            var work = new Work
+            {
+                Live = simClock != null ? simClock.CaptureLive(gantt) : null, Model = gameObject.scene.name, Ui = ui,
+                Size = new Vector2Int(Mathf.Max(80, Mathf.RoundToInt(chartSize.x * ui)), Mathf.Max(60, Mathf.RoundToInt(chartSize.y * ui))),
+            };
+            if (work.Live != null) status = $"t = {work.Live.Info.EndTime:0.##}";
+            ChartTextures.UseResourceFonts();   // Unity's Resources: on this thread
+            string root = ResultsOutput.ProjectRoot;
+            foreach (var def in charts)
+            {
+                if (def == null) { work.Charts.Add((null, null, null)); continue; }
+                ChartData data = null;
+                if (def.source == ChartDataSource.StoredSets && !stored.TryGetValue(def, out data))   // stored sets don't change: read once
+                    stored[def] = data = def.Build((IReadOnlyDictionary<string, ResultTable>)null, root);
+                work.Charts.Add((def.spec, def.name, data));
+            }
+            while (buffers.Count < work.Charts.Count) buffers.Add(new ChartBuffers());
+            work.Buffers = buffers.GetRange(0, work.Charts.Count).ToArray();
+            return work;
+        }
+
+        private void Finish(System.Threading.Tasks.Task<Work> done)
+        {
+            if (done.IsFaulted)
+            {
+                status = "chart error: " + done.Exception?.GetBaseException().Message;
+                return;
+            }
+            var work = done.Result;
+            for (int i = 0; i < work.Images.Length && i < charts.Count; i++)
+            {
+                while (textures.Count <= i) textures.Add(null);
+                if (work.Images[i] != null) textures[i] = ChartTextures.ToTexture(work.Images[i], textures[i]);
             }
             // charts removed from the list: their textures go too
             for (int i = textures.Count - 1; i >= charts.Count; i--)
@@ -93,7 +155,7 @@ namespace SimuLean.Unity
                 if (textures[i] != null) Destroy(textures[i]);
                 textures.RemoveAt(i);
             }
-            renderedSize = size;
+            renderedSize = work.Size;
         }
 
         private void OnGUI()

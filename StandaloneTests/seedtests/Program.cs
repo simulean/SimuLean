@@ -204,10 +204,10 @@ static class Program
     {
         IRandomSampler Make(int seed, string owner)
         {
-            var cfg = new ElementConfig("x", "T", owner);
-            cfg.Parameters["delayStrategyType"] = "Poisson";
-            cfg.Parameters["poissonLambda"] = 4.0;
-            return ElementBuildHelpers.BuildRandomProcess(cfg, "delay", new SimClock(seed));
+            var cfg = new ElementConfig("x", "MultiServer", owner);
+            cfg.Set("delayStrategy.strategyType", "Poisson");
+            cfg.Set("delayStrategy.poissonLambda", 4.0);
+            return ElementBuildHelpers.BuildRandomProcess(cfg.Get<SamplerSettings>("delayStrategy"), cfg.Name, "delayStrategy", new SimClock(seed));
         }
         double[] D(IRandomSampler s) => Enumerable.Range(0, 30).Select(_ => s.NextValue()).ToArray();
         Check(D(Make(11, "P")).SequenceEqual(D(Make(11, "P"))), "Poisson reproducible for a seed (was on the global engine)");

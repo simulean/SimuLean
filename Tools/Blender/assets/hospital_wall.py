@@ -1,5 +1,5 @@
 """
-SimuLean kit: hospital partition walls (2026-10-09, healthcare §6 "hospital wing kit") -- cut-away walls to lay out
+SimuLean kit: hospital partition walls -- cut-away walls to lay out
 rooms, corridors and waiting areas around the library's stations: a plain panel, a glazed panel, a door and the end
 post. Cut away at 1.6 m so the rooms read from above (a demo for clinicians), with the hospital palette.
 

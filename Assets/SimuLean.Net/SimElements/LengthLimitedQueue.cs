@@ -27,7 +27,8 @@ namespace SimuLean
     /// <para><b>Statistics</b> are driven by the Link layer only (every item crosses the
     /// element's input/output links); the element only sets its state (IDLE / PROCESSING when
     /// holding items / BLOCKED when the output refused its head item). There is no transit
-    /// time: combine it with a <see cref="MultiServer"/> if the conveyor travel time matters.
+    /// time unless <see cref="Speed"/> is set: then each item takes its lane's length ÷ speed to reach the end and
+    /// leaves only once there and at the front of its lane (a conveyor).
     /// Engine-pure (no Unity dependency). See docs/architecture.md §3.13.</para>
     /// </summary>
     public class LengthLimitedQueue : Element
@@ -38,6 +39,35 @@ namespace SimuLean
         private readonly List<Item> items = new List<Item>();
         private readonly Dictionary<Item, int> laneOf = new Dictionary<Item, int>();
         private readonly Dictionary<Item, double> lengthOf = new Dictionary<Item, double>();
+        // Conveying (Speed > 0): items still travelling to the end of their lane, and when each one reached it.
+        private readonly HashSet<Item> inTransit = new HashSet<Item>();
+        private readonly Dictionary<Item, double> arrivedAt = new Dictionary<Item, double>();
+        private readonly Dictionary<Item, double> enteredAt = new Dictionary<Item, double>();
+        private double speed;
+
+        /// <summary>Conveying speed (length units per time unit). 0 (default) = an accumulation lane with no transit time;
+        /// &gt; 0 = a conveyor: an item takes its lane's length ÷ speed to reach the end (paused by stops: it is
+        /// the element's work) and leaves once there and at the front of its lane — the lanes in order of arrival at
+        /// their end. No item passes straight through.</summary>
+        public double Speed
+        {
+            get => speed;
+            set => speed = value >= 0 && !double.IsInfinity(value) ? value : throw new ArgumentOutOfRangeException(nameof(Speed), "The speed must be ≥ 0 (0 = no transit time).");
+        }
+
+        /// <summary>True while <paramref name="item"/> is travelling to the end of its lane (never with no speed).</summary>
+        public bool InTransit(Item item) => item != null && inTransit.Contains(item);
+
+        /// <summary>For views: distance from the lane exit to the leading edge of <paramref name="item"/> — its place in the
+        /// accumulation (<see cref="OffsetFromExit"/>), or, while it is still travelling, how far it still has to go at
+        /// <see cref="Speed"/> (stops not subtracted: a view only), whichever is further.</summary>
+        public double DistanceToExit(Item item)
+        {
+            double off = OffsetFromExit(item);
+            if (!InTransit(item) || !enteredAt.TryGetValue(item, out double t0)) return off;
+            double left = laneLength[LaneOf(item)] - LengthOf(item) - (simClock.GetSimulationTime() - t0) * speed;
+            return Math.Max(off, left);
+        }
 
         /// <summary>Free space kept between two consecutive items on a lane.</summary>
         public double Gap { get; set; } = 0.2;
@@ -144,7 +174,7 @@ namespace SimuLean
 
         public override void Start()
         {
-            items.Clear(); laneOf.Clear(); lengthOf.Clear();
+            items.Clear(); laneOf.Clear(); lengthOf.Clear(); inTransit.Clear(); arrivedAt.Clear(); enteredAt.Clear();
             Array.Clear(used, 0, used.Length);
             Array.Clear(count, 0, count.Length);
             base.Start();
@@ -182,6 +212,10 @@ namespace SimuLean
 
         public override bool CheckAvailability(Item theItem) => Fits(theItem);
 
+        // In its own method: a closure that captures a parameter is allocated at every call, used or not
+        //.
+        private void ScheduleArrival(Item theItem, double time) => ScheduleWork(new ActionEvent(() => Arrived(theItem)), time);
+
         public override bool Receive(Item theItem)
         {
             double len = ResolveLength(theItem);
@@ -190,7 +224,7 @@ namespace SimuLean
 
             // Pass straight through only when nobody is waiting (FIFO; items waiting for their carrier were offered
             // already), otherwise join a lane.
-            if (!HasItemToOffer() && GetOutput() != null && SendOut(theItem))
+            if (speed <= 0 && !HasItemToOffer() && GetOutput() != null && SendOut(theItem))
                 return true;
 
             used[lane] += (count[lane] > 0 ? Gap : 0) + len;
@@ -200,15 +234,49 @@ namespace SimuLean
             lengthOf[theItem] = len;
             vElement.LoadItem(theItem);
             SetState(ElementState.PROCESSING);   // holding items
+            if (speed > 0)
+            {
+                inTransit.Add(theItem);
+                enteredAt[theItem] = simClock.GetSimulationTime();
+                ScheduleArrival(theItem, laneLength[lane] / speed);   // paused by stops
+                return true;
+            }
+            arrivedAt[theItem] = simClock.GetSimulationTime();
             // Pushing to a list: every item is advertised, not only the head.
-            if (GetOutput() is ListLink list) list.Advertise(theItem, this);
+            if (GetOutput() is IAdvertisingLink list) list.Advertise(theItem, this);
             return true;
+        }
+
+        // A conveyed item reached the end of its lane: it may leave now (advertised to a list, or offered).
+        private void Arrived(Item item)
+        {
+            if (!inTransit.Remove(item) || !laneOf.ContainsKey(item)) return;
+            arrivedAt[item] = simClock.GetSimulationTime();
+            if (GetOutput() is IAdvertisingLink list) list.Advertise(item, this);
+            else if (!IsOutputBlocked) Unblock();
+        }
+
+        // The next item to leave: the oldest (global FIFO) with no speed; with a speed, among the lane fronts that reached
+        // the end, the first to arrive there (null: none is there yet).
+        private Item NextToLeave()
+        {
+            if (items.Count == 0) return null;
+            if (speed <= 0) return items[0];
+            Item best = null;
+            var seen = new HashSet<int>();
+            foreach (var it in items)
+            {
+                if (!seen.Add(laneOf[it])) continue;   // not the front of its lane
+                if (inTransit.Contains(it)) continue;
+                if (best == null || arrivedAt[it] < arrivedAt[best]) best = it;
+            }
+            return best;
         }
 
         /// <summary>Hands over a specific held item (pulled from a list), whichever lane holds it.</summary>
         public override bool SendHeldItem(Item item)
         {
-            if (!items.Contains(item) || GetOutput() == null || !SendOut(item))
+            if (!items.Contains(item) || inTransit.Contains(item) || GetOutput() == null || !SendOut(item))
                 return false;
             Remove(item);
             vElement.ReportState("Exit");
@@ -231,7 +299,7 @@ namespace SimuLean
                 // Every held item gets its own carrier, in order; one refused keeps the rest waiting.
                 foreach (Item it in new List<Item>(items))
                 {
-                    if (!laneOf.ContainsKey(it) || AwaitsCarrier(it)) continue;
+                    if (!laneOf.ContainsKey(it) || AwaitsCarrier(it) || inTransit.Contains(it)) continue;
                     if (SendOut(it)) { Remove(it); vElement.ReportState("Exit"); any = true; continue; }
                     if (!laneOf.ContainsKey(it)) { any = true; continue; }   // loaded inside its own request
                     if (!AwaitsCarrier(it)) { refused = true; break; }
@@ -247,7 +315,8 @@ namespace SimuLean
             }
             while (items.Count > 0)
             {
-                Item head = items[0];
+                Item head = NextToLeave();
+                if (head == null) break;   // conveyed items not at the end yet: nothing to offer
                 if (GetOutput() == null || !SendOut(head)) { refused = true; break; }
                 Remove(head);
                 vElement.ReportState("Exit");
@@ -255,7 +324,7 @@ namespace SimuLean
             }
             if (!any)
             {
-                SetState(ElementState.BLOCKED);   // tried to send, output refused
+                SetState(refused ? ElementState.BLOCKED : ElementState.PROCESSING);   // refused, or nothing at the end yet
                 return false;
             }
             SetState(items.Count == 0 ? ElementState.IDLE : refused ? ElementState.BLOCKED : ElementState.PROCESSING);
@@ -276,7 +345,7 @@ namespace SimuLean
             items.Remove(it);
             int lane = laneOf[it];
             double len = lengthOf[it];
-            laneOf.Remove(it); lengthOf.Remove(it);
+            laneOf.Remove(it); lengthOf.Remove(it); arrivedAt.Remove(it); inTransit.Remove(it); enteredAt.Remove(it);
             count[lane]--;
             used[lane] = count[lane] == 0 ? 0 : Math.Max(0, used[lane] - len - Gap);
         }

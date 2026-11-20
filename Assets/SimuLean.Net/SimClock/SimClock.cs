@@ -62,7 +62,7 @@ namespace SimuLean
             IEvent nextEvent;
 
             if (IsStopped) return false;   // the run ended (end condition): the clock stays at the stop time
-            if (events.ForegroundCount() == 0) Idle?.Invoke();   // nothing can move items from the start (S2)
+            if (events.ForegroundCount() == 0) Idle?.Invoke();   // nothing can move items from the start
             if (IsStopped) return false;
 
             while (events.Count() > 0)

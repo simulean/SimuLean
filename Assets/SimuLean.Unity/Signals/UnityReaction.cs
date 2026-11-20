@@ -8,7 +8,7 @@ using UnityEngine;
 namespace SimuLean.Unity
 {
     /// <summary>
-    /// "When [elements] [signal] if [condition] do [actions]": a scene component, not an element. The scene
+    /// "When [elements] [signal] if [condition] do [actions]" a scene component, not an element. The scene
     /// extraction exports it as a <see cref="ReactionConfig"/>; the engine builds the <see cref="Reaction"/> (scene and
     /// headless alike) and the clock binds it here (<see cref="Bind"/>) so the views can show what it did. The element
     /// inspector lists the reactions that listen to an element and creates new ones (+ Reaction).
@@ -16,14 +16,15 @@ namespace SimuLean.Unity
     [AddComponentMenu("SimuLean/Reaction")]
     [Icon("Assets/SimuLean.Unity/Editor/Icons/Reaction.png")]
     [SimuLeanTool(SimuLeanToolCategories.Logic, "Reaction", Icon = "Assets/SimuLean.Unity/Editor/Icons/Reaction.png",
-        Description = "When an element signals (an item enters or leaves, a process ends, a state changes, a stop starts or ends) or the clock does (run start, every period, a time) and a condition holds, do actions: set a label or a property, stop / resume an element or team members, push to a list")]
+        Description = "When an element signals (an item enters or leaves, a process ends, a state changes, a stop starts or ends) or the clock does (run start, every period, a time) and a condition holds, do actions: set a label or a property, stop / resume an element or team members, push to a list, change an item's look")]
     public class UnityReaction : MonoBehaviour
     {
         [Serializable]
         public class ActionSpec
         {
             [Tooltip("Set Item Label: a label of the signal's item. Set Element Property: a property of an element (rules read it " +
-                     "with get('Element', 'name')). Stop / Resume: an element. Push To List: a value to a list.")]
+                     "with get('Element', 'name')). Stop / Resume: an element. Push To List: a value to a list. Set Item Look: the " +
+                     "colour / scale of the item's visual (view only).")]
             public ReactionActionKind kind = ReactionActionKind.SetElementProperty;
             [Tooltip("Stop / Resume: members of a resource team instead of an element (e.g. call an extra operator).")]
             public bool onTeam;
@@ -40,6 +41,7 @@ namespace SimuLean.Unity
             public UnitySimList list;
             [Tooltip("A number (a study can vary it) or an expression over the item and the element: item.weight * 2, " +
                      "element.content, now(), 'red'.")]
+            [SimuLean.Unity.SimuLeanExpression("reaction")]
             public string value = "";
             [Tooltip("Stop: the state shown while stopped.")]
             public string state = "STOPPED";
@@ -52,10 +54,25 @@ namespace SimuLean.Unity
             public string group = "";
             [Tooltip("Only if: the action runs only when this holds (empty = always), checked after the actions before it, " +
                      "e.g. decrement a counter, then stop if get('DC', 'open') <= 0.")]
+            [SimuLean.Unity.SimuLeanExpression("reaction")]
             public string onlyIf = "";
+            [Tooltip("Set Item Look: the colour of the item's visual (its alpha too; fully transparent = keep it). View only: no " +
+                     "label, no result changes.")]
+            [SimuLeanHelp("A colour as '#RRGGBB' (or '#RRGGBBAA', or a name: red, green, blue, yellow…), e.g. actions[0].color = #E53935. " +
+                          "A reaction whose every action is Set Item Look is view only (inferred: the logic report marks it viewOnly; no result changes).")]
+            public Color color = KeepColor;
+            [Tooltip("Set Item Look: the scale of the item's visual, a factor of its own size (0 = keep it). View only: the " +
+                     "item's size labels, which lanes and packing read, do not change.")]
+            [Min(0)] public float scale = 0;
+
+            /// <summary>Set Item Look: "keep the item's colour" (a fully transparent colour, the default).</summary>
+            public static readonly Color KeepColor = new Color(0, 0, 0, 0);
+
+            /// <summary>Set Item Look: true when it changes the item's colour (a colour that is not fully transparent).</summary>
+            public bool SetsColor => color.a > 0;
         }
 
-        [Tooltip("Off: the reaction does nothing (a study can switch it: reaction:Name.enabled).")]
+        [Tooltip("Off: the reaction does nothing (a study can switch it: reaction:Name.reactionEnabled).")]
         public bool reactionEnabled = true;
         [Tooltip("The elements it listens to.")]
         public List<SElement> sources = new List<SElement>();
@@ -65,11 +82,15 @@ namespace SimuLean.Unity
         public string state = "";
         [Tooltip("Every: the period (model time units).")]
         [Min(0)] public double period = 3600;
-        [Tooltip("Every: the first time (negative = one period after the start).")]
+        [Tooltip("Every: the first time (negative — the default -1 — = one period after the start; 0 = at the start too).")]
+        [SimuLeanHelp("Every fires at firstTime (-1, the default: one period after the start), then each period, up to and " +
+                      "including the horizon — every event at the horizon time runs, as arrivals and process ends do: period 1800 " +
+                      "with horizon 28800 fires 16 times (1800 … 28800), 17 with firstTime = 0 (0 … 28800).")]
         public double firstTime = -1;
         [Tooltip("At Time: the time (model time units).")]
         [Min(0)] public double atTime = 0;
         [Tooltip("Optional expression over the item and the element (empty = always): element.content >= 5, item.type == 'A'.")]
+        [SimuLean.Unity.SimuLeanExpression("reaction")]
         public string condition = "";
         [Tooltip("Next Event (default): after the step that signalled. Immediate: inside it, before anything else moves.")]
         public SignalDelivery timing = SignalDelivery.NextEvent;
@@ -117,17 +138,18 @@ namespace SimuLean.Unity
                     string id = s != null ? idOf(s) : null;
                     if (id != null) cfg.Sources.Add(id);
                 }
+            var rs = cfg.Settings;
             if (signal == SignalKind.Every)
             {
-                cfg.Parameters["period"] = period;
-                if (firstTime >= 0) cfg.Parameters["first"] = firstTime;
+                rs.Period = period;
+                if (firstTime >= 0) rs.FirstTime = firstTime;
             }
-            if (signal == SignalKind.AtTime) cfg.Parameters["at"] = atTime;
-            cfg.Parameters["enabled"] = reactionEnabled;
-            cfg.Parameters["signal"] = signal.ToString();
-            cfg.Parameters["delivery"] = timing.ToString();
-            if (!string.IsNullOrWhiteSpace(state)) cfg.Parameters["state"] = state.Trim();
-            if (!string.IsNullOrWhiteSpace(condition)) cfg.Parameters["condition"] = condition.Trim();
+            if (signal == SignalKind.AtTime) rs.AtTime = atTime;
+            rs.ReactionEnabled = reactionEnabled;
+            rs.Signal = signal;
+            rs.Timing = timing;
+            if (!string.IsNullOrWhiteSpace(state)) rs.State = state.Trim();
+            if (!string.IsNullOrWhiteSpace(condition)) rs.Condition = condition.Trim();
             foreach (var a in actions)
             {
                 if (a == null) continue;
@@ -135,16 +157,23 @@ namespace SimuLean.Unity
                 bool team = stopResume && a.onTeam;
                 string target = !team && a.target != null ? idOf(a.target) ?? a.target.name : null;
                 string teamId = team && a.team != null ? (teamIdOf != null ? teamIdOf(a.team) : null) ?? a.team.TeamName : null;
-                string name = a.kind == ReactionActionKind.PushToList ? (a.list != null ? a.list.ListName : null) : a.name?.Trim();
+                bool look = a.kind == ReactionActionKind.SetItemLook;
+                string name = a.kind == ReactionActionKind.PushToList ? (a.list != null ? a.list.ListName : null) : look ? null : a.name?.Trim();
                 bool stop = a.kind == ReactionActionKind.Stop;
-                cfg.AddAction(a.kind.ToString(), target: target, name: name, value: Value(a.value),
+                cfg.AddAction(a.kind.ToString(), target: look ? null : target, name: name,
+                              value: look || string.IsNullOrWhiteSpace(a.value) ? null : a.value.Trim(),
                               state: stop && !string.IsNullOrWhiteSpace(a.state) ? a.state.Trim() : null,
                               mode: stop ? a.mode.ToString() : null, duration: stop ? a.duration : 0,
                               team: teamId, count: team ? a.count : 0,
-                              group: stopResume ? a.group : null, condition: a.onlyIf);
+                              group: stopResume ? a.group : null, condition: a.onlyIf,
+                              color: look && a.SetsColor ? ColorText(a.color) : null, scale: look && a.scale > 0 ? a.scale : 0);
             }
             return cfg;
         }
+
+        /// <summary>A colour as the engine reads it: <c>#RRGGBB</c>, or <c>#RRGGBBAA</c> when not opaque.</summary>
+        public static string ColorText(Color c)
+            => "#" + (c.a < 1f ? ColorUtility.ToHtmlStringRGBA(c) : ColorUtility.ToHtmlStringRGB(c));
 
         /// <summary>A plain number as a number (a catalog parameter), anything else as an expression; empty = none.</summary>
         public static object Value(string text)

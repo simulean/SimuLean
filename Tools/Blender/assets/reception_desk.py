@@ -14,8 +14,10 @@ Real-world reference: modular hospital reception counters -- 2.4 m wide, a 1.10 
 patients, a lowered 0.75 m section for wheelchair users at one end, two staff workstations at 0.74 m behind,
 a low cabinet and a printer.  Hospital palette (hospital_parts): white fascia with a teal band, birch tops.
 
-Frame: authored front = -Y (Unity +Z: the public side, where patients stand), +Z up (Unity +Y), origin on the
-floor at the centre of the counter.
+Frame as the stations: authored front = -Y (the public side, where patients stand), exported turned 180 deg
+(station_parts.STATION_TURN) to the library's model frame -- the public side on Unity -Z; the Unity coordinates quoted
+below are the authored ones (x and z change sign in the export) --, +Z up (Unity +Y), origin on the floor at the centre
+of the counter.
 
 Animation hierarchy (Unity names; every name is a bare Transform with <name>_LOD0/1/2 meshes under it):
     ReceptionDesk           root, on the floor at the counter centre
@@ -119,4 +121,4 @@ def build_preview():
 
 
 if __name__ == '__main__':
-    SP.station_main('ReceptionDesk', build_desk, LOD_PLAN, NODES, TEXEL_WEIGHTS)
+    SP.station_main('ReceptionDesk', build_desk, LOD_PLAN, NODES, TEXEL_WEIGHTS, turn=SP.STATION_TURN)

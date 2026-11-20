@@ -21,6 +21,11 @@ namespace SimuLean.Unity
         public enum DowntimeKind { MtbfMttr, Timetable, Shift, Periodic }
         public enum OutputBlocking { ModeDefault, Block, Allow }
 
+        /// <summary>The downtime's stop mode: the kind's default (a Shift AfterCurrent, every other kind Immediate) or one
+        /// chosen. The values of Immediate and AfterCurrent are those of <see cref="StopMode"/>, so the scenes that saved
+        /// one keep it.</summary>
+        public enum DowntimeMode { KindDefault = 2, Immediate = 0, AfterCurrent = 1 }
+
         [Serializable]
         public class TimetableRow
         {
@@ -56,6 +61,9 @@ namespace SimuLean.Unity
         [Tooltip("Identifier used in the exported config (empty = GameObject name).")]
         public string id = "";
 
+        [Tooltip("Off: the downtime stops nothing (its statistics read 0). A study switches it: downtime:Id.enabled.")]
+        public bool downtimeEnabled = true;
+
         [Tooltip("MTBF / MTTR: random failures and repairs. Timetable: stops at given times. Shift: working windows of a week calendar. " +
                  "Periodic: a stop of fixed length every period (planned maintenance, breaks).")]
         public DowntimeKind kind = DowntimeKind.MtbfMttr;
@@ -66,11 +74,28 @@ namespace SimuLean.Unity
         [Tooltip("Keys matched against the timetable target column/field, aligned with Targets. Empty = element GameObject name.")]
         public List<string> targetKeys = new List<string>();
 
+        [Tooltip("Resource teams stopped by this generator: each member gets its own independent generator (its own random " +
+                 "numbers). A member's Immediate stop interrupts only work whose use has a Preemption mode (the team's On Stop " +
+                 "decides: hand it over or wait for the same member).")]
+        public List<UnityResourceTeam> teamTargets = new List<UnityResourceTeam>();
+
+        [Tooltip("Repair by: the team whose members repair each stop (empty = none: a stop lasts its time from its start). " +
+                 "The element waits (WAITING_FOR_REPAIR) until the crew has come to it; the repair time (time to repair, the " +
+                 "row's or the periodic duration) starts then. Not for shift calendars.")]
+        public RepairResourceUse repairBy = new RepairResourceUse();
+
         [Header("Stop behaviour")]
-        [Tooltip("State accounted while stopped: BREAKDOWN, STOPPED, SCHEDULED_DOWN, OFF_SHIFT or any custom name.")]
-        public string stateName = "BREAKDOWN";
-        [Tooltip("Immediate: the work in progress is paused. After Current: the current job finishes first.")]
-        public StopMode mode = StopMode.Immediate;
+        [Tooltip("State accounted while stopped: BREAKDOWN, STOPPED, SCHEDULED_DOWN, OFF_SHIFT or any custom name. Empty = the " +
+                 "kind's: MTBF / MTTR BREAKDOWN, Timetable STOPPED, Shift OFF_SHIFT, Periodic SCHEDULED_DOWN.")]
+        public string stateName = "";
+        [Tooltip("Kind Default: a Shift After Current, the other kinds Immediate. Immediate: the work in progress is paused. " +
+                 "After Current: the current job finishes first, then the stop starts and lasts its whole time (a shift's ends at " +
+                 "the next window).")]
+        [SimuLeanHelp("After Current delays a stop, it never cuts it: the stop starts when the job in hand ends and lasts its " +
+                      "whole time, so a Timetable row's return moves later by the overrun, and a fixed-hour calendar written as rows " +
+                      "drifts day after day (125-min jobs: back at 06:20, 06:40, 07:00…). For stops at fixed clock times use a Shift: " +
+                      "its return stays the calendar's.")]
+        public DowntimeMode mode = DowntimeMode.KindDefault;
         [Tooltip("The stopped element refuses items.")]
         public bool blockInput = true;
         [Tooltip("The stopped element keeps its finished items (Mode Default: blocked when Immediate).")]
@@ -86,6 +111,8 @@ namespace SimuLean.Unity
         [Tooltip("Time to the first failure.")]
         public RandomProcessConfig firstFailure = new RandomProcessConfig();
         [Tooltip("Calendar Time: the time to failure always runs. Busy Time: only while the element is in a busy state.")]
+        [SimuLeanHelp("CalendarTime: each time to failure is drawn when the repair ends and counts from then (a wait for the repair " +
+                      "crew is part of the downtime); BusyTime: it counts only while the target is in busyStates (PROCESSING).")]
         public DowntimeBasis basis = DowntimeBasis.CalendarTime;
         [Tooltip("States counted as busy for the BusyTime basis.")]
         public List<string> busyStates = new List<string> { "PROCESSING" };
@@ -117,6 +144,9 @@ namespace SimuLean.Unity
 
         [Header("Timetable")]
         [Tooltip("Overlapping rows: Allow (stops stack), Serialize (one after the other) or Merge (one stop).")]
+        [SimuLeanHelp("Rows that overlap — also rows that wait for the same job under After Current: Allow (the default) lets them " +
+                      "take effect together, so the shorter is absorbed in the longer; Serialize queues each behind the previous for " +
+                      "its whole length; Merge makes them one stop.")]
         public OverlapPolicy overlap = OverlapPolicy.Allow;
         [Tooltip("The stops: start, duration, state, code, reason (optionally per target).")]
         public List<TimetableRow> rows = new List<TimetableRow>();
@@ -151,7 +181,31 @@ namespace SimuLean.Unity
         public int TotalStops { get { int n = 0; foreach (var g in generators) n += g.StopCount; return n; } }
         public double TotalDowntime { get { double t = 0; foreach (var g in generators) t += g.TotalDowntime; return t; } }
 
+        /// <summary>Repairs done by the crews of this run's generators (-1 when they have no repair crew).</summary>
+        public int TotalRepairs
+        {
+            get { int n = -1; foreach (var g in generators) if (g.Repair != null) n = Math.Max(n, 0) + g.Repair.Repairs; return n; }
+        }
+
+        /// <summary>Mean wait for the crew over the generators' arrived crews (0 when none).</summary>
+        public double RepairWaitAvg
+        {
+            get
+            {
+                double sum = 0; int n = 0;
+                foreach (var g in generators)
+                    if (g.Repair != null) { sum += g.Repair.WaitAvg * g.Repair.CrewsArrived; n += g.Repair.CrewsArrived; }
+                return n > 0 ? sum / n : 0;
+            }
+        }
+
         public string ConfigId => string.IsNullOrEmpty(id) ? gameObject.name : id;
+
+        /// <summary>The state the stops account: <see cref="stateName"/>, or the kind's default when empty.</summary>
+        public string EffectiveStateName => string.IsNullOrEmpty(stateName) ? DowntimeBuilder.DefaultStateName(kind.ToString()) : stateName;
+
+        /// <summary>The stop mode: <see cref="mode"/>, or the kind's default (<see cref="DowntimeMode.KindDefault"/>).</summary>
+        public StopMode EffectiveMode => mode == DowntimeMode.KindDefault ? DowntimeBuilder.DefaultMode(kind.ToString()) : (StopMode)(int)mode;
 
         // ── lifecycle (driven by UnitySimClock) ───────────────────────────────
 
@@ -166,9 +220,10 @@ namespace SimuLean.Unity
 
         /// <summary>
         /// Describes this component as a <see cref="DowntimeConfig"/>, naming targets with
-        /// <paramref name="idOf"/> (targets it returns null for are skipped).
+        /// <paramref name="idOf"/> (targets it returns null for are skipped) and teams — team targets, the repair crew —
+        /// with <paramref name="teamIdOf"/> (null = no teams).
         /// </summary>
-        public DowntimeConfig ToConfig(Func<SElement, string> idOf, SimCalendar calendar)
+        public DowntimeConfig ToConfig(Func<SElement, string> idOf, SimCalendar calendar, Func<UnityResourceTeam, string> teamIdOf)
         {
             var cfg = new DowntimeConfig { Id = ConfigId, Kind = kind.ToString() };
             var keyToId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -183,56 +238,73 @@ namespace SimuLean.Unity
                 string key = i < targetKeys.Count && !string.IsNullOrEmpty(targetKeys[i]) ? targetKeys[i] : se.gameObject.name;
                 keyToId[key] = tid;
             }
+            if (teamIdOf != null)
+                foreach (var team in teamTargets)
+                {
+                    string tid = team != null ? teamIdOf(team) : null;
+                    if (tid == null || cfg.TargetIds.Contains(tid)) continue;
+                    cfg.TargetIds.Add(tid);
+                    if (!keyToId.ContainsKey(team.gameObject.name)) keyToId[team.gameObject.name] = tid;
+                }
+            if (teamIdOf != null && kind != DowntimeKind.Shift && repairBy != null && repairBy.IsUsed)
+            {
+                string crew = repairBy.team != null ? teamIdOf(repairBy.team) : "";   // "" = the requirements name the teams
+                if (crew != null) repairBy.Export(cfg, crew);
+            }
 
-            cfg.Parameters["state"] = string.IsNullOrEmpty(stateName) ? ElementState.STOPPED.Name : stateName;
-            cfg.Parameters["mode"] = mode.ToString();
-            cfg.Parameters["blockInput"] = blockInput;
-            if (blockOutput != OutputBlocking.ModeDefault) cfg.Parameters["blockOutput"] = blockOutput == OutputBlocking.Block;
+            if (!downtimeEnabled) cfg.Set(SimuLean.Serialization.DowntimeKeys.Enabled, false);
+            // the kind's defaults written out (empty state, Kind Default mode): the model view shows them and a study can
+            // vary the mode of any downtime
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.State, EffectiveStateName);
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.Mode, EffectiveMode.ToString());
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.BlockInput, blockInput);
+            if (blockOutput != OutputBlocking.ModeDefault) cfg.Set(SimuLean.Serialization.DowntimeKeys.BlockOutput, blockOutput == OutputBlocking.Block);
 
             switch (kind)
             {
                 case DowntimeKind.MtbfMttr:
-                    cfg.Parameters["ttf"] = timeToFailure.ToSamplerSpec();
-                    cfg.Parameters["ttr"] = timeToRepair.ToSamplerSpec();
-                    if (useFirstFailure) cfg.Parameters["firstFailure"] = firstFailure.ToSamplerSpec();
-                    cfg.Parameters["basis"] = basis.ToString();
-                    cfg.Parameters["busyStates"] = new List<string>(busyStates);
-                    cfg.Parameters["code"] = failureCode;
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.TimeToFailure, timeToFailure.ToSettings());
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.TimeToRepair, timeToRepair.ToSettings());
+                    if (useFirstFailure) cfg.Set(SimuLean.Serialization.DowntimeKeys.FirstFailure, firstFailure.ToSettings());
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.Basis, basis.ToString());
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.BusyStates, new List<string>(busyStates));
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.FailureCode, failureCode);
                     break;
 
                 case DowntimeKind.Shift:
-                    cfg.Parameters["pattern"] = shiftPattern;
-                    cfg.Parameters["holidays"] = new List<string>(holidays);
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.ShiftPattern, shiftPattern);
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.Holidays, new List<string>(holidays));
                     break;
 
                 case DowntimeKind.Periodic:
-                    cfg.Parameters["first"] = periodicFirst;
-                    cfg.Parameters["period"] = periodicPeriod;
-                    cfg.Parameters["duration"] = periodicDuration;
-                    if (useUntil) cfg.Parameters["until"] = periodicUntil;
-                    cfg.Parameters["allowOverlap"] = allowOverlap;
-                    cfg.Parameters["code"] = periodicCode;
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.PeriodicFirst, periodicFirst);
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.PeriodicPeriod, periodicPeriod);
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.PeriodicDuration, periodicDuration);
+                    if (useUntil) cfg.Set(SimuLean.Serialization.DowntimeKeys.PeriodicUntil, periodicUntil);
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.AllowOverlap, allowOverlap);
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.PeriodicCode, periodicCode);
                     break;
 
                 case DowntimeKind.Timetable:
-                    cfg.Parameters["overlap"] = overlap.ToString();
-                    cfg.Parameters["intervals"] = BuildIntervalRecords(keyToId, calendar);
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.Overlap, overlap.ToString());
+                    cfg.Set(SimuLean.Serialization.DowntimeKeys.Rows, BuildIntervalRecords(keyToId, calendar));
                     if (dataTable != null) ExportTableMapping(cfg, keyToId);
                     break;
             }
             return cfg;
         }
 
-        private List<string> BuildIntervalRecords(Dictionary<string, string> keyToId, SimCalendar calendar)
+        private List<SimuLean.Serialization.DowntimeIntervalSettings> BuildIntervalRecords(Dictionary<string, string> keyToId, SimCalendar calendar)
         {
-            var records = new List<string>();
-            ElementState defaultState = ElementState.Of(string.IsNullOrEmpty(stateName) ? "STOPPED" : stateName);
+            var records = new List<SimuLean.Serialization.DowntimeIntervalSettings>();
 
             foreach (var r in rows)
             {
                 if (r == null) continue;
                 string tid = "";
-                if (!string.IsNullOrEmpty(r.target) && !keyToId.TryGetValue(r.target, out tid)) continue;
+                // a target the model does not know (a team member's name) goes as written: the build refuses it, naming it
+                // (it was skipped, so the stop silently never happened)
+                if (!string.IsNullOrEmpty(r.target) && !keyToId.TryGetValue(r.target, out tid)) tid = r.target;
                 double start;
                 if (!double.TryParse(r.start, NumberStyles.Float, CultureInfo.InvariantCulture, out start)
                     && !calendar.TryParseSimTime(r.start, out start))
@@ -240,9 +312,10 @@ namespace SimuLean.Unity
                     Debug.LogWarning($"[UnityDowntime] {name}: invalid start '{r.start}' — row skipped.");
                     continue;
                 }
-                var iv = new DowntimeInterval(start, r.duration,
-                    string.IsNullOrEmpty(r.state) ? defaultState : ElementState.Of(r.state), mode, r.code, r.reason);
-                records.Add(DowntimeBuilder.EncodeInterval(tid, iv));
+                // A row has no mode of its own, and its state only when the row gives one: left absent, the build takes the
+                // downtime's (stateName, mode), so a study that varies them reaches every row.
+                records.Add(SimuLean.Serialization.DowntimeIntervalSettings.Of(tid, start, r.duration,
+                    string.IsNullOrEmpty(r.state) ? null : ElementState.Of(r.state).Name, null, r.code, r.reason));
             }
 
             return records;
@@ -251,22 +324,25 @@ namespace SimuLean.Unity
         /// <summary>The data table and its column mapping: the engine builds the stops from the run's snapshot.</summary>
         private void ExportTableMapping(DowntimeConfig cfg, Dictionary<string, string> keyToId)
         {
-            cfg.Parameters[DowntimeBuilder.DataTableKey] = dataTable.TableName;
-            cfg.Parameters["targetColumn"] = targetColumn ?? "";
-            cfg.Parameters["startColumn"] = startColumn ?? "";
-            cfg.Parameters["endColumn"] = endColumn ?? "";
-            cfg.Parameters["durationColumn"] = durationColumn ?? "";
-            cfg.Parameters["codeColumn"] = codeColumn ?? "";
-            cfg.Parameters["reasonColumn"] = reasonColumn ?? "";
-            cfg.Parameters["durationScale"] = durationScale;
-            var rules = new List<string>();
+            cfg.Set(DowntimeBuilder.DataTableKey, dataTable.TableName);
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.TargetColumn, targetColumn ?? "");
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.StartColumn, startColumn ?? "");
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.EndColumn, endColumn ?? "");
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.DurationColumn, durationColumn ?? "");
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.CodeColumn, codeColumn ?? "");
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.ReasonColumn, reasonColumn ?? "");
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.DurationScale, durationScale);
+            var rules = new List<SimuLean.Serialization.DowntimeCodeRuleSettings>();
             foreach (var r in codeRules)
                 if (r != null && !string.IsNullOrEmpty(r.code))
-                    rules.Add($"{r.code}|{r.state}|{r.mode}|{r.factor.ToString("R", CultureInfo.InvariantCulture)}|{(r.ignore ? 1 : 0)}");
-            cfg.Parameters["codeRules"] = rules;
-            var keys = new List<string>();
-            foreach (var kv in keyToId) keys.Add(kv.Key + "|" + kv.Value);
-            cfg.Parameters["targetKeys"] = keys;
+                    rules.Add(new SimuLean.Serialization.DowntimeCodeRuleSettings
+                    {
+                        Code = r.code, State = string.IsNullOrEmpty(r.state) ? null : r.state, Mode = r.mode, Factor = r.factor, Ignore = r.ignore,
+                    });
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.CodeRules, rules);
+            var keys = new List<SimuLean.Serialization.DowntimeTargetKeySettings>();
+            foreach (var kv in keyToId) keys.Add(SimuLean.Serialization.DowntimeTargetKeySettings.Of(kv.Key, kv.Value));
+            cfg.Set(SimuLean.Serialization.DowntimeKeys.TargetKeys, keys);
         }
     }
 }

@@ -16,7 +16,7 @@ namespace SimuLean.Unity
     {
         private static UnitySimClock instance;
         /// <summary>The scene's clock, or null when there is none (views and inspectors check it;
-        /// It used to throw, so every null check was dead and an inspector without a clock failed).</summary>
+        /// it does not throw).</summary>
         public static UnitySimClock Instance
         {
             get
@@ -106,12 +106,18 @@ namespace SimuLean.Unity
         [Tooltip("Stop the run when nothing is left to do: every item out, at rest in a buffer without outputs or surplus " +
                  "nothing will take (or the model deadlocked / stalled).")]
         [SerializeField] private bool stopWhenEmpty;
+        [Tooltip("Stop the run when no item has entered or left any element for this model time while items wait (end reason " +
+                 "NoProgress): a stall beside a periodic signal or a reaction, which keep the run from ever being idle. Longer " +
+                 "than the longest process, stop or break; an element off shift until its next window is never taken for it. 0 = off.")]
+        [Min(0)] [SerializeField] private double stopWhenNoProgressFor;
 
         /// <summary>End condition: the elements and the count that stop the run (any elements).</summary>
         public System.Collections.Generic.List<SElement> StopAt => stopAt;
         public int StopAtCount { get => stopAtCount; set => stopAtCount = System.Math.Max(0, value); }
         /// <summary>End condition: stop when nothing is left to do (or deadlocked / stalled).</summary>
         public bool StopWhenEmpty { get => stopWhenEmpty; set => stopWhenEmpty = value; }
+        /// <summary>End condition: stop when no item has moved for this model time while items wait (0 = off).</summary>
+        public double StopWhenNoProgressFor { get => stopWhenNoProgressFor; set => stopWhenNoProgressFor = System.Math.Max(0, value); }
 
         [Header("Results")]
         [Tooltip("Export the run's statistics when it reaches Max Time (Play mode) to the results folder of the project settings. " +
@@ -121,9 +127,9 @@ namespace SimuLean.Unity
                  "(Results tab, dashboards). 0 = none.")]
         [Min(0)] [SerializeField] private double seriesInterval = 0;
 
-        [Tooltip("Keep every state interval of elements and resources (the Gantt charts; G3c). Off by default: the results grow with every state change.")]
+        [Tooltip("Keep every state interval of elements and resources (the Gantt charts). Off by default: the results grow with every state change.")]
         [SerializeField] private bool recordTimeline = false;
-        /// <summary>A run (Play, Run Headless) keeps its state intervals — the Gantt (G3c; off by default).</summary>
+        /// <summary>A run (Play, Run Headless) keeps its state intervals — the Gantt (off by default).</summary>
         public bool RecordTimeline { get => recordTimeline; set => recordTimeline = value; }
 
         /// <summary>Formats the run is exported to when it reaches its max time (none by default).</summary>
@@ -131,7 +137,7 @@ namespace SimuLean.Unity
         /// <summary>Interval of the time series of a run of the scene, headless or in Play (0 = none).</summary>
         public double SeriesInterval { get => seriesInterval; set => seriesInterval = System.Math.Max(0, value); }
         private double paceWall, paceSim;        // paced mode: wall time (s, realtime) and sim time of the anchor
-        // Play runs with a series interval (G2b): the clock advances through the recorder, which samples at the interval
+        // Play runs with a series interval: the clock advances through the recorder, which samples at the interval
         // boundaries (the same events run: AdvanceClock is called at the boundaries, then up to the target)
         [System.NonSerialized] private SimuLean.Results.SeriesRecorder recorder;
 
@@ -175,7 +181,7 @@ namespace SimuLean.Unity
         public SimCalendar CreateCalendar()
         {
             double unit = timeUnitSeconds > 0 ? timeUnitSeconds : 1.0;
-            if (string.IsNullOrWhiteSpace(startDateTime)) return SimCalendar.Undated(unit);   // the unit applies without a start date too (S5)
+            if (string.IsNullOrWhiteSpace(startDateTime)) return SimCalendar.Undated(unit);   // the unit applies without a start date too
             if (SimCalendar.TryParseDate(startDateTime, out System.DateTime start))
                 return new SimCalendar(start, unit);
             Debug.LogWarning($"[UnitySimClock] Invalid start date '{startDateTime}' — using the default calendar.");
@@ -346,7 +352,7 @@ namespace SimuLean.Unity
                 if (simStarted && Paced)
                 {
                     AdvancePaced();
-                    if (clock.GetSimulationTime() >= maxTime || clock.IsStopped)   // the horizon or an end condition (S2)
+                    if (clock.GetSimulationTime() >= maxTime || clock.IsStopped)   // the horizon or an end condition
                     {
                         simOn = false;
                         PublishRun();
@@ -358,7 +364,7 @@ namespace SimuLean.Unity
                     // Never past the end: a large TimeScale would otherwise run far beyond maxTime in one frame.
                     AdvanceTo(System.Math.Min((Time.time - timer.PastTime + Time.deltaTime) * timeScale, maxTime));
 
-                    if (clock.GetSimulationTime() >= maxTime || clock.IsStopped)   // the horizon or an end condition (S2)
+                    if (clock.GetSimulationTime() >= maxTime || clock.IsStopped)   // the horizon or an end condition
                     {
                         // Disable first so any subscriber that calls RestartSim toggles simOn back to true.
                         simOn = false;
@@ -386,7 +392,7 @@ namespace SimuLean.Unity
                         return;
                     }
                     Model = model;
-                    if (recordTimeline) SimuLean.Results.JobRecorder.Attach(model);   // the job Gantt (G3d)
+                    if (recordTimeline) SimuLean.Results.JobRecorder.Attach(model);   // the job Gantt
                     model.StartModel();
                     recorder = seriesInterval > 0 ? new SimuLean.Results.SeriesRecorder(model, seriesInterval) : null;
                     foreach (SElement theElem in elements)
@@ -499,7 +505,7 @@ namespace SimuLean.Unity
         /// <summary>
         /// A run builds its model on a new <see cref="SimClock"/>: the previous model's pending events stay on the old
         /// clock, which is not advanced any more, and the new context starts without the old elements and lists
-        /// (reusing one clock left the previous model running alongside the new one).
+        /// (reusing one clock would leave the previous model running alongside the new one).
         /// </summary>
         private void NewModelClock() { clock = new SimClock(); recorder = null; ItemWalkView.Clear(); }
 

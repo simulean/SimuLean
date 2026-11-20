@@ -24,7 +24,7 @@ namespace SimuLean.Unity
     /// positions; a finished stack leaves as one compound item whose GameObject is a new parent of the stacked
     /// items' GameObjects, so downstream elements move the whole stack. Standard <see cref="SElement"/> lifecycle
     /// (Start registers, the element is built in <see cref="InitializeSim"/>, wired by <see cref="SElement.ConnectSim"/>,
-    /// started in <see cref="StartSim"/>); extracted for headless runs by <c>UnityStackerHandler</c>.
+    /// started in <see cref="StartSim"/>); extracted for headless runs by <c>StackerHandler</c>.
     ///
     /// <para><b>Layout</b> (local frame of this transform): stack positions at the <see cref="positionAnchors"/> (if
     /// given) or at <see cref="firstPosition"/> + i × <see cref="positionStep"/>; the stack base is
@@ -37,9 +37,13 @@ namespace SimuLean.Unity
     /// in detailed mode (<see cref="SimVisualDetail"/>). Visual only: neither changes the simulation.</para>
     /// </summary>
     [AddComponentMenu("SimuLean/Stacker")]
-    [SimuLean.Unity.SimuLeanElement(SimuLean.Unity.SimuLeanModules.Assembly, "Stacker", Description = "Builds stacks at N positions, released as compound items", Order = 3, Icon = "Assets/SimuLean.Unity/Art/Models/GantryStacker/GantryStacker.fbx")]
-    public class UnityStacker : SElement, IVElement, IProcessResourceUser
+    [SimuLean.Unity.SimuLeanElement(SimuLean.Unity.SimuLeanModules.Assembly, "Stacker", Model = "BufferPosition/BufferPosition.fbx", Description = "Builds stacks at N positions, released as compound items", Order = 12, Icon = "Assets/SimuLean.Unity/Art/Models/BufferPosition/BufferPosition.fbx")]
+    public class UnityStacker : SElement, IVElement, IProcessResourceUser, ISetupUser
     {
+        [Tooltip("Setup (a gripper / pattern change) before an item's cycle: when, how long, by whom (Setup section).")]
+        public StationSetupConfig setup = new StationSetupConfig();
+        public StationSetupConfig Setup => setup;
+
         private Stacker theStacker;
 
         [Header("Stacks")]
@@ -93,16 +97,17 @@ namespace SimuLean.Unity
         [Header("Layout (local frame)")]
         [Tooltip("Optional explicit stack positions (one Transform per position; empty = generated row).")]
         public List<Transform> positionAnchors = new List<Transform>();
+        // the element frame: the items come in on −X (the pick point) and the row runs along X
         [Tooltip("Generated row: first position (local).")]
-        public Vector3 firstPosition = new Vector3(0f, 0f, -3.5f);
+        public Vector3 firstPosition = new Vector3(3.5f, 0f, 0f);
         [Tooltip("Generated row: offset between positions (local).")]
-        public Vector3 positionStep = new Vector3(0f, 0f, 2.5f);
+        public Vector3 positionStep = new Vector3(-2.5f, 0f, 0f);
         [Tooltip("Height of the stack base above each position (table / pallet top).")]
         public float stackBaseHeight = 0.55f;
         [Tooltip("Pick point Transform (empty = pickOffset). Its position is where the item rests before being picked.")]
         public Transform pickPoint;
         [Tooltip("Pick point (local) when no Transform is given: where the incoming item rests (its base).")]
-        public Vector3 pickOffset = new Vector3(0f, 0.9f, 4.5f);
+        public Vector3 pickOffset = new Vector3(-4.5f, 0.9f, 0f);
 
         [Header("Crane (optional)")]
         [Tooltip("Pick point as a location: with a team on axes in Resources ▸ Process, the crane does every cycle " +
@@ -125,26 +130,28 @@ namespace SimuLean.Unity
 
         private int stackGoCount;
 
-        /// <summary>Plain settings for the codec (<see cref="StackerBuilder"/>).</summary>
-        public StackerBuilder.Settings GetSettings() => new StackerBuilder.Settings
+        /// <summary>Writes its settings into the element's (the extractor's).</summary>
+        public void Fill(StackerSettings s)
         {
-            Positions = Mathf.Max(1, positionCount),
-            Capacity = Mathf.Max(1, capacity),
-            PositionCapacities = positionCapacities != null ? new List<int>(positionCapacities) : null,
-            MaxHeight = maxHeight,
-            HeightLabel = heightLabel,
-            DefaultItemHeight = defaultItemHeight,
-            AcceptOversize = acceptOversizeOnEmpty,
-            SelectionRule = selectionRule,
-            PositionLabel = positionLabel,
-            KeyLabel = keyLabel,
-            ReleasePartialWhenBlocked = releasePartialWhenBlocked,
-            CycleTime = useCycleTime && cycleTime != null ? cycleTime.ToSamplerSpec() : "",
-            StackType = stackType,
-            CopyLabels = copyLabelsFromFirst,
-            PickLocation = pickNode != null ? pickNode.NodeId : null,
-            PositionLocations = positionNodes != null ? positionNodes.ConvertAll(n => n != null ? n.NodeId : "") : null,
-        };
+            s.PositionCount = Mathf.Max(1, positionCount);
+            s.Capacity = Mathf.Max(1, capacity);
+            s.PositionCapacities = positionCapacities != null && positionCapacities.Count > 0 ? positionCapacities.ToArray() : null;
+            s.MaxHeight = maxHeight;
+            s.HeightLabel = heightLabel ?? "";
+            s.DefaultItemHeight = defaultItemHeight;
+            s.AcceptOversizeOnEmpty = acceptOversizeOnEmpty;
+            s.SelectionRule = selectionRule;
+            s.PositionLabel = positionLabel ?? "";
+            s.KeyLabel = keyLabel ?? "";
+            s.ReleasePartialWhenBlocked = releasePartialWhenBlocked;
+            s.CycleTime = useCycleTime && cycleTime != null ? cycleTime.ToSettings() : null;
+            s.StackType = stackType ?? "Stack";
+            s.CopyLabelsFromFirst = copyLabelsFromFirst;
+            string pick = pickNode != null ? pickNode.NodeId : null;
+            s.PickNode = string.IsNullOrEmpty(pick) ? null : pick;
+            s.PositionNodes = s.PickNode == null ? null
+                : positionNodes != null ? positionNodes.ConvertAll(n => n != null ? n.NodeId : "") : new List<string>();
+        }
 
         protected override void OnBound(Element built)
         {
@@ -187,7 +194,7 @@ namespace SimuLean.Unity
         {
             if (positionAnchors != null && index < positionAnchors.Count && positionAnchors[index] != null)
                 return positionAnchors[index].rotation;
-            return transform.rotation;
+            return transform.rotation * ItemVisuals.AlongFlow;
         }
 
         /// <summary>World position of the base (bottom centre) of the stack on position <paramref name="index"/>.</summary>
@@ -217,7 +224,7 @@ namespace SimuLean.Unity
         /// <summary>World position of the resting base of the item at the pick point.</summary>
         public Vector3 PickBaseWorld => pickPoint != null ? pickPoint.position : transform.TransformPoint(pickOffset);
 
-        public Quaternion PickRotation => pickPoint != null ? pickPoint.rotation : transform.rotation;
+        public Quaternion PickRotation => pickPoint != null ? pickPoint.rotation : transform.rotation * ItemVisuals.AlongFlow;
 
         /// <summary>Visual height of an item (element height, else <see cref="itemThickness"/>).</summary>
         public float VisualHeight(Item item)

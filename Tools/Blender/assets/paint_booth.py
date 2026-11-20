@@ -14,7 +14,9 @@ Real-world reference: drive-through industrial spray booths for parts and small 
 roof plenum with exhaust stack, back-wall dry filters, side windows, end roll-up doors).  Library palette:
 light grey panels, graphite frame, orange door frames, stack light (station_parts) on the control cabinet.
 
-Frame as the other assets: authored front = -Y (Unity +Z: the operator's side, with the windows and the cabinet),
+Frame as the other stations: authored front = -Y (the operator's side, with the windows and the cabinet), exported turned 180 deg (station_parts.STATION_TURN) to
+the library's model frame -- front on Unity -Z, flow along Unity +X; the Unity coordinates quoted below are
+the authored ones (x and z change sign in the export) --,
 +Z up (Unity +Y), flow along +X (Unity +X: in at -X, out at +X), origin on the floor at the booth centre.
 
 Animation hierarchy (Unity names; every name is a bare Transform with <name>_LOD0/1/2 meshes under it):
@@ -216,4 +218,4 @@ def build_preview():
 
 
 if __name__ == '__main__':
-    SP.station_main('PaintBooth', build_booth, LOD_PLAN, NODES, TEXEL_WEIGHTS)
+    SP.station_main('PaintBooth', build_booth, LOD_PLAN, NODES, TEXEL_WEIGHTS, turn=SP.STATION_TURN)

@@ -42,7 +42,7 @@ namespace SimuLean.Unity
         // which the two labels update.
         private static readonly Dictionary<GameObject, int> hiders = new Dictionary<GameObject, int>();
 
-        // the elements whose items a label hides: their layout is skipped (nothing drawn to place; review2 #22)
+        // the elements whose items a label hides: their layout is skipped (nothing drawn to place)
         private static readonly HashSet<SElement> hiding = new HashSet<SElement>();
 
         /// <summary>True when a label hides the items of <paramref name="element"/> in Play (layouts need not place them).</summary>
@@ -120,7 +120,6 @@ namespace SimuLean.Unity
             {
                 case ItemsQueue q: return q.GetItems();
                 case MultiServer m: return m.GetItems();
-                case GateQueue g: return g.GetItems();
                 case LengthLimitedQueue l: return l.Items;
                 case Delay d: return d.Items;
                 case SimuLean.Healthcare.Agenda a: return a.Items;
@@ -147,7 +146,7 @@ namespace SimuLean.Unity
                     }
             gone.Clear();
             foreach (var g in hidden) if (!present.Contains(g)) gone.Add(g);
-            // an item destroyed while hidden (a restart clears the views) leaves the shared count too (review2 #29)
+            // an item destroyed while hidden (a restart clears the views) leaves the shared count too
             foreach (var g in gone) { hidden.Remove(g); if (g != null) Hide(g, false); else hiders.Remove(g); }
         }
 

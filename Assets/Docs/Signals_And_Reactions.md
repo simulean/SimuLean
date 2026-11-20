@@ -14,6 +14,13 @@ machine. *Buffer full* (an item enters the Buffer, if `element.content >= 8` →
 leaves it, if `element.content <= 2` → resume Source) keep the buffer at 8 at most; switch *Buffer full* off and it grows
 past 80 in 2000 s.
 
+`Assets/Scenes/ChoiceLogicDemo.unity` has a clock reaction *Flex Cell Shift* (every 1800 s, Set Element Property
+`open = 1 - get('Flex Cell', 'open')`: the Flex Cell's admission `element.open == 1` wakes up by itself) and *Colour By
+Family* (Set Item Look on *Item Exited* of Orders, one colour per `item.family`, prio 3 drawn larger).
+
+`Assets/Scenes/LibraryExamples/Workshop_Advanced.unity` has a reaction on *Wait Timed Out* (*Late Rush*: a rush order
+rerouted after its max wait is labelled `late = 1` and counted in the queue's property `lateRush`).
+
 ## Creating one
 
 - **From an element:** its inspector has a **Reactions** section — the reactions that listen to it or act on it, each a
@@ -28,7 +35,7 @@ Reactions sit in the model hierarchy's **Logic** group. Their name is the GameOb
 |---|---|
 | **Enabled** | Off: the reaction does nothing (a study can switch it). |
 | **When ▸ Elements** | The elements it listens to (any number; not for clock signals). |
-| **When ▸ Signal** | Of the elements: *Item Entered*, *Item Exited*, *Process Ended* (a station finished an item, before sending it on), *State Changed* (optionally **to** one state: `PROCESSING`, `BLOCKED`, `STOPPED`…), *Stopped* / *Resumed* (optionally stops in one state). Of the clock: *Run Started*, *Every* (a period; the first time optional, else one period after the start), *At Time*. |
+| **When ▸ Signal** | Of the elements: *Item Entered*, *Item Exited*, *Process Ended* (a station finished an item, before sending it on), *State Changed* (optionally **to** one state: `PROCESSING`, `BLOCKED`, `STOPPED`…), *Stopped* / *Resumed* (optionally stops in one state), *Wait Timed Out* (a wait reached its [max wait](Resource_Primitives.md#4-a-limit-on-any-wait-max-wait): `signal.kind` — `resource`, `queue`, `list_pull`, as the metrics `timeouts:<kind>` spell it —, `signal.waited`, `signal.action`; the item if any). Of the clock: *Run Started*, *Every* (a period; the first time optional, else one period after the start), *At Time*. |
 | **If ▸ Condition** | Optional. An [expression](Expressions.md) over the signal's item and element: `element.content >= 5`, `item.type == 'A'`, `now() > 3600`, `rand() < 0.1`, `get('Line 2', 'mode') == 1`, data tables. Empty = always. |
 | **Do** | Its actions, in order (below). |
 | **Advanced ▸ Timing** | *Next Event* (default) or *Immediate* (below). |
@@ -37,11 +44,14 @@ Reactions sit in the model hierarchy's **Logic** group. Their name is the GameOb
 
 | Action | Fields | Does |
 |---|---|---|
-| **Set Item Label** | Label, Value | `item.label = value` on the signal's item (item signals only: entered, exited, process ended). |
+| **Set Item Label** | Label, Value | `item.label = value` on the signal's item (item signals only: entered, exited, process ended, wait timed out). |
 | **Set Element Property** | Element (empty = the one that signalled), Property, Value | Sets a property of an element. Routing, admission and time expressions read it — `element.mode`, `get('Router', 'lane')` — so a reaction changes the model's behaviour. |
 | **Stop** | Of (Element / Team members), Element or Team + Members, State, Mode, Duration, Group | Stops the element, or *Members* of a resource team (0 = all; the last ones still working) — the downtime mechanism: its state (`OFF_SHIFT` for members sent off), *Immediate* pauses the work in progress, *After Current* lets it finish. For *Duration* time units, or — 0 — until a **Resume** of its group. |
 | **Resume** | Of, Element or Team + Members, Group | Ends the stops **reactions** started on the element **in its group**, or calls back *Members* of the team that group sent off (in the order they were sent off) — whichever reaction stopped them; never a downtime's stops. |
 | **Push To List** | List, Value | Pushes the value to a model list (an order, a request). |
+| **Release** | Queue released on command (empty = the one that signalled), How many (empty = 1) | Releases that many items from a [Queue released on command](../../docs/guide/elements.md#queue): orders every period (*Every* signal), or a kanban — one released for each item that leaves the station (*Item Exited*). |
+| **Set Item Look** | Change colour + Colour, Scale (0 = keep) | Changes how the signal's item looks in the 3D view (item signals only): its colour (settings `actions[i].color`: `#RRGGBB`, `#RRGGBBAA`, `#RGB` or a name — `red`, `green`, `blue`, `yellow`, `orange`…) and / or the scale of its visual (`actions[i].scale`, a factor of its own size). **View only:** not a label, nothing scheduled, every result identical; headless runs ignore it. The items it carries keep their own look, a new visual of the item (a station's output look) gets it again, and the item's size labels do not change. Use *Only if* for a colour per case (`item.type == 'B'` → orange). |
+| **Retry** | Element (empty = the one that signalled) | Offers the element again the items waiting for it upstream, so its admission condition is evaluated again — for a condition over something other than an element property (`content('Buffer') < 5`, `now()`); a property write needs none. |
 
 A **Value** is a number (`3`) or an expression (`item.weight * 2`, `'red'`, `now()`).
 
@@ -56,6 +66,13 @@ independent controls of one element their own groups — orders opening and clos
 stopping it (`incident`) — so an order arriving during the incident does not restart the station: it runs again only
 when no stop is left. Team members likewise: a stop takes members no group has stopped, a resume calls back only its
 group's.
+
+**A property change opens a gate by itself**. When *Set Element Property* (or any write)
+changes a property that an admission condition reads (`element.open == 1`, `get('Gate', 'open') == 1`), the items that
+condition refused are offered again at the same time, after the reaction's actions — no Stop + Resume poke. Which
+properties wake which elements is known when the model is built, so other writes cost nothing. A condition over
+something else (`content('Buffer') < 5`, `now() >= 480`, a table) is not evaluated again by itself: add a **Retry** of the
+receiver to a reaction on what changes it. A max wait is not a gate: it gives up or reroutes at its limit.
 
 ### Clock signals
 
@@ -81,8 +98,16 @@ reaction components in the scene's hierarchy, of `Reactions` in a config): the *
 the *Next Event* ones, in that same order. To sequence dependent actions, prefer one reaction with *Only if* to relying
 on that order.
 
-Random functions in a reaction (`rand()`, `pick()`…) draw from the reaction's own stream: adding a reaction does not
-change the numbers the elements draw.
+Random functions in a reaction (`rand()`, `pick()`…) draw from the reaction's own stream (`reaction:<name>/expr`, shared by
+its condition and its action values): adding a reaction does not change the numbers the elements draw.
+
+What an expression of a reaction reads depends on its signal (the contexts of [Expressions](Expressions.md)): on an item
+signal `item.x`, `element.x` (the signalling element) and `signal.x`, a bare name being an item label; on an element
+signal (state changed, stops…) `element.x` and `signal.x`; on a time signal only `signal.x` — and, on every signal, other
+elements, teams and lists by name (`get('Line 2', 'mode')`, `stat('M1', 'utilization')`, `team('Ops', 'free')`). A root the
+signal does not carry fails when the model is built, as does an element, property or statistic name the model does not
+have; an element property a reaction sets counts as declared. A machine's state is `get('M1', 'state') == 'IDLE'` — no
+reaction is needed to keep it in a property.
 
 ## Seeing it work
 
@@ -108,15 +133,15 @@ every other statistic. A study or the optimiser reads them as metrics: `reaction
 
 ## In studies
 
-The Experimenter and the Optimizer offer a reaction's **Enabled** and the **numbers** of its actions (a value that is a
+The Experimenter and the Optimizer offer a reaction's **Enabled** (`reactionEnabled`) and the **numbers** of its actions (a value that is a
 plain number, a stop's duration): *Parameters ▸ Reaction*. In a study by code or through the MCP:
 
 ```
-reaction:Buffer full.enabled=true|false
-reaction:Switch lane.a1.number=0|1      (action 1's value)
-reaction:Buffer full.a1.duration=5|10   (action 1's stop duration)
-reaction:Night shift.period=43200|86400 (a clock signal's period; also first, at)
-reaction:Call one more.a1.count=1|2     (members sent off / called back)
+reaction:Buffer full.reactionEnabled=true|false
+reaction:Switch lane.actions[0].value=0|1     (the first action's value)
+reaction:Buffer full.actions[0].duration=5|10 (its stop duration)
+reaction:Night shift.period=43200|86400      (a clock signal's period; also firstTime, atTime)
+reaction:Call one more.actions[0].count=1|2   (members sent off / called back)
 ```
 
 What the reaction *is* — its signal, its actions, their elements and expressions — is its design, not a parameter.
@@ -131,7 +156,7 @@ The scene is extracted as a `ReactionConfig` (`SimulationConfig.Reactions`) and 
 
 ```csharp
 var r = new ReactionConfig("Buffer full", "buffer");          // listens to the element with id "buffer"
-r.Parameters["condition"] = "element.content >= 10";
+r.Set("condition", "element.content >= 10");
 r.AddAction("Stop", target: "source");                        // until a Resume
 config.Reactions.Add(r);
 ```

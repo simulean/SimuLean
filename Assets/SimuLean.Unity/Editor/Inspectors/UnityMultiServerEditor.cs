@@ -8,10 +8,26 @@ namespace SimuLean.Unity.Editor
     [CustomEditor(typeof(UnityMultiServer))]
     public class UnityMultiServerEditor : SElementInspector
     {
+        protected override string[] DrawnFields => new[]
+        {
+            "capacity", "delayStrategy", "offerOrder", "offerScan", "reserveExit",
+            "inItemPosition", "outItemPosition", "separation", "serverAnimator", "outputItemPrefab",
+        };
+
         protected override void DrawParameters()
         {
             EditorGUILayout.PropertyField(Prop("capacity"), new GUIContent("Servers", "Items processed at the same time (parallel slots)."));
             EditorGUILayout.PropertyField(Prop("delayStrategy"), new GUIContent("Process time", "Time each item is processed (per slot)."));
+            var release = Prop("offerOrder");
+            EditorGUILayout.PropertyField(release, new GUIContent("Release order", release.tooltip));
+            if (release.enumValueIndex == (int)OfferOrder.AnyAccepted)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(Prop("offerScan"), new GUIContent("Items looked at", Prop("offerScan").tooltip));
+                EditorGUI.indentLevel--;
+            }
+            var reserve = Prop("reserveExit");
+            EditorGUILayout.PropertyField(reserve, new GUIContent("Reserve Exit", reserve.tooltip));
         }
 
         protected override void DrawVisual()
@@ -24,6 +40,7 @@ namespace SimuLean.Unity.Editor
                 new GUIContent("Slot spacing", "Distance between the servers' slots. 0 = automatic, from the size of the items."));
             EditorGUILayout.PropertyField(Prop("serverAnimator"),
                 new GUIContent("Animator", "Optional: its WorkInProgress flag is on while a slot processes."));
+            EditorGUILayout.PropertyField(Prop("outputItemPrefab"), new GUIContent("Output look", Prop("outputItemPrefab").tooltip));
         }
 
         protected override void CollectIssues(List<InspectorIssue> issues)

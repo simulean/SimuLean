@@ -20,76 +20,111 @@ namespace SimuLean.Serialization
             string name = string.IsNullOrWhiteSpace(cfg.Id) ? "Reaction" : cfg.Id;
             string Where(string what) => $"Reaction '{name}': {what}";
 
-            var signal = ParseEnum<SignalKind>(cfg.GetParameter("signal", nameof(SignalKind.ItemEntered)), Where("signal"));
-            var reaction = new Reaction(name, signal, clock)
-            {
-                Enabled = cfg.GetParameter("enabled", true),
-                Delivery = ParseEnum<SignalDelivery>(cfg.GetParameter("delivery", nameof(SignalDelivery.NextEvent)), Where("delivery")),
-            };
-            string state = cfg.GetParameter<string>("state", null);
-            if (!string.IsNullOrWhiteSpace(state)) reaction.State = ElementState.Of(state.Trim());
-            string condition = cfg.GetParameter<string>("condition", null);
-            if (!string.IsNullOrWhiteSpace(condition)) reaction.Condition = Parse(condition, Where("condition"));
-
+            var rs = cfg.Settings ?? new ReactionSettings();   // an unknown key or option failed when it was written
+            var signal = rs.Signal;
+            var reaction = new Reaction(name, signal, clock) { Enabled = rs.ReactionEnabled, Delivery = rs.Timing };
+            if (!string.IsNullOrWhiteSpace(rs.State)) reaction.State = ElementState.Of(rs.State.Trim());
+            string condition = rs.Condition;
             bool timeSignal = SignalKinds.IsTime(signal);
+            var context = SignalKinds.HasItem(signal) ? ExpressionContext.ReactionItem
+                        : timeSignal ? ExpressionContext.ReactionTime : ExpressionContext.ReactionElement;
+            Expression Parse(string text, string at, bool asCondition = false)
+            {
+                try { return asCondition ? Expression.ParseCondition(text, context, "reaction:" + name, at) : Expression.Parse(text, context, "reaction:" + name, at); }
+                catch (FormatException e) { throw new FormatException($"{at}: {e.Message}", e); }
+            }
+            if (!string.IsNullOrWhiteSpace(condition)) reaction.Condition = Parse(condition, Where("condition"), asCondition: true);
             if (signal == SignalKind.Every)
             {
-                reaction.Period = cfg.GetParameter("period", 0.0);
+                reaction.Period = rs.Period ?? 0.0;
                 if (!(reaction.Period > 0) || double.IsInfinity(reaction.Period))
                     throw new FormatException(Where($"the period {reaction.Period} must be > 0."));
-                double first = cfg.GetParameter("first", double.NaN);
+                double first = rs.FirstTime ?? double.NaN;
                 if (!double.IsNaN(first) && first < 0) throw new FormatException(Where($"the first time {first} must be ≥ 0."));
                 reaction.First = first;
             }
             if (signal == SignalKind.AtTime)
             {
-                reaction.At = cfg.GetParameter("at", double.NaN);
+                reaction.At = rs.AtTime ?? double.NaN;
                 if (double.IsNaN(reaction.At) || reaction.At < 0) throw new FormatException(Where("give the time (at ≥ 0)."));
             }
 
             bool itemSignal = SignalKinds.HasItem(signal);
-            for (int n = 1; cfg.Parameters.ContainsKey(ReactionConfig.ActionKey(n, "kind")); n++)
+            int n = 0;
+            foreach (var s in rs.Actions ?? new List<ReactionActionSettings>())
             {
-                string Key(string field) => ReactionConfig.ActionKey(n, field);
+                n++;
+                if (s == null) continue;
                 string at = Where($"action {n}");
-                var a = new ReactionAction { Kind = ParseEnum<ReactionActionKind>(cfg.GetParameter<string>(Key("kind")), at) };
-                string target = cfg.GetParameter<string>(Key("target"), null);
-                a.Name = cfg.GetParameter<string>(Key("name"), null)?.Trim();
-                string expression = cfg.GetParameter<string>(Key("expression"), null);
-                a.Value = !string.IsNullOrWhiteSpace(expression) ? new ReactionValue(Parse(expression, at))
-                        : new ReactionValue(cfg.GetParameter(Key("number"), double.NaN));
-                string onlyIf = cfg.GetParameter<string>(Key("condition"), null);
-                if (!string.IsNullOrWhiteSpace(onlyIf)) a.Condition = Parse(onlyIf, at + " (only if)");
-                a.Group = cfg.GetParameter<string>(Key("group"), null)?.Trim() ?? "";
+                var a = new ReactionAction { Kind = s.Kind };
+                string target = s.Target;
+                a.Name = s.Name?.Trim();
+                // the value: a plain number, else an expression's text
+                string text = s.Value?.Trim();
+                a.Value = string.IsNullOrEmpty(text) ? new ReactionValue(double.NaN)
+                        : double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double number)
+                          ? new ReactionValue(number) : new ReactionValue(Parse(text, at));
+                if (!string.IsNullOrWhiteSpace(s.OnlyIf)) a.Condition = Parse(s.OnlyIf, at + " (only if)", asCondition: true);
+                a.Group = s.Group?.Trim() ?? "";
                 switch (a.Kind)
                 {
                     case ReactionActionKind.SetItemLabel:
-                        if (!itemSignal) throw new FormatException($"{at}: an item label needs an item signal (ItemEntered / ItemExited / ProcessEnded), not {signal}.");
+                        if (!itemSignal) throw new FormatException($"{at}: an item label needs an item signal (ItemEntered / ItemExited / ProcessEnded / WaitTimedOut), not {signal}.");
                         Require(a, at, value: true);
+                        if (a.Value.Expression != null && !string.IsNullOrEmpty(a.Name)) a.Value.Expression.WritesLabel = a.Name;   // the build check of computed names
                         break;
                     case ReactionActionKind.SetElementProperty:
                         a.Target = Resolve(target, elements, at);
                         Require(a, at, value: true);
                         break;
                     case ReactionActionKind.Stop:
-                        a.Team = Team(cfg.GetParameter<string>(Key("team"), null), teams, at);
-                        a.Count = Count(cfg.GetParameter(Key("count"), 0.0), at);
+                        a.Team = Team(s.Team, teams, at);
+                        a.Count = Count(s.Count ?? 0, at);
                         a.Target = a.Team == null ? Resolve(target, elements, at) : null;
                         if (a.Team == null && a.Target == null && timeSignal)
                             throw new FormatException($"{at}: choose the element or team to stop (a time signal has no element of its own).");
-                        string st = cfg.GetParameter<string>(Key("state"), null);
-                        if (!string.IsNullOrWhiteSpace(st)) a.State = ElementState.Of(st.Trim());
-                        a.Mode = ParseEnum<StopMode>(cfg.GetParameter(Key("mode"), nameof(StopMode.Immediate)), at);
-                        a.Duration = cfg.GetParameter(Key("duration"), 0.0);
+                        if (!string.IsNullOrWhiteSpace(s.State)) a.State = ElementState.Of(s.State.Trim());
+                        a.Mode = s.Mode;
+                        a.Duration = s.Duration ?? 0.0;
                         if (a.Duration < 0 || double.IsNaN(a.Duration)) throw new FormatException($"{at}: duration {a.Duration} must be ≥ 0.");
                         break;
                     case ReactionActionKind.Resume:
-                        a.Team = Team(cfg.GetParameter<string>(Key("team"), null), teams, at);
-                        a.Count = Count(cfg.GetParameter(Key("count"), 0.0), at);
+                        a.Team = Team(s.Team, teams, at);
+                        a.Count = Count(s.Count ?? 0, at);
                         a.Target = a.Team == null ? Resolve(target, elements, at) : null;
                         if (a.Team == null && a.Target == null && timeSignal)
                             throw new FormatException($"{at}: choose the element or team to resume (a time signal has no element of its own).");
                         break;
+                    case ReactionActionKind.Release:
+                        a.Target = Resolve(target, elements, at);
+                        if (a.Target == null && timeSignal)
+                            throw new FormatException($"{at}: choose the Queue to release (a time signal has no element of its own).");
+                        if (a.Target != null && !(a.Target is ItemsQueue q && q.Gated))
+                            throw new FormatException($"{at}: a release acts on a Queue released on command, not on '{a.Target.Name}'.");
+                        if (a.Value.IsSet && a.Value.Expression == null && (a.Value.Number < 0 || a.Value.Number != Math.Floor(a.Value.Number)))
+                            throw new FormatException($"{at}: the number of items to release ({a.Value.Number}) must be a whole number ≥ 0.");
+                        break;
+                    case ReactionActionKind.Retry:
+                        a.Target = Resolve(target, elements, at);
+                        if (a.Target == null && timeSignal)
+                            throw new FormatException($"{at}: choose the element to offer again (a time signal has no element of its own).");
+                        break;
+                    case ReactionActionKind.SetItemLook:
+                    {
+                        if (!itemSignal) throw new FormatException($"{at}: an item look needs an item signal (ItemEntered / ItemExited / ProcessEnded / WaitTimedOut), not {signal}.");
+                        LookColor? color = null;
+                        if (!string.IsNullOrWhiteSpace(s.Color))
+                        {
+                            if (!LookColor.TryParse(s.Color, out var c, out string error)) throw new FormatException($"{at}: {error}.");
+                            color = c;
+                        }
+                        double scale = s.Scale ?? double.NaN;
+                        if (!double.IsNaN(scale) && (!(scale > 0) || double.IsInfinity(scale)))
+                            throw new FormatException($"{at}: the scale {scale} must be > 0.");
+                        if (color == null && double.IsNaN(scale)) throw new FormatException($"{at}: give the colour or the scale of the item.");
+                        a.Look = new ItemLook(color, scale);
+                        break;
+                    }
                     case ReactionActionKind.PushToList:
                         if (string.IsNullOrEmpty(a.Name)) throw new FormatException($"{at}: choose the list.");
                         if (clock.Context.GetList(a.Name) == null)
@@ -124,10 +159,10 @@ namespace SimuLean.Serialization
             throw new FormatException($"{at}: no resource team '{reference}' in the model.");
         }
 
-        private static int Count(double value, string at)
+        private static int Count(int value, string at)
         {
-            if (value < 0 || value != Math.Floor(value)) throw new FormatException($"{at}: the number of members {value} must be a whole number ≥ 0 (0 = all).");
-            return (int)value;
+            if (value < 0) throw new FormatException($"{at}: the number of members {value} must be ≥ 0 (0 = all).");
+            return value;
         }
 
         private static void Require(ReactionAction a, string at, bool value)
@@ -143,25 +178,12 @@ namespace SimuLean.Serialization
             if (elements.TryGetValue(reference, out var byId)) return byId;
             Element found = null;
             foreach (var e in elements.Values)
-                if (e.GetName() == reference)
+                if (e.Name == reference)
                 {
                     if (found != null) throw new FormatException($"{at}: several elements are named '{reference}'.");
                     found = e;
                 }
             return found ?? throw new FormatException($"{at}: no element '{reference}' in the model.");
-        }
-
-        private static Expression Parse(string text, string at)
-        {
-            string error = Expression.Check(text);
-            if (error != null) throw new FormatException($"{at}: {error}");
-            return Expression.Parse(text);
-        }
-
-        private static T ParseEnum<T>(string text, string at) where T : struct, Enum
-        {
-            if (Enum.TryParse(text?.Trim(), true, out T value) && Enum.IsDefined(typeof(T), value)) return value;
-            throw new FormatException($"{at}: '{text}' is not one of {string.Join(", ", Enum.GetNames(typeof(T)))}.");
         }
     }
 }

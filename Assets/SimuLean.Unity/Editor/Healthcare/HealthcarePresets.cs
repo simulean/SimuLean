@@ -22,26 +22,32 @@ namespace SimuLean.Unity.Editor.Healthcare
         private const string Door = "HospitalDoor/HospitalDoor.fbx";   // entrances and exits: the hospital door
 
         // ------------------------------------------------------------------ arrivals and booking
+        // (the Library folds them in families: the waiting areas under the Waiting Room, the rooms under the
+        // Consultation Room, the steps away from the hospital under the Home Test, the pathways under the Outpatient Clinic,
+        // the decoration under its first piece — [SimuLeanVariantOf(type, family)]: a family's first preset is its tile)
 
-        [SimuLeanPresetIcon(LibraryPresets.Models + "HospitalPeople/Patient.fbx")]
-        [MenuItem(Menu + "Referrals", false, 1)]
-        private static void ReferralsMenu(MenuCommand cmd) => Referrals(cmd, "Referrals");
+        [SimuLeanPresetIcon(Models + Door)]
+        [MenuItem(Menu + "Patient Arrivals", false, 1)]
+        private static void ArrivalsMenu(MenuCommand cmd) => Arrivals(cmd, "Arrivals");
 
         [SimuLeanPresetIcon(Models + Desk)]
-        [MenuItem(Menu + "Clinic Agenda", false, 2)]
+        [MenuItem(Menu + "Clinic Agenda", false, 4)]
         private static void AgendaMenu(MenuCommand cmd) => Agenda(cmd, "Agenda");
 
         [SimuLeanPresetIcon(LibraryPresets.Models + "HospitalPeople/Patient.fbx")]
-        [MenuItem(Menu + "Waiting List (at home)", false, 3)]
+        [SimuLeanVariantOf(typeof(UnityQueue), "Waiting")]
+        [MenuItem(Menu + "Waiting List (at home)", false, 12)]
         private static void WaitingListMenu(MenuCommand cmd) => WaitingList(cmd, "Waiting List");
 
         // ------------------------------------------------------------------ waiting areas
 
         [SimuLeanPresetIcon(Models + "WaitingChairs/Seat_Row.fbx")]
+        [SimuLeanVariantOf(typeof(UnityQueue), "Waiting")]
         [MenuItem(Menu + "Waiting Room", false, 10)]
         private static void WaitingRoomMenu(MenuCommand cmd) => WaitingRoom(cmd, "Waiting Room", 6);
 
         [SimuLeanPresetIcon(LibraryPresets.Models + "HospitalPeople/Patient.fbx")]
+        [SimuLeanVariantOf(typeof(UnityQueue), "Waiting")]
         [MenuItem(Menu + "Waiting Line", false, 11)]
         private static void WaitingLineMenu(MenuCommand cmd) => WaitingLine(cmd, "Waiting Line");
 
@@ -53,34 +59,40 @@ namespace SimuLean.Unity.Editor.Healthcare
             Sign(LibraryPresets.Station<UnityMultiServer>(cmd, "Reception Desk", s => s.capacity = 2, ("Reception desk", Desk)));
 
         [SimuLeanPresetIcon(Models + Consultation)]
+        [SimuLeanVariantOf(typeof(UnityMultiServer), "Rooms")]
         [MenuItem(Menu + "Consultation Room", false, 21)]
         private static void ConsultationMenu(MenuCommand cmd) => ConsultationRoom(cmd, "Consultation Room");
 
         [SimuLeanPresetIcon(Models + Consultation)]
+        [SimuLeanVariantOf(typeof(UnityDelay), "Away")]
         [MenuItem(Menu + "Home Test", false, 22)]
-        private static void HomeTestMenu(MenuCommand cmd) => Virtual<UnityDelay>(cmd, "Home Test", "Home test (night at home)",
+        private static void HomeTestMenu(MenuCommand cmd) => Virtual<UnityDelay>(cmd, "Home Test", "Home test (at home)",
             d => Constant(d.delayStrategy, 24));
 
         [SimuLeanPresetIcon(Models + Consultation)]
+        [SimuLeanVariantOf(typeof(UnityDelay), "Away")]
         [MenuItem(Menu + "Report (not face to face)", false, 23)]
         private static void ReportMenu(MenuCommand cmd) => Virtual<UnityMultiServer>(cmd, "Report", "Report — not face to face",
             s => { s.capacity = 1; Constant(s.delayStrategy, 0.5f); });
 
         [SimuLeanPresetIcon(Models + Consultation)]
+        [SimuLeanVariantOf(typeof(UnityDelay), "Away")]
         [MenuItem(Menu + "Treatment at Home", false, 24)]
         private static void TreatmentMenu(MenuCommand cmd) => Virtual<UnityDelay>(cmd, "Treatment at Home", "Treatment at home",
             d => Constant(d.delayStrategy, 2160));
 
         [SimuLeanPresetIcon(Models + Consultation)]
+        [SimuLeanVariantOf(typeof(UnityMultiServer), "Rooms")]
         [MenuItem(Menu + "Triage", false, 25)]
         private static void TriageMenu(MenuCommand cmd) => Triage(cmd, "Triage");
 
         [SimuLeanPresetIcon(Models + Consultation)]
+        [SimuLeanVariantOf(typeof(UnityMultiServer), "Rooms")]
         [MenuItem(Menu + "Diagnostic Test (hospital)", false, 26)]
         private static void DiagnosticTestMenu(MenuCommand cmd) => DiagnosticTest(cmd, "Diagnostic Test");
 
         [SimuLeanPresetIcon(Models + Door)]
-        [MenuItem(Menu + "Discharge", false, 30)]
+        [MenuItem(Menu + "Discharge", false, 2)]
         private static void DischargeMenu(MenuCommand cmd) => Discharge(cmd, "Discharge");
 
         // ------------------------------------------------------------------ equipment
@@ -97,7 +109,7 @@ namespace SimuLean.Unity.Editor.Healthcare
         private static void DashboardMenu(MenuCommand cmd) => Dashboard(cmd);
 
         /// <summary>The library's healthcare charts (created once in <see cref="ChartFolder"/>): patients waiting per list,
-        /// time in system (P90) at the discharges, agenda slots booked, lead time to the appointment. They find the
+        /// time in system (90th percentile) at the discharges, agenda slots booked, lead time to the appointment. They find the
         /// elements by name (the presets' names: *Waiting*, *Agenda*, *Line*, *List*, *Discharge*).</summary>
         public const string ChartFolder = "Assets/SimuLean.Unity/Charts/Healthcare";
 
@@ -149,38 +161,47 @@ namespace SimuLean.Unity.Editor.Healthcare
         // ------------------------------------------------------------------ decoration (no element: the hospital around the model)
 
         [SimuLeanPresetIcon(Models + "WaitingChairs/Seat_Table.fbx")]
+        [SimuLeanVariantOf(typeof(SElement), "Decor")]
         [MenuItem(Menu + "Decor/Floor Zone", false, 80)]
         private static void FloorZoneMenu(MenuCommand cmd) => FloorZone(cmd, "Waiting area", new Vector2(6f, 4f));
 
         [SimuLeanPresetIcon(Models + "HospitalBed/HospitalBed.fbx")]
+        [SimuLeanVariantOf(typeof(SElement), "Decor")]
         [MenuItem(Menu + "Decor/Hospital Bed", false, 81)]
         private static void BedMenu(MenuCommand cmd) => Decor(cmd, "Hospital Bed", "HospitalBed/HospitalBed.fbx");
 
         [SimuLeanPresetIcon(Models + "Stretcher/Stretcher.fbx")]
+        [SimuLeanVariantOf(typeof(SElement), "Decor")]
         [MenuItem(Menu + "Decor/Stretcher", false, 82)]
         private static void StretcherMenu(MenuCommand cmd) => Decor(cmd, "Stretcher", "Stretcher/Stretcher.fbx");
 
         [SimuLeanPresetIcon(Models + "Wheelchair/Wheelchair.fbx")]
+        [SimuLeanVariantOf(typeof(SElement), "Decor")]
         [MenuItem(Menu + "Decor/Wheelchair", false, 83)]
         private static void WheelchairMenu(MenuCommand cmd) => Decor(cmd, "Wheelchair", "Wheelchair/Wheelchair.fbx");
 
         [SimuLeanPresetIcon(Models + "WaitingChairs/Seat_Table.fbx")]
+        [SimuLeanVariantOf(typeof(SElement), "Decor")]
         [MenuItem(Menu + "Decor/Side Table", false, 84)]
         private static void TableMenu(MenuCommand cmd) => Decor(cmd, "Side Table", "WaitingChairs/Seat_Table.fbx");
 
         [SimuLeanPresetIcon(Models + "HospitalWall/HWall_Panel.fbx")]
+        [SimuLeanVariantOf(typeof(SElement), "Decor")]
         [MenuItem(Menu + "Decor/Partition Wall", false, 85)]
         private static void PartitionMenu(MenuCommand cmd) => Wall(cmd, "Partition Wall", 6f, Panel, null);
 
         [SimuLeanPresetIcon(Models + "HospitalWall/HWall_Glass.fbx")]
+        [SimuLeanVariantOf(typeof(SElement), "Decor")]
         [MenuItem(Menu + "Decor/Glass Partition", false, 86)]
         private static void GlassMenu(MenuCommand cmd) => Wall(cmd, "Glass Partition", 6f, GlassPanel, null);
 
         [SimuLeanPresetIcon(Models + "HospitalWall/HWall_Door.fbx")]
+        [SimuLeanVariantOf(typeof(SElement), "Decor")]
         [MenuItem(Menu + "Decor/Wall with Door", false, 87)]
         private static void DoorWallMenu(MenuCommand cmd) => Wall(cmd, "Wall with Door", 5f, Panel, DoorPanel);
 
         [SimuLeanPresetIcon(Models + "HospitalWall/HWall_Door.fbx")]
+        [SimuLeanVariantOf(typeof(SElement), "Decor")]
         [MenuItem(Menu + "Decor/Room Walls", false, 88)]
         private static void RoomMenu(MenuCommand cmd) => RoomWalls(cmd, "Room", 6f, 4f);
 
@@ -254,34 +275,36 @@ namespace SimuLean.Unity.Editor.Healthcare
         // ------------------------------------------------------------------ composites
 
         [SimuLeanPresetIcon(Models + Consultation)]
+        [SimuLeanVariantOf(typeof(SElement), "Pathways")]
         [MenuItem(Menu + "Outpatient Clinic", false, 60)]
         private static void OutpatientClinicMenu(MenuCommand cmd) => OutpatientClinic(cmd);
 
-        /// <summary>Referrals → agenda (patients wait at home) → waiting room → consultation room (a doctor) → discharge.</summary>
+        /// <summary>Arrivals → agenda (patients wait at home) → waiting room → consultation room (a doctor) → discharge.</summary>
         public static GameObject OutpatientClinic(MenuCommand cmd)
         {
             var root = Group(cmd, "Outpatient Clinic");
             var sub = new MenuCommand(root);
-            var referrals = At(Referrals(sub, "Referrals"), 0f);
+            var arrivals = At(Arrivals(sub, "Arrivals"), 0f);
             var agenda = At(Agenda(sub, "Agenda"), 5f);
             var room = At(WaitingRoom(sub, "Waiting Room", 6), 10f);
             var visit = At(ConsultationRoom(sub, "Consultation Room"), 16f);
-            var doctors = LibraryPresets.Team(sub, "Doctors", "Doctor.prefab").GetComponent<UnityResourceTeam>();
+            var doctors = LibraryPresets.Team(sub, "Doctors", "doctor").GetComponent<UnityResourceTeam>();
             doctors.AddMembers(1);
             visit.GetComponent<UnityMultiServer>().processBy = new ProcessResourceUse { team = doctors };
             var done = At(Discharge(sub, "Discharge"), 22f);
-            Connect(referrals, agenda); Connect(agenda, room); Connect(room, visit); Connect(visit, done);
+            Connect(arrivals, agenda); Connect(agenda, room); Connect(room, visit); Connect(visit, done);
             Pathway(root);
             Selection.activeObject = root;
             return root;
         }
 
         [SimuLeanPresetIcon(Models + Consultation)]
+        [SimuLeanVariantOf(typeof(SElement), "Pathways")]
         [MenuItem(Menu + "Home Diagnostic Test", false, 61)]
         private static void HomeDiagnosticTestMenu(MenuCommand cmd) => HomeDiagnosticTest(cmd);
 
         /// <summary>
-        /// Device desk (a device of the equipment pool goes home with the patient: released at the device return) → a night
+        /// Device desk (a device of the equipment pool goes home with the patient: released at the device return) → a stay
         /// at home → device return; an invalid test (10 %, drawn on entry to the desk) goes back to the desk's line, a valid
         /// one to the report (not face to face).
         /// </summary>
@@ -289,52 +312,53 @@ namespace SimuLean.Unity.Editor.Healthcare
         {
             var root = Group(cmd, "Home Diagnostic Test");
             var sub = new MenuCommand(root);
-            var referrals = At(Referrals(sub, "Referrals"), -5f);
+            var arrivals = At(Arrivals(sub, "Arrivals"), -5f);
             var line = At(WaitingLine(sub, "Device Desk Line"), 0f);
             var desk = At(LibraryPresets.Station<UnityMultiServer>(sub, "Device Desk", s => { s.capacity = 1; Constant(s.delayStrategy, 0.25f); },
                                                                ("Reception desk", Desk)), 5f);
-            var home = At(Virtual<UnityDelay>(sub, "Home Test", "Home test (night at home)", d => Constant(d.delayStrategy, 24)), 10f);
+            var home = At(Virtual<UnityDelay>(sub, "Home Test", "Home test (at home)", d => Constant(d.delayStrategy, 24)), 10f);
             var back = At(LibraryPresets.Station<UnityMultiServer>(sub, "Device Return", s => { s.capacity = 1; Constant(s.delayStrategy, 0.1f); },
                                                                ("Reception desk", Desk)), 15f);
             var report = At(Virtual<UnityMultiServer>(sub, "Report", "Report — not face to face", s => Constant(s.delayStrategy, 0.5f)), 20f);
-            var pool = EquipmentPool(sub, "Polygraphs", 3).GetComponent<UnityResourceTeam>();
+            var pool = EquipmentPool(sub, "Home Monitors", 3).GetComponent<UnityResourceTeam>();
 
             var deskEl = desk.GetComponent<UnityMultiServer>();
-            deskEl.entryLabels = new List<string> { "tests = tests + 1", "valid = rand() < 0.9" };
+            deskEl.entryLabels = new List<string> { "tests = (tests ?? 0) + 1", "valid = rand() < 0.9" };
             deskEl.processBy = new ProcessResourceUse { team = pool, release = ProcessRelease.AtElement, releaseAt = back.GetComponent<SElement>() };
             var backEl = back.GetComponent<UnityMultiServer>();
             backEl.outputStrategy.strategyType = OutputStrategyType.Expression;
             backEl.outputStrategy.routingExpression = "item.valid ? 0 : 1";
-            Connect(referrals, line); Connect(line, desk); Connect(desk, home); Connect(home, back);
+            Connect(arrivals, line); Connect(line, desk); Connect(desk, home); Connect(home, back);
             Connect(back, report); Connect(back, line);   // 0 = valid → report, 1 = repeat
-            Pathway(root);                                 // last: the arrows follow every connection (review2 #33)
+            Pathway(root);                                 // last: the arrows follow every connection
             Selection.activeObject = root;
             return root;
         }
 
         [SimuLeanPresetIcon(Models + Consultation)]
+        [SimuLeanVariantOf(typeof(SElement), "Pathways")]
         [MenuItem(Menu + "Follow-up Loop", false, 62)]
         private static void FollowUpLoopMenu(MenuCommand cmd) => FollowUpLoop(cmd);
 
         /// <summary>
-        /// Treatment at home → review visit (a doctor); at each review 60 % continue the treatment (back home), the others
+        /// Treatment at home → review visit (a doctor); at each review visit 60 % continue the treatment (back home), the others
         /// are discharged — `reviews` counts the visits, `continue` is drawn on entry to the review (route on it).
         /// </summary>
         public static GameObject FollowUpLoop(MenuCommand cmd)
         {
             var root = Group(cmd, "Follow-up Loop");
             var sub = new MenuCommand(root);
-            var referrals = At(Referrals(sub, "Referrals"), 0f);
+            var arrivals = At(Arrivals(sub, "Arrivals"), 0f);
             var treatment = At(Virtual<UnityDelay>(sub, "Treatment at Home", "Treatment at home", d => Constant(d.delayStrategy, 2160)), 5f);
             var line = At(WaitingLine(sub, "Review Line"), 10f);
             var review = At(ConsultationRoom(sub, "Review"), 15f);
             var done = At(Discharge(sub, "Discharge"), 21f);
             var r = review.GetComponent<UnityMultiServer>();
             Constant(r.delayStrategy, 0.33f);
-            r.entryLabels = new List<string> { "reviews = reviews + 1", "continue = rand() < 0.6" };
+            r.entryLabels = new List<string> { "reviews = (reviews ?? 0) + 1", "continue = rand() < 0.6" };
             r.outputStrategy.strategyType = OutputStrategyType.Expression;
             r.outputStrategy.routingExpression = "item.continue ? 1 : 0";
-            Connect(referrals, treatment); Connect(treatment, line); Connect(line, review);
+            Connect(arrivals, treatment); Connect(treatment, line); Connect(line, review);
             Connect(review, done); Connect(review, treatment);   // 0 = discharge, 1 = another round of treatment
             Pathway(root);
             Selection.activeObject = root;
@@ -367,7 +391,9 @@ namespace SimuLean.Unity.Editor.Healthcare
         }
 
 
-        public static GameObject Referrals(MenuCommand cmd, string name)
+        /// <summary>Patients arriving (referrals, walk-ins…): a source of patients through the hospital door, crossed along
+        /// the flow — the building's inside towards +X, where they walk on.</summary>
+        public static GameObject Arrivals(MenuCommand cmd, string name)
         {
             var go = Element<UnitySource>(cmd, name, out var src);
             var patient = AssetDatabase.LoadAssetAtPath<GameObject>(LibraryPresets.Items + "Patient.prefab");
@@ -375,7 +401,7 @@ namespace SimuLean.Unity.Editor.Healthcare
             src.separation = 0.7f;
             src.mode = SourceMode.InterArrival;          // referrals keep arriving (a schedule table is one click away)
             src.interArrivalDistribution = new RandomProcessConfig { strategyType = RandomProcessType.Exponential, exponentialRate = 1 };
-            AddModel(go, ("Hospital door", Door));
+            AddModel(go, -90f, ("Hospital door", Door));   // its inside (−Z) turned to +X
             go.AddComponent<SlidingDoorView>();
             Selection.activeObject = go;
             return go;
@@ -408,10 +434,11 @@ namespace SimuLean.Unity.Editor.Healthcare
             q.layoutMode = QueueLayoutMode.Seats;
             var row = new GameObject("Chairs");
             row.transform.SetParent(go.transform, false);
-            // the kit runs along its +Z with the seats facing its +X: turned so they face the queue's +Z, centred
+            // the kit runs along its +Z (a strip) with the seats facing its +X: turned +90 so the row runs along the queue's
+            // +X (its flow) and the seats face its front, −Z (the model frame), centred
             float length = seats * seatPitch + 2 * endCap;
-            row.transform.localRotation = Quaternion.Euler(0f, -90f, 0f);
-            row.transform.localPosition = new Vector3(length * 0.5f, 0f, 0f);
+            row.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
+            row.transform.localPosition = new Vector3(-length * 0.5f, 0f, 0f);
             var strip = row.AddComponent<UnityModularStrip>();
             strip.combine = false;                       // keeps each seat's Seat node
             strip.segmentLength = seatPitch;
@@ -431,6 +458,14 @@ namespace SimuLean.Unity.Editor.Healthcare
             q.lineLength = 4f;
             q.showFootprint = false;
             q.ApplyFootprintVisibility();
+            // its outline on the floor, as an accumulation lane's: where the line stands, the exit chevron at the head
+            var marking = new GameObject("Marking");
+            marking.transform.SetParent(go.transform, false);
+            var paint = marking.AddComponent<UnityLaneMarking>();
+            paint.width = 1.0f;
+            var material = AssetDatabase.LoadAssetAtPath<Material>("Assets/SimuLean.Unity/Art/Floor/LaneMarking.mat");
+            if (material != null) marking.GetComponent<MeshRenderer>().sharedMaterial = material;
+            q.FitLineMarking();
             Selection.activeObject = go;
             return go;
         }
@@ -442,7 +477,7 @@ namespace SimuLean.Unity.Editor.Healthcare
         {
             var go = Element<UnitySink>(cmd, name, out var sink);
             sink.tallies = new List<string> { "time_in_system = age" };
-            AddModel(go, ("Hospital door", Door));
+            AddModel(go, 90f, ("Hospital door", Door));    // its inside (−Z) turned to −X, where the patients come from
             go.AddComponent<SlidingDoorView>();
             Selection.activeObject = go;
             return go;
@@ -457,6 +492,7 @@ namespace SimuLean.Unity.Editor.Healthcare
             Undo.RegisterCreatedObjectUndo(go, "Create " + name);
             var team = go.AddComponent<UnityResourceTeam>();
             team.teamName = name;
+            team.travel = TeamTravel.Abstract;   // devices do not move
             team.showMembers = false;
             team.AddMembers(devices);
             Selection.activeObject = go;
@@ -512,9 +548,12 @@ namespace SimuLean.Unity.Editor.Healthcare
             label.hideItems = hide;
         }
 
-        private static void AddModel(GameObject go, params (string label, string path)[] models)
+        private static void AddModel(GameObject go, params (string label, string path)[] models) => AddModel(go, 0f, models);
+
+        private static void AddModel(GameObject go, float yaw, params (string label, string path)[] models)
         {
             var sm = go.AddComponent<StationModel>();
+            sm.modelYaw = yaw;
             foreach (var (label, path) in models)
             {
                 var model = Load(path);
@@ -533,12 +572,11 @@ namespace SimuLean.Unity.Editor.Healthcare
             return go;
         }
 
+        // a composite runs along +X, its elements unturned (the model frame: the doors' inside, the desks' public side and
+        // the boxes' curtains face −Z, the side the view sees)
         private static GameObject At(GameObject go, float x)
         {
             go.transform.localPosition = new Vector3(x, 0f, 0f);
-            // a composite runs along +X: the entrance's inside (+Z) faces the flow, the exit's faces back to it
-            if (go.GetComponent<UnitySource>() != null) go.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
-            else if (go.GetComponent<UnitySink>() != null) go.transform.localRotation = Quaternion.Euler(0f, -90f, 0f);
             return go;
         }
 

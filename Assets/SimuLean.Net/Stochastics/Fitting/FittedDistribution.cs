@@ -21,6 +21,8 @@ namespace SimuLean.Stochastics.Fitting
         /// <summary>Density (continuous) or probability mass at the integer <paramref name="x"/> (discrete).</summary>
         public abstract double Density(double x);
         public abstract double Mean { get; }
+        /// <summary>The standard deviation.</summary>
+        public abstract double StdDev { get; }
 
         public string ToSpec() => Family + string.Concat(Parameters.Select(p => "~" + p.ToString("R", CultureInfo.InvariantCulture)));
 
@@ -37,6 +39,7 @@ namespace SimuLean.Stochastics.Fitting
         public override double Cdf(double x) => x <= 0 ? 0 : 1 - Math.Exp(-Rate * x);
         public override double Density(double x) => x < 0 ? 0 : Rate * Math.Exp(-Rate * x);
         public override double Mean => 1 / Rate;
+        public override double StdDev => 1 / Rate;
     }
 
     internal sealed class NormalFit : FittedDistribution
@@ -51,6 +54,7 @@ namespace SimuLean.Stochastics.Fitting
             return Math.Exp(-0.5 * z * z) / (Parameters[1] * Math.Sqrt(2 * Math.PI));
         }
         public override double Mean => Parameters[0];
+        public override double StdDev => Parameters[1];
     }
 
     internal sealed class LogNormalFit : FittedDistribution
@@ -66,6 +70,7 @@ namespace SimuLean.Stochastics.Fitting
             return Math.Exp(-0.5 * z * z) / (x * Parameters[1] * Math.Sqrt(2 * Math.PI));
         }
         public override double Mean => Math.Exp(Parameters[0] + Parameters[1] * Parameters[1] / 2);
+        public override double StdDev => Mean * Math.Sqrt(Math.Exp(Parameters[1] * Parameters[1]) - 1);
     }
 
     internal sealed class UniformFit : FittedDistribution
@@ -76,6 +81,7 @@ namespace SimuLean.Stochastics.Fitting
         public override double Cdf(double x) => x <= Parameters[0] ? 0 : x >= Parameters[1] ? 1 : (x - Parameters[0]) / (Parameters[1] - Parameters[0]);
         public override double Density(double x) => x < Parameters[0] || x > Parameters[1] ? 0 : 1 / (Parameters[1] - Parameters[0]);
         public override double Mean => (Parameters[0] + Parameters[1]) / 2;
+        public override double StdDev => (Parameters[1] - Parameters[0]) / Math.Sqrt(12);
     }
 
     internal sealed class TriangularFit : FittedDistribution
@@ -97,6 +103,14 @@ namespace SimuLean.Stochastics.Fitting
             return x <= c ? (c > a ? 2 * (x - a) / ((b - a) * (c - a)) : 2 / (b - a)) : (b > c ? 2 * (b - x) / ((b - a) * (b - c)) : 2 / (b - a));
         }
         public override double Mean => (Parameters[0] + Parameters[1] + Parameters[2]) / 3;
+        public override double StdDev
+        {
+            get
+            {
+                double a = Parameters[0], c = Parameters[1], b = Parameters[2];
+                return Math.Sqrt((a * a + b * b + c * c - a * b - a * c - b * c) / 18);
+            }
+        }
     }
 
     internal sealed class GammaFit : FittedDistribution
@@ -112,6 +126,7 @@ namespace SimuLean.Stochastics.Fitting
             return Math.Exp((k - 1) * Math.Log(x) - x / t - Probability.LogGamma(k) - k * Math.Log(t));
         }
         public override double Mean => Parameters[0] * Parameters[1];
+        public override double StdDev => Math.Sqrt(Parameters[0]) * Parameters[1];
     }
 
     internal sealed class WeibullFit : FittedDistribution
@@ -127,6 +142,14 @@ namespace SimuLean.Stochastics.Fitting
             return k / l * Math.Pow(z, k - 1) * Math.Exp(-Math.Pow(z, k));
         }
         public override double Mean => Parameters[1] * Probability.Gamma(1 + 1 / Parameters[0]);
+        public override double StdDev
+        {
+            get
+            {
+                double g1 = Probability.Gamma(1 + 1 / Parameters[0]), g2 = Probability.Gamma(1 + 2 / Parameters[0]);
+                return Parameters[1] * Math.Sqrt(Math.Max(0, g2 - g1 * g1));
+            }
+        }
     }
 
     internal sealed class BetaFit : FittedDistribution
@@ -147,6 +170,14 @@ namespace SimuLean.Stochastics.Fitting
             return Math.Exp((a - 1) * Math.Log(z) + (b - 1) * Math.Log(1 - z) - Probability.LogBeta(a, b)) / (Parameters[3] - Parameters[2]);
         }
         public override double Mean => Parameters[2] + (Parameters[3] - Parameters[2]) * Parameters[0] / (Parameters[0] + Parameters[1]);
+        public override double StdDev
+        {
+            get
+            {
+                double a = Parameters[0], b = Parameters[1], s = a + b;
+                return (Parameters[3] - Parameters[2]) * Math.Sqrt(a * b / (s * s * (s + 1)));
+            }
+        }
     }
 
     internal sealed class PoissonFit : FittedDistribution
@@ -158,6 +189,7 @@ namespace SimuLean.Stochastics.Fitting
         public override double Cdf(double x) => x < 0 ? 0 : Probability.PoissonCdf((int)Math.Floor(x + 1e-9), Parameters[0]);
         public override double Density(double x) => x < 0 ? 0 : Probability.PoissonPmf((int)Math.Round(x), Parameters[0]);
         public override double Mean => Parameters[0];
+        public override double StdDev => Math.Sqrt(Parameters[0]);
     }
 
     internal sealed class BinomialFit : FittedDistribution
@@ -170,6 +202,7 @@ namespace SimuLean.Stochastics.Fitting
         public override double Cdf(double x) => x < 0 ? 0 : x >= N ? 1 : Probability.BinomialCdf((int)Math.Floor(x + 1e-9), N, Parameters[1]);
         public override double Density(double x) => x < 0 || x > N ? 0 : Probability.BinomialPmf((int)Math.Round(x), N, Parameters[1]);
         public override double Mean => N * Parameters[1];
+        public override double StdDev => Math.Sqrt(N * Parameters[1] * (1 - Parameters[1]));
     }
 
     internal sealed class DiscreteUniformFit : FittedDistribution
@@ -182,5 +215,6 @@ namespace SimuLean.Stochastics.Fitting
         public override double Cdf(double x) => x < Parameters[0] ? 0 : x >= Parameters[1] ? 1 : (Math.Floor(x + 1e-9) - Parameters[0] + 1) / Count;
         public override double Density(double x) => x < Parameters[0] || x > Parameters[1] ? 0 : 1 / Count;
         public override double Mean => (Parameters[0] + Parameters[1]) / 2;
+        public override double StdDev => Math.Sqrt((Count * Count - 1) / 12);
     }
 }

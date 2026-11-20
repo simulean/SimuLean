@@ -247,7 +247,7 @@ namespace SimuLean.Resources
         {
             var p = Path(from, to);
             if (double.IsPositiveInfinity(p.length))
-                throw new InvalidOperationException($"'{executor?.GetName()}' cannot walk from '{from}' to '{to}': no free path on the walk grid.");
+                throw new InvalidOperationException($"'{executor?.Name}' cannot walk from '{from}' to '{to}': no free path on the walk grid.");
             return new TravelPlan { Route = new[] { from, to }, Distance = p.length, Duration = p.length / Speed, Path = p.path };
         }
 

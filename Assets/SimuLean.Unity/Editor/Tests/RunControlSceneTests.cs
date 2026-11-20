@@ -11,7 +11,7 @@ using Object = UnityEngine.Object;
 namespace SimuLean.Unity.Editor.Tests
 {
     /// <summary>
-    /// The clock's end condition goes to the config and the scene's
+    /// Run control in the scene: the clock's end condition goes to the config and the scene's
     /// headless run stops there; an experiment in small — buffer capacity × welders (members with a label) ×
     /// release plan (a source table per file) — in one call (<see cref="SceneStudy"/>), with the model metrics.
     /// </summary>
@@ -55,10 +55,11 @@ namespace SimuLean.Unity.Editor.Tests
                 weld.capacity = 8;
                 weld.delayStrategy = new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = 12f };
                 var crew = Make<UnityResourceTeam>("Crew");
+                crew.travel = TeamTravel.Abstract;   // no walking (a team now travels straight by default)
                 crew.members = new List<ResourceMemberSpec>
                 {
-                    new ResourceMemberSpec { name = "fitter", labels = new List<LabelAssignment> { new LabelAssignment { label = "skill", value = "fitting" } } },
-                    new ResourceMemberSpec { name = "welder", labels = new List<LabelAssignment> { new LabelAssignment { label = "skill", value = "welding" } } },
+                    new ResourceMemberSpec { name = "fitter", properties = new List<string> { "skill = 'fitting'" } },
+                    new ResourceMemberSpec { name = "welder", properties = new List<string> { "skill = 'welding'" } },
                 };
                 weld.processBy.team = crew;
                 weld.processBy.requirements = new List<ResourceRequirementSpec> { new ResourceRequirementSpec { count = 1, query = new SimuLean.Collections.ListQuerySpec { conditions = { new SimuLean.Collections.ListCondition("skill", SimuLean.Collections.ListOp.Equal, "welding") } } } };
@@ -98,5 +99,69 @@ namespace SimuLean.Unity.Editor.Tests
                 else Object.DestroyImmediate(root);
             }
         }
-    }
+            /// <summary>The clock's "stop when no progress for" goes to the config and the built model honours it — a
+        /// dead end beside a periodic clock signal (the signal keeps the run from ever being idle) ends T after the last
+        /// movement with the end reason NoProgress.</summary>
+        [Test]
+        public void NoProgressEndConditionExtractsAndBuilds()
+        {
+            var active = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            bool temporary = !string.IsNullOrEmpty(active.path);
+            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
+            var root = new GameObject("Model");
+            string dir = Path.Combine(Path.GetTempPath(), "simulean_noprogress_" + System.Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root, scene);
+                T Make<T>(string n) where T : Component
+                {
+                    var go = new GameObject(n);
+                    go.transform.SetParent(root.transform);
+                    return go.AddComponent<T>();
+                }
+                string plan = Path.Combine(dir, "plan.csv");
+                File.WriteAllLines(plan, new[] { "Time,Name,Q", "0,Plates,1", "0,Plates,1", "0,Plates,1", "0,Plates,1", "0,Plates,1", "0,Plates,1" });
+                var clock = Make<UnitySimClock>("Clock");
+                clock.MaxTime = 1000;
+                clock.StopWhenNoProgressFor = 50;
+                var plates = Make<UnitySource>("Plates");
+                plates.mode = SourceMode.Schedule;
+                plates.SetArrivalsTable(TableFiles.Read(plan));
+                var weld = Make<UnityMultiServer>("Weld");
+                weld.capacity = 1;
+                weld.delayStrategy = new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = 12f };
+                var yard = Make<UnityQueue>("Yard");   // a dead end of 2: nothing takes from it
+                yard.capacity = 2;
+                plates.nextElements = new List<SElement> { weld };
+                weld.nextElements = new List<SElement> { yard };
+
+                var config = SceneExtractor.Extract(root).Config;
+                Assert.AreEqual(50, config.StopWhenNoProgressFor, 1e-12, "the clock's field goes to the config");
+                Assert.AreEqual(config.StopWhenNoProgressFor, SimuLean.Serialization.ConfigJson.Deserialize(SimuLean.Serialization.ConfigJson.Serialize(config)).StopWhenNoProgressFor,
+                                1e-12, "and through the model file");
+                var tick = new ReactionConfig("tick");   // a periodic clock signal: its ticks are foreground events
+                tick.Set("signal", "Every");
+                tick.Set("period", 7.0);
+                config.Reactions.Add(tick);
+
+                var simClock = new SimClock(1);
+                var model = new SimuLean.Headless.HeadlessModelFactory(simClock);
+                model.BuildModel(config);
+                model.StartModel();
+                simClock.AdvanceClock(config.MaxSimulationTime);
+                var r = RunResults.Capture(model);
+                double last = SimuLean.Headless.RunMonitor.LastMovement(model.GetAllElements().Values);
+                Assert.AreEqual("NoProgress", r.Info.EndReason, "the run ends for lack of progress");
+                Assert.AreEqual(last + 50, simClock.GetSimulationTime(), 1e-9, "50 after the last movement");
+                Assert.IsTrue(r.Info.Waiting.Any(w => w.StartsWith("Weld: BLOCKED")), string.Join(" | ", r.Info.Waiting));
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch { }
+                if (temporary) EditorSceneManager.CloseScene(scene, true);
+                else Object.DestroyImmediate(root);
+            }
+        }
+}
 }

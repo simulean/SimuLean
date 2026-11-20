@@ -26,7 +26,7 @@ namespace SimuLean
         // ── chronological state log ──────────────────────────────────────────
         private readonly List<StateLogEntry> _log = new List<StateLogEntry>();
         /// <summary>Keep the chronological log (default for elements). Off: only the totals — a headless study run that
-        /// records no timeline keeps no log (its memory grew with every state change; review2 #19).</summary>
+        /// records no timeline keeps no log (its memory grew with every state change).</summary>
         public bool KeepLog { get; set; }
 
         // ── public read-only view ────────────────────────────────────────────

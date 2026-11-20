@@ -63,7 +63,7 @@ namespace SimuLean.Storage
     }
 
     /// <summary>
-    /// The single parametric lane model (proposal §3): every industry storage
+    /// The single parametric lane model: every industry storage
     /// type is this class with different parameters — see
     /// <see cref="StoragePresets"/>. A lane holds an ordered list of
     /// <see cref="StoredItem"/> records where index 0 is the accessible face
@@ -93,6 +93,13 @@ namespace SimuLean.Storage
         /// <summary>Optional transport-network node id serving this lane.
         /// Null → moves from/to this lane are instantaneous.</summary>
         public string NodeId { get; set; }
+
+        /// <summary>Clear room of one position of the lane: across the lane, above the support and along the
+        /// lane, in model units (metres); 0 = no limit. Checked only by a storage with
+        /// <see cref="StorageSystem.PhysicalDimensions"/> on.</summary>
+        public double SlotWidth { get; set; }
+        public double SlotHeight { get; set; }
+        public double SlotLength { get; set; }
 
         public StorageLane(string laneId, Coordinate coordinate, int capacity,
                            AccessDiscipline accessDiscipline, SkuConstraint skuConstraint,
@@ -130,7 +137,7 @@ namespace SimuLean.Storage
 
         internal void Reserve(Item item)
         {
-            if (Reserved == 0 && slots.Count == 0 && SkuConstraint == SkuConstraint.SingleSku) ReservedSku = item.GetTypeName();
+            if (Reserved == 0 && slots.Count == 0 && SkuConstraint == SkuConstraint.SingleSku) ReservedSku = item.Name;
             Reserved++;
         }
 
@@ -146,7 +153,7 @@ namespace SimuLean.Storage
 
         /// <summary>
         /// True when the lane has a free position and the item satisfies the
-        /// SKU constraint (SingleSku: lane empty or same <c>GetTypeName()</c>).
+        /// SKU constraint (SingleSku: lane empty or same <c>Name</c>).
         /// </summary>
         public bool CanAccept(Item item)
         {
@@ -155,8 +162,8 @@ namespace SimuLean.Storage
 
             if (SkuConstraint == SkuConstraint.SingleSku)
             {
-                string sku = slots.Count > 0 ? slots[0].Item.GetTypeName() : ReservedSku;
-                if (sku != null) return sku == item.GetTypeName();
+                string sku = slots.Count > 0 ? slots[0].Item.Name : ReservedSku;
+                if (sku != null) return sku == item.Name;
             }
 
             return true;

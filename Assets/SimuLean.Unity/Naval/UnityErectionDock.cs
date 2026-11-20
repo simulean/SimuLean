@@ -13,9 +13,13 @@ namespace SimuLean.Unity.Naval
     /// </summary>
     [SimuLeanElement(SimuLeanModules.Shipbuilding, "Erection Dock",
         Description = "Slipway / building dock: erects ship blocks in sequence or by precedence, keeps the hull, launches the ship",
-        Icon = "Assets/SimuLean.Unity/Art/Models/BlockWorkspace/BlockWorkspace.fbx", Order = 0)]
-    public class UnityErectionDock : SElement, IVElement, IProcessResourceUser
+        Icon = "Assets/SimuLean.Unity/Editor/Icons/Shipbuilding/BuildingDock.png", Order = 0)]
+    public class UnityErectionDock : SElement, IVElement, IProcessResourceUser, ISetupUser
     {
+        [Tooltip("Setup (a front's staging / jigs) before a block's erection: when, how long, by whom (Setup section).")]
+        public StationSetupConfig setup = new StationSetupConfig();
+        public StationSetupConfig Setup => setup;
+
         public override bool HasInput => true;
 
         [Tooltip("Erection fronts: blocks erected at the same time.")]

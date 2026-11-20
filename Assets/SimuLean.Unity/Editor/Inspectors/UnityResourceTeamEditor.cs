@@ -13,7 +13,7 @@ namespace SimuLean.Unity.Editor
     {
         private int addCount = 1;
 
-        // The inspector standard's header (review2 #41): the team's name, kind and members, the member's look as its icon;
+        // The inspector standard's header: the team's name, kind and members, the member's look as its icon;
         // one name — the GameObject's — and, for a team that still has its own Team Name, the choice to keep one of them.
         private void DrawHeader(UnityResourceTeam team)
         {
@@ -46,7 +46,7 @@ namespace SimuLean.Unity.Editor
             }
             if (team.members.Count == 0)
                 EditorGUILayout.HelpBox("No members: add some below, or no request can be served.", MessageType.Warning);
-            ReactionsSection.DrawFor(team);   // Reactions that send members off / call them back
+            ReactionsSection.DrawFor(team);   // reactions that send members off / call them back
             EditorGUILayout.Space(4);
         }
 
@@ -74,8 +74,16 @@ namespace SimuLean.Unity.Editor
             EditorGUILayout.Space();
             EditorGUILayout.PropertyField(serializedObject.FindProperty("requestOrder"),
                 new GUIContent("Request Order", "Which request is served first (empty = first come, first served)."));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("namedOrders"),
+                new GUIContent("Named Orders", serializedObject.FindProperty("namedOrders").tooltip), true);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("requestOrderName"),
+                new GUIContent("Request Order Name", serializedObject.FindProperty("requestOrderName").tooltip));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("ruleParameters"),
+                new GUIContent("Rule Parameters", serializedObject.FindProperty("ruleParameters").tooltip), true);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("resourceOrder"),
                 new GUIContent("Resource Order", "Which free member takes a request (empty = longest idle first; distance = the nearest)."));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("jobOnMemberStop"),
+                new GUIContent("On Stop", "A member's breakdown during work with a preemption mode: hand the work over to any member, or wait for the same one."));
             EditorGUILayout.Space();
             var unitsProp = serializedObject.FindProperty("units");
             EditorGUILayout.PropertyField(unitsProp);
@@ -113,6 +121,7 @@ namespace SimuLean.Unity.Editor
                     EditorGUILayout.PropertyField(serializedObject.FindProperty("axesSequential"));
                 }
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("homeNode"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("returnHome"), new GUIContent("Return Home After Each Task"));
                 if (travel.enumValueIndex != (int)TeamTravel.Axes)
                     EditorGUILayout.PropertyField(serializedObject.FindProperty("speed"), new GUIContent($"Speed ({(physical ? "m/s" : "dist/unit")})"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("memberPrefab"));
@@ -139,7 +148,7 @@ namespace SimuLean.Unity.Editor
                 EditorGUILayout.LabelField($"Traffic: {tc.Waits} waits ({tc.TotalWait:F1} waited), {tc.DeadlocksResolved} deadlocks resolved");
             }
             foreach (TaskExecutor ex in team.Executors)
-                EditorGUILayout.LabelField(ex.GetName(),
+                EditorGUILayout.LabelField(ex.Name,
                     $"{ex.CurrentState.Name,-18} util {ex.Utilization:P0}  tasks {ex.TasksDone}" +
                     (ex.Location != null ? $"  at {ex.Location}" : ""));
         }

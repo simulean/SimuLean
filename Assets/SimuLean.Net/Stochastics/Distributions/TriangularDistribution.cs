@@ -54,9 +54,14 @@ namespace SimuLean.Stochastics.Distributions
 
         public override double Sample()
         {
-            double u = randomEngine.NextDouble();
-            double fc = (max - min) > 0 ? (mode - min) / (max - min) : 0.5;
+            return FromUniform(randomEngine.NextDouble(), min, mode, max);
+        }
 
+        /// <summary>The triangular number for the uniform <paramref name="u"/> in [0, 1) (inverse transform; the expression
+        /// function <c>triangular(min, mode, max)</c> draws through it too).</summary>
+        public static double FromUniform(double u, double min, double mode, double max)
+        {
+            double fc = (max - min) > 0 ? (mode - min) / (max - min) : 0.5;
             if (u < fc)
                 return min + Math.Sqrt(u * (max - min) * (mode - min));
             else

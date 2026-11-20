@@ -73,8 +73,8 @@ namespace SimuLean.Unity.Editor
             for (int i = 0; i < entries.Count && i < MaxRows; i++)
             {
                 ListEntry e = entries[i];
-                string what = e.Item != null ? $"{e.Item.GetTypeName()} #{e.Item.GetId()}" : e.Value?.ToString();
-                var sb = new System.Text.StringBuilder($"{what}   @{e.Owner?.GetName() ?? "-"}   age {F(now - e.PushTime)}");
+                string what = e.Item != null ? $"{e.Item.Name} #{e.Item.GetId()}" : e.Value?.ToString();
+                var sb = new System.Text.StringBuilder($"{what}   @{e.Owner?.Name ?? "-"}   age {F(now - e.PushTime)}");
                 foreach (string c in columns) sb.Append($"   {c} {l.GetText(e, c) ?? "-"}");
                 EditorGUILayout.LabelField(sb.ToString(), EditorStyles.miniLabel);
             }

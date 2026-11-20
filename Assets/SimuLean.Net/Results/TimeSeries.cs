@@ -40,7 +40,8 @@ namespace SimuLean.Results
     /// <list type="bullet">
     /// <item>elements — <c>input</c>, <c>output</c> (items in the interval), <c>content</c> (at the end), <c>content_avg</c>
     /// (time-weighted over the interval), <c>state:X</c> (share of the interval);</item>
-    /// <item>resources — <c>utilization</c> and <c>state:X</c> (share of the interval);</item>
+    /// <item>resources — <c>utilization</c> and <c>state:X</c> (share of the interval); teams the same, the mean over
+    /// their members;</item>
     /// <item>lists — <c>content</c>, <c>content_avg</c>, <c>pushed</c>, <c>pulled</c>.</item>
     /// </list>
     /// With a warm-up the series start at the end of the warm-up (the statistics are reset there).
@@ -80,13 +81,13 @@ namespace SimuLean.Results
                 if (model.WarmupTime > start && model.WarmupTime < endTime) clock.AdvanceClock(model.WarmupTime);
                 Baseline();
             }
-            double eps = 1e-9 * Math.Max(1, Math.Abs(endTime));
+            double eps = SimTime.ToleranceAt(endTime);
             while (!clock.IsStopped && lastTime + Interval <= endTime + eps)
             {
                 clock.AdvanceClock(Math.Min(lastTime + Interval, endTime));
                 Sample();
             }
-            if (clock.IsStopped) { Sample(); return; }   // an end condition stopped the run: the last, shorter interval ends there (S2)
+            if (clock.IsStopped) { Sample(); return; }   // an end condition stopped the run: the last, shorter interval ends there
             if (final && lastTime < endTime - eps)
             {
                 clock.AdvanceClock(endTime);
@@ -115,7 +116,7 @@ namespace SimuLean.Results
             {
                 var prev = last[e];
                 var cur = Snapshot.Of(e, now);
-                string n = e.GetName();
+                string n = e.Name;
                 Add(ResultScope.Element, n, ResultMetrics.Input, now, cur.In - prev.In);
                 Add(ResultScope.Element, n, ResultMetrics.Output, now, cur.Out - prev.Out);
                 Add(ResultScope.Element, n, ResultMetrics.Content, now, cur.Content);
@@ -124,16 +125,42 @@ namespace SimuLean.Results
                 last[e] = cur;
             }
             resourceIds = resourceIds ?? RunResults.ResourceIds(model);
+            var interval = new Dictionary<TaskExecutor, (Snapshot prev, Snapshot cur)>();
             foreach (var r in model.Executors)
             {
                 var prev = last[r];
                 var cur = Snapshot.Of(r, now);
                 string n = resourceIds[r].id;   // as in the results: "team/member" for a shared name
-                double busy = 0;
-                foreach (var s in ResourceStates.Busy) busy += cur.State(s.Name) - prev.State(s.Name);
-                Add(ResultScope.Resource, n, ResultMetrics.Utilization, now, busy / dt);
+                Add(ResultScope.Resource, n, ResultMetrics.Utilization, now, Busy(prev, cur) / dt);
                 States(ResultScope.Resource, n, prev, cur, now, dt);
+                interval[r] = (prev, cur);
                 last[r] = cur;
+            }
+            // a team: the mean over its members of their utilisation and share of each state, as in the results
+            foreach (var kv in model.Teams)
+            {
+                var members = kv.Value.Members;
+                if (members.Count == 0) continue;
+                double busy = 0;
+                var shares = new Dictionary<string, double>();
+                foreach (var m in members)
+                {
+                    if (!interval.TryGetValue(m, out var pc)) continue;
+                    busy += Busy(pc.prev, pc.cur);
+                    if (pc.cur.States == null) continue;
+                    foreach (var st in pc.cur.States)
+                    {
+                        shares.TryGetValue(st.Key, out double v);
+                        shares[st.Key] = v + st.Value - pc.prev.State(st.Key);
+                    }
+                }
+                string teamName = kv.Value.Name ?? kv.Key;   // as the results name the team
+                Add(ResultScope.Team, teamName, ResultMetrics.Utilization, now, busy / dt / members.Count);
+                var names = new List<string>(shares.Keys);
+                names.Sort(StringComparer.Ordinal);
+                foreach (string st in names)
+                    if (shares[st] > 0 || series.ContainsKey((ResultScope.Team, teamName, ResultMetrics.State(st))))
+                        Add(ResultScope.Team, teamName, ResultMetrics.State(st), now, shares[st] / dt / members.Count);
             }
             foreach (var kv in model.Lists)
             {
@@ -148,6 +175,13 @@ namespace SimuLean.Results
                 last[l] = cur;
             }
             lastTime = now;
+        }
+
+        private static double Busy(Snapshot prev, Snapshot cur)
+        {
+            double busy = 0;
+            foreach (var s in ResourceStates.Busy) busy += cur.State(s.Name) - prev.State(s.Name);
+            return busy;
         }
 
         // Every state seen so far gets a value in every interval (0 when not entered in it).

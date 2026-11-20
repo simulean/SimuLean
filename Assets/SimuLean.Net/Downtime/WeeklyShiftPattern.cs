@@ -45,7 +45,7 @@ namespace SimuLean.Downtime
         /// <summary>True if <paramref name="t"/> falls inside a working window.</summary>
         public bool IsWorking(DateTime t)
         {
-            foreach (var (s, e) in MergedWindows(t.AddDays(-1), t.AddDays(1)))
+            foreach (var (s, e) in ScratchWindows(t.AddDays(-1), t.AddDays(1)))
                 if (t >= s && t < e) return true;
             return false;
         }
@@ -57,7 +57,7 @@ namespace SimuLean.Downtime
         /// </summary>
         public DateTime NextChange(DateTime t)
         {
-            foreach (var (s, e) in MergedWindows(t.AddDays(-1), t.AddDays(15)))
+            foreach (var (s, e) in ScratchWindows(t.AddDays(-1), t.AddDays(15)))
             {
                 if (t >= s && t < e) return e;   // inside: the window's end
                 if (s > t) return s;             // outside: the next start
@@ -68,7 +68,28 @@ namespace SimuLean.Downtime
         /// <summary>Working windows overlapping [from, to), sorted and merged.</summary>
         public List<(DateTime start, DateTime end)> MergedWindows(DateTime from, DateTime to)
         {
-            var raw = new List<(DateTime, DateTime)>();
+            var merged = new List<(DateTime, DateTime)>();
+            Merge(from, to, new List<(DateTime, DateTime)>(), merged);
+            return merged;
+        }
+
+        // IsWorking / NextChange run at every shift change of every element on a shift: they merge into this thread's
+        // buffers instead of two new lists per call (≈ 23 % of a large model's run in the allocation profile).
+        // Per thread, so a pattern shared by parallel runs stays safe; the callers finish reading before the next call.
+        [ThreadStatic] private static List<(DateTime, DateTime)> scratchRaw, scratchMerged;
+
+        private List<(DateTime start, DateTime end)> ScratchWindows(DateTime from, DateTime to)
+        {
+            var raw = scratchRaw ?? (scratchRaw = new List<(DateTime, DateTime)>());
+            var merged = scratchMerged ?? (scratchMerged = new List<(DateTime, DateTime)>());
+            raw.Clear(); merged.Clear();
+            Merge(from, to, raw, merged);
+            return merged;
+        }
+
+        // the working windows overlapping [from, to) into `raw`, then sorted and merged into `merged`
+        private void Merge(DateTime from, DateTime to, List<(DateTime, DateTime)> raw, List<(DateTime, DateTime)> merged)
+        {
             for (DateTime d = from.Date.AddDays(-1); d <= to.Date; d = d.AddDays(1))
             {
                 if (holidays.Contains(d)) continue;
@@ -82,7 +103,6 @@ namespace SimuLean.Downtime
             }
             raw.Sort((a, b) => a.Item1.CompareTo(b.Item1));
 
-            var merged = new List<(DateTime, DateTime)>(raw.Count);
             foreach (var (s, e) in raw)
             {
                 if (merged.Count > 0 && s <= merged[merged.Count - 1].Item2)
@@ -92,7 +112,6 @@ namespace SimuLean.Downtime
                 }
                 else merged.Add((s, e));
             }
-            return merged;
         }
 
         // ── text form ─────────────────────────────────────────────────────────

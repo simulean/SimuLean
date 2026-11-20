@@ -9,7 +9,7 @@ namespace SimuLean
     public enum PropertyKind { None, Double, String, Reference, Array }
 
     /// <summary>
-    /// The user properties ("labels") of a <see cref="SimEntity"/>: typed, one dictionary per kind,
+    /// The user properties ("labels") of a <see cref="SimEntity"/> typed, one dictionary per kind,
     /// each allocated on its first write — most items only ever use numbers, so they keep exactly one dictionary.
     /// A name has one kind at a time (setting it as another kind replaces it). Kinds: <b>double</b> (the hot path:
     /// <see cref="TryGetDouble"/> / <see cref="SetDouble"/> neither box nor allocate), <b>string</b>, <b>entity
@@ -24,6 +24,10 @@ namespace SimuLean
         private Dictionary<string, Array> arrays;
         private PropertyView view;
 
+        /// <summary>Called with the name after every write or removal (an element property read by an
+        /// admission condition wakes that element's waiting senders); null = nobody listens (items: one null check).</summary>
+        internal Action<string> Changed;
+
         // ── numbers ──────────────────────────────────────────────────────────
 
         public void SetDouble(string name, double value)
@@ -32,6 +36,7 @@ namespace SimuLean
             if (doubles == null) doubles = new Dictionary<string, double>();
             doubles[name] = value;
             RemoveOther(name, PropertyKind.Double);
+            Changed?.Invoke(name);
         }
 
         public bool TryGetDouble(string name, out double value)
@@ -50,6 +55,7 @@ namespace SimuLean
             if (strings == null) strings = new Dictionary<string, string>();
             strings[name] = value ?? string.Empty;
             RemoveOther(name, PropertyKind.String);
+            Changed?.Invoke(name);
         }
 
         public bool TryGetString(string name, out string value)
@@ -66,6 +72,7 @@ namespace SimuLean
             if (refs == null) refs = new Dictionary<string, SimEntity>();
             refs[name] = value;
             RemoveOther(name, PropertyKind.Reference);
+            Changed?.Invoke(name);
         }
 
         public SimEntity GetRef(string name) => refs != null && name != null && refs.TryGetValue(name, out var e) ? e : null;
@@ -78,6 +85,7 @@ namespace SimuLean
             if (arrays == null) arrays = new Dictionary<string, Array>();
             arrays[name] = value;
             RemoveOther(name, PropertyKind.Array);
+            Changed?.Invoke(name);
         }
 
         public T[] GetArray<T>(string name) => arrays != null && name != null && arrays.TryGetValue(name, out var a) ? a as T[] : null;
@@ -91,6 +99,16 @@ namespace SimuLean
             if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(text)) return;
             if (double.TryParse(text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double d)) SetDouble(name, d);
             else SetString(name, text);
+        }
+
+        /// <summary>Sets an expression's value — the one writer of an evaluated value (labels, reactions, their undo):
+        /// a number as a double, a text as a string, <see cref="SimuLean.Expressions.ExprValue.None"/>
+        /// removes the property.</summary>
+        public void Set(string name, SimuLean.Expressions.ExprValue value)
+        {
+            if (value.Missing) Remove(name);
+            else if (value.IsText) SetString(name, value.Text);
+            else SetDouble(name, value.Number);
         }
 
         public PropertyKind KindOf(string name)
@@ -112,6 +130,7 @@ namespace SimuLean
             if (strings != null && strings.Remove(name)) any = true;
             if (refs != null && refs.Remove(name)) any = true;
             if (arrays != null && arrays.Remove(name)) any = true;
+            if (any) Changed?.Invoke(name);
             return any;
         }
 
@@ -200,7 +219,7 @@ namespace SimuLean
     }
 
     /// <summary>
-    /// What every simulation object has: a name and user <see cref="Properties"/>. <see cref="Item"/>
+    /// What every simulation object has a name and user <see cref="Properties"/>. <see cref="Item"/>
     /// and <see cref="Element"/> (and so resources) derive from it. Universal attributes are ordinary typed members of
     /// the classes, never property names. The bag is created on first use, so an entity without properties costs
     /// nothing extra.

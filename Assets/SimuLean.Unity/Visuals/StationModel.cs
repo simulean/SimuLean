@@ -5,7 +5,7 @@ using UnityEngine;
 namespace SimuLean.Unity
 {
     /// <summary>
-    /// The 3D model of a station element, chosen from a list (as the shape of a FlexSim object): e.g. a MultiServer
+    /// The 3D model of a station element, chosen from a list (the object's shape): e.g. a MultiServer
     /// shown as the library's CNC machine or as the classic workstation, or your own model in <see cref="custom"/>.
     /// The chosen model is a child named <c>Model</c>, placed in edit mode (the element is visible as soon as it is
     /// dragged into the scene). When the model has a work socket (<c>WorkSocket</c>, <c>PalletSocket</c>,
@@ -45,6 +45,9 @@ namespace SimuLean.Unity
         [Min(0)] public int selected;
         [Tooltip("Your own model (a prefab or an FBX): shown instead of the options when set.")]
         public GameObject custom;
+        [Tooltip("Turn of the model about the vertical (degrees), e.g. a door crossed along the flow (+X) instead of facing " +
+                 "the front. Its sockets turn with it.")]
+        public float modelYaw;
 
         [Tooltip("Model: the chosen model. Virtual: a step done elsewhere or not face to face — a translucent marker on the " +
                  "floor with a caption. None: nothing drawn. Virtual and None also hide the element's own model.")]
@@ -109,7 +112,8 @@ namespace SimuLean.Unity
 
         /// <summary>
         /// Where a person works at <paramref name="element"/> (a view): its staff position, else in front of it —
-        /// the side its +Z faces (the library's models face +Z), half its depth plus 0.6 m from its centre.
+        /// its front, the side its −Z faces (the library's model frame: front −Z, flow +X), half its depth plus 0.6 m from
+        /// its centre.
         /// <paramref name="face"/> is the point to look at (the element).
         /// </summary>
         public static Vector3 StaffPosition(Component element, out Vector3 face)
@@ -119,9 +123,9 @@ namespace SimuLean.Unity
             if (staff != null) return staff.position;
             ItemVisuals.Footprint(element, out Vector3 size, out _);
             float depth = Mathf.Max(size.z, 0.5f);
-            Vector3 forward = element.transform.forward; forward.y = 0f;
-            if (forward.sqrMagnitude < 1e-6f) forward = Vector3.forward;
-            return element.transform.position + forward.normalized * (depth * 0.5f + 0.6f);
+            Vector3 front = -element.transform.forward; front.y = 0f;
+            if (front.sqrMagnitude < 1e-6f) front = Vector3.back;
+            return element.transform.position + front.normalized * (depth * 0.5f + 0.6f);
         }
 
         /// <summary>True when the shown model is not the chosen one (the editor rebuilds it).</summary>
@@ -134,8 +138,8 @@ namespace SimuLean.Unity
         public void ApplyLook()
         {
             // the own renderers are switched back on only if this look switched them off (a pad hidden by hand stays
-            // hidden); that flag is saved (review2 #14: lost at a reload, the element stayed invisible) and a queue's
-            // pad setting is kept (#34)
+            // hidden); that flag is saved (else it is lost at a reload and the element stays invisible) and a queue's
+            // pad setting is kept
             bool hide = look != Look.Model;
             if (hide || hidOwn)
             {
@@ -210,7 +214,7 @@ namespace SimuLean.Unity
                 inst.name = ModelChild;
                 inst.transform.localPosition = Vector3.zero;
                 // the model's own root rotation / scale (e.g. a Z-up import turned 270° about X) are kept
-                inst.transform.localRotation = chosen.transform.localRotation;
+                inst.transform.localRotation = Quaternion.Euler(0f, modelYaw, 0f) * chosen.transform.localRotation;
                 inst.transform.localScale = chosen.transform.localScale;
                 UnityEditor.Undo.RegisterCreatedObjectUndo(inst, "Station model");
             }

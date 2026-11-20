@@ -12,6 +12,8 @@ namespace SimuLean.Unity.Editor
     /// The SimuLean window (<i>Tools ▸ SimuLean ▸ Open SimuLean</i>, Ctrl+Shift+L): the one entry point of the
     /// modelling interface. Tabs:
     /// <list type="bullet">
+    /// <item><b>Models</b> — the project's models (<see cref="SimuLeanModels"/>: new, open, duplicate, rename, delete, the
+    /// card) and the examples, which open as the user's own copy.</item>
     /// <item><b>Library</b> — what is placed to build a model (elements, resources, lists, transport, downtimes and the
     /// GameObject ▸ SimuLean presets), as colour-coded tiles: click to place at the view's centre, drag into the Scene
     /// view to place there.</item>
@@ -29,7 +31,7 @@ namespace SimuLean.Unity.Editor
     /// </summary>
     public partial class SimuLeanWindow : EditorWindow
     {
-        private static readonly string[] Tabs = { "Library", "Model", "Data", "Fit", "Experiments", "Results", "Settings" };
+        private static readonly string[] Tabs = { "Models", "Library", "Model", "Data", "Fit", "Experiments", "Results", "Settings" };
         private const string PrefTab = "SimuLean.Window.Tab";
 
         /// <summary>The index of the tab named <paramref name="name"/> (callers name tabs, never number them).</summary>
@@ -49,7 +51,7 @@ namespace SimuLean.Unity.Editor
             w.Show();
         }
 
-        /// <summary>Opens the window on a tab (0 Library, 1 Model, 2 Data, 3 Fit, 4 Experiments, 5 Results, 6 Settings).</summary>
+        /// <summary>Opens the window on a tab (its index: <see cref="TabIndex"/>).</summary>
         public static void Open(int tabIndex)
         {
             Open();
@@ -71,6 +73,8 @@ namespace SimuLean.Unity.Editor
             EditorApplication.hierarchyChanged += Repaint;
             Selection.selectionChanged -= Repaint;
             Selection.selectionChanged += Repaint;
+            EditorApplication.projectChanged -= OnProjectChanged;
+            EditorApplication.projectChanged += OnProjectChanged;
             ResultsOutput.Produced -= OnResultsProduced;
             ResultsOutput.Produced += OnResultsProduced;
             ResultsOutput.Stored -= OnResultsStored;
@@ -86,6 +90,7 @@ namespace SimuLean.Unity.Editor
             SceneView.duringSceneGui -= OnSceneGUI;
             EditorApplication.hierarchyChanged -= Repaint;
             Selection.selectionChanged -= Repaint;
+            EditorApplication.projectChanged -= OnProjectChanged;
         }
 
         private void Update()
@@ -99,14 +104,15 @@ namespace SimuLean.Unity.Editor
             int t = GUILayout.Toolbar(tab, Tabs, GUILayout.Height(24));
             if (t != tab) { tab = t; EditorPrefs.SetInt(PrefTab, t); scroll = Vector2.zero; }
             EditorGUILayout.Space(2);
-            switch (tab)
+            switch (Tabs[Mathf.Clamp(tab, 0, Tabs.Length - 1)])
             {
-                case 0: DrawLibrary(); break;
-                case 1: DrawModel(); break;
-                case 2: DrawData(); break;
-                case 3: DrawFit(); break;
-                case 4: DrawExperiments(); break;
-                case 5: DrawResults(); break;
+                case "Models": DrawModels(); break;
+                case "Library": DrawLibrary(); break;
+                case "Model": DrawModel(); break;
+                case "Data": DrawData(); break;
+                case "Fit": DrawFit(); break;
+                case "Experiments": DrawExperiments(); break;
+                case "Results": DrawResults(); break;
                 default: DrawSettings(); break;
             }
         }
@@ -130,13 +136,24 @@ namespace SimuLean.Unity.Editor
             public bool IsTool => Group == "Lists" || Group == "Downtimes" || Group == "Logic" || Group == "Data";
             /// <summary>Decoration only (a building, furniture, fences): listed under Visuals when they are switched on.</summary>
             public bool Visual;
+            /// <summary>Left out of the Library (<see cref="SimuLeanElementAttribute.InLibrary"/> false), still a type of the
+            /// pipeline commands.</summary>
+            public bool Hidden;
+            /// <summary>An element without a prefab: its library model when placed (SimuLeanElement.Model).</summary>
+            public string Model;
+            /// <summary>A preset that is a variant of this element ([SimuLeanVariantOf]): drawn folded under its tile.</summary>
+            public Type VariantOf;
+            /// <summary>The variant's family ([SimuLeanVariantOf] family): folded under the family's first preset.</summary>
+            public string Family;
+            /// <summary>Its place in its Library section (the attribute's Order, a preset's menu priority).</summary>
+            public int SectionOrder;
             /// <summary>The Library section it is drawn in (<see cref="SectionOf"/>).</summary>
             public string Section => SectionOf(this);
             public bool HasPrefab => !string.IsNullOrEmpty(PrefabPath) && AssetDatabase.AssetPathToGUID(PrefabPath) != "";
         }
 
         /// <summary>The Library's groups in their order, with the colours the connection drawing uses.</summary>
-        private static readonly string[] LibraryGroups = { "Flow", "Resources", "Lists", "Transport", "Downtimes", "Logic", "Data", "Presets" };   // the elements first (review2 #44)
+        private static readonly string[] LibraryGroups = { "Flow", "Resources", "Lists", "Transport", "Downtimes", "Logic", "Data", "Presets" };   // the elements first
 
         private static Color GroupColor(string group)
         {
@@ -184,7 +201,7 @@ namespace SimuLean.Unity.Editor
                 {
                     Name = a.DisplayName, Description = a.Description, Group = "Flow", Subgroup = a.Module, Type = t,
                     PrefabPath = string.IsNullOrEmpty(a.Prefab) ? "" : $"{PrefabFolder}/{a.Prefab}", IconPath = a.Icon,
-                    Order = Rank(SimuLeanModules.Order, a.Module) * 1000 + a.Order,
+                    Order = Rank(SimuLeanModules.Order, a.Module) * 1000 + a.Order, Hidden = !a.InLibrary, Model = a.Model, SectionOrder = a.Order,
                     Pack = string.IsNullOrEmpty(a.Pack) ? SimuLeanPacks.OfModule(a.Module) : a.Pack,
                 });
             }
@@ -192,7 +209,7 @@ namespace SimuLean.Unity.Editor
             {
                 string g = ModelHierarchy.GroupOf(t);
                 if (g == "Data" || g == "Resources" || g == "Lists" || g == "Transport" || g == "Downtimes" || g == "Logic")
-                    entries.Add(new Entry { Name = a.DisplayName, Description = a.Description, Group = g, Type = t, Tool = a, Order = a.Order, IconPath = a.Icon,
+                    entries.Add(new Entry { Name = a.DisplayName, Description = a.Description, Group = g, Type = t, Tool = a, Order = a.Order, SectionOrder = a.Order, IconPath = a.Icon,
                                             Pack = string.IsNullOrEmpty(a.Pack) ? SimuLeanPacks.Core : a.Pack });
             }
             // the GameObject ▸ SimuLean ▸ … menu items: presets (racks, conveyor, stackers, building kit)
@@ -211,6 +228,9 @@ namespace SimuLean.Unity.Editor
                         Description = "Creates a ready " + rest.Replace("/", " ▸ ").ToLowerInvariant() + ".", Order = mi.priority,
                         Pack = packMark != null ? packMark.Pack : SimuLeanPacks.OfPresetFolder(rest.Split('/')[0]),
                         Visual = Attribute.IsDefined(m, typeof(SimuLeanVisualAttribute)) || rest.StartsWith("Building/") || rest.Contains("/Decor/"),
+                        VariantOf = ((SimuLeanVariantOfAttribute)Attribute.GetCustomAttribute(m, typeof(SimuLeanVariantOfAttribute)))?.Element,
+                        Family = ((SimuLeanVariantOfAttribute)Attribute.GetCustomAttribute(m, typeof(SimuLeanVariantOfAttribute)))?.Family,
+                        SectionOrder = mi.priority,
                     });
                 }
             return entries.OrderBy(e => Array.IndexOf(LibraryGroups, e.Group))

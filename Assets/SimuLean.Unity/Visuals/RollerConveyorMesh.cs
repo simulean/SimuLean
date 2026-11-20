@@ -9,7 +9,7 @@ namespace SimuLean.Unity
     {
         /// <summary>Folded sheet C-channel: web towards the rollers, flanges outwards (the roller axles show in the channel).</summary>
         CChannel = 0,
-        /// <summary>Solid rectangular bar (the pre-2026-10 look).</summary>
+        /// <summary>Solid rectangular bar (a plain bar).</summary>
         Box = 1,
     }
 
@@ -183,6 +183,27 @@ namespace SimuLean.Unity
                     float c = Mathf.Clamp(0.93f + 0.05f * w + 0.04f * grain, 0.84f, 1f);
                     px[y * size + x] = new Color(c, c, c, 1f);
                 }
+            tex.SetPixels(px);
+            tex.Apply(true);
+            return tex;
+        }
+
+        /// <summary>
+        /// A roller's surface: brushed metal with one darker band per period along U, so a roller is seen to
+        /// turn when its texture scrolls (U = the arc length round the roller, in metres: the default roller material
+        /// repeats it twice per turn).
+        /// </summary>
+        public static Texture2D CreateRollerTexture(int width = 64, int height = 4)
+        {
+            var tex = new Texture2D(width, height, TextureFormat.RGBA32, true) { name = "RollerMarks", wrapMode = TextureWrapMode.Repeat };
+            var px = new Color[width * height];
+            for (int x = 0; x < width; x++)
+            {
+                float u = (x + 0.5f) / width;
+                float band = Mathf.Clamp01(1f - Mathf.Abs(u - 0.5f) / 0.07f);
+                float c = Mathf.Lerp(1f, 0.55f, Mathf.SmoothStep(0f, 1f, band));
+                for (int y = 0; y < height; y++) px[y * width + x] = new Color(c, c, c, 1f);
+            }
             tex.SetPixels(px);
             tex.Apply(true);
             return tex;
@@ -449,9 +470,11 @@ namespace SimuLean.Unity
                 float step = 2f * Mathf.PI / sides;
                 if (smooth)
                 {
-                    int b0 = v.Count;                                           // no seam duplicate: rings wrap (UV U folds back on the last side)
+                    // a seam column (k = sides, the first again with U = 2πr): U runs once round each ring without folding
+                    // back, so a texture scrolled along U turns the roller
+                    int b0 = v.Count, cols = sides + 1;
                     foreach (var pr in prof)
-                        for (int k = 0; k < sides; k++)
+                        for (int k = 0; k <= sides; k++)
                         {
                             float a = k * step;
                             var rn = new Vector3(0f, Mathf.Cos(a), Mathf.Sin(a));
@@ -460,8 +483,8 @@ namespace SimuLean.Unity
                     for (int j = 0; j < prof.Length - 1; j++)
                         for (int k = 0; k < sides; k++)
                         {
-                            int k1 = (k + 1) % sides;
-                            int a = b0 + j * sides + k, b = b0 + j * sides + k1, c = b0 + (j + 1) * sides + k1, d = b0 + (j + 1) * sides + k;
+                            int k1 = k + 1;
+                            int a = b0 + j * cols + k, b = b0 + j * cols + k1, c = b0 + (j + 1) * cols + k1, d = b0 + (j + 1) * cols + k;
                             var want = m.MultiplyVector(new Vector3(0f, Mathf.Cos((k + 0.5f) * step), Mathf.Sin((k + 0.5f) * step)));
                             Quad(sub, a, b, c, d, want);
                         }

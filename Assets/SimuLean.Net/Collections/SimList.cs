@@ -6,7 +6,7 @@ using SimuLean.Statistics;
 namespace SimuLean.Collections
 {
     /// <summary>
-    /// A FlexSim-style list: a model-wide rendezvous where elements and
+    /// A model list a model-wide rendezvous where elements and
     /// model logic <b>push</b> entries (items they hold — the item does not move —, or values) and
     /// <b>pull</b> them with a <see cref="ListQuery"/>. A pull with no match becomes a back-order and is
     /// delivered by a zero-delay event at the time a matching entry is pushed (so the pusher finishes
@@ -28,8 +28,9 @@ namespace SimuLean.Collections
         private readonly Dictionary<string, ListFieldStats> fieldStats = new Dictionary<string, ListFieldStats>();
         private int evalDepth;
 
-        /// <summary>Built-in field names, readable in every list.</summary>
-        public static readonly string[] BuiltInFields = { "age", "pushTime", "itemPriority", "owner", "type" };
+        /// <summary>Built-in field names, readable in every list: the entry's <c>age</c> and <c>pushTime</c>, and the most
+        /// used values of its item and its origin (any <c>item.x</c> / <c>origin.x</c> is readable too).</summary>
+        public static readonly string[] BuiltInFields = { "age", "pushTime", "item.type", "item.priority", "item.id", "origin.name" };
         private readonly List<KeyValuePair<string, bool>> defaultOrder = new List<KeyValuePair<string, bool>>();
         private long seq;
 
@@ -72,11 +73,34 @@ namespace SimuLean.Collections
         public void SetDefaultOrder(string field, bool descending = false)
         {
             defaultOrder.Clear();
+            order = null;   // its keys changed in place
             if (!string.IsNullOrEmpty(field)) defaultOrder.Add(new KeyValuePair<string, bool>(field, descending));
+        }
+
+        /// <summary>The order keys and conditions of <paramref name="spec"/> written as expressions (<c>prio * 10 + age desc</c>, <c>has(item.code)</c>) become calculated fields named by their text, parsed now in the
+        /// list's field context (checked at build: call it while the model is built) and drawing from <c>key:TEXT</c>.</summary>
+        public void DefineExpressionKeys(ListQuerySpec spec, string where)
+        {
+            if (spec == null) return;
+            var texts = new List<string>();
+            foreach (var c in spec.conditions ?? new List<ListCondition>()) if (c != null && ListQuerySpec.IsExpression(c.field)) texts.Add(c.field);
+            foreach (var k in spec.OrderKeys()) if (ListQuerySpec.IsExpression(k.Key)) texts.Add(k.Key);
+            foreach (string text in texts)
+            {
+                if (calculated.ContainsKey(text)) continue;
+                SimuLean.Expressions.Expression ex;
+                try { ex = SimuLean.Expressions.Expression.Parse(text, FieldContext, Name, where); }
+                catch (FormatException fe) { throw new FormatException($"List '{Name}', {where}: {fe.Message}", fe); }
+                var field = new FieldStream(this, "key:" + text);
+                calculated[text] = e => Evaluate(ex, e, field);
+            }
         }
 
         /// <summary>Registers a calculated numeric field usable in queries like a stored one.</summary>
         public void DefineField(string name, Func<ListEntry, double> compute) => calculated[name] = compute;
+
+        /// <summary>Where its calculated fields are written (a list's, or a milk run's request fields): the roots they read.</summary>
+        public SimuLean.Expressions.ExpressionContext FieldContext { get; set; } = SimuLean.Expressions.ExpressionContext.ListField;
 
         /// <summary>Fields defined with <see cref="DefineFields"/> (copies).</summary>
         public IReadOnlyList<ListFieldSpec> Fields => fieldSpecs;
@@ -106,17 +130,19 @@ namespace SimuLean.Collections
                         if (source.Length > 0 && source != name) aliases[name] = source;
                         break;
                     case ListFieldKind.BuiltIn:
-                        if (Array.IndexOf(BuiltInFields, source) < 0)
-                            throw new ArgumentException($"List '{Name}', field '{name}': unknown built-in '{source}' (use {string.Join(", ", BuiltInFields)}).");
+                        if (Array.IndexOf(BuiltInFields, source) < 0 && !source.StartsWith("item.", StringComparison.Ordinal)
+                            && !source.StartsWith("origin.", StringComparison.Ordinal))
+                            throw new ArgumentException($"List '{Name}', field '{name}': unknown built-in '{source}' (use {string.Join(", ", BuiltInFields)}, or item.x / origin.x).");
                         if (source != name) aliases[name] = source;
                         break;
                     default:
                         SimuLean.Expressions.Expression ex;
-                        try { ex = SimuLean.Expressions.Expression.Parse(source); }
+                        try { ex = SimuLean.Expressions.Expression.Parse(source, FieldContext, Name, "field " + name); }
                         catch (FormatException fe) { throw new FormatException($"List '{Name}', field '{name}': {fe.Message}", fe); }
                         foreach (string used in ex.References)
                             if (used == name) throw new ArgumentException($"List '{Name}', field '{name}': the formula reads its own field.");
-                        calculated[name] = e => Evaluate(ex, e);
+                        var field = new FieldStream(this, name);
+                        calculated[name] = e => Evaluate(ex, e, field);
                         break;
                 }
                 var copy = spec.Clone(); copy.name = name; copy.source = source;
@@ -125,28 +151,51 @@ namespace SimuLean.Collections
             }
         }
 
-        private double Evaluate(SimuLean.Expressions.Expression ex, ListEntry e)
+        private double Evaluate(SimuLean.Expressions.Expression ex, ListEntry e, FieldStream field)
         {
             if (++evalDepth > 16)
             {
                 evalDepth = 0;
                 throw new InvalidOperationException($"List '{Name}': calculated fields refer to each other in a cycle ({ex.Text}).");
             }
-            try { return ex.Number(new EntryScope(this, e)); }
+            try { return ex.Number(new EntryScope(this, e, field)); }
             finally { if (evalDepth > 0) evalDepth--; }
         }
 
-        // An entry seen by an expression: bare names = its fields (number, else text), item.x = its item's properties.
-        private readonly struct EntryScope : SimuLean.Expressions.IExpressionScope, SimuLean.Expressions.IDataScope
+        // A calculated field's own random stream (CLAUDE.md: one stream per use, keyed by name): owner = the list,
+        // purpose field:NAME; created on its first draw.
+        private sealed class FieldStream
         {
-            private readonly SimList list; private readonly ListEntry e;
-            public EntryScope(SimList list, ListEntry e) { this.list = list; this.e = e; }
+            private readonly SimList list; private readonly string name;
+            private SimuLean.Stochastics.Streams.IRandomEngine stream;
+            public FieldStream(SimList list, string name) { this.list = list; this.name = name; }
+            public SimuLean.Stochastics.Streams.IRandomEngine Stream
+                => stream ?? (stream = list.Clock.Context.CreateRandomStream(list.Name, "field:" + name));
+        }
+
+        // An entry seen by an expression: bare names = its fields (number, else text), item.x = its item's labels; it reads
+        // the model's elements and tables, and draws from its field's own stream.
+        private readonly struct EntryScope : SimuLean.Expressions.IExpressionScope, SimuLean.Expressions.IDataScope,
+                                             SimuLean.Expressions.IModelScope, SimuLean.Expressions.IRandomScope
+        {
+            private readonly SimList list; private readonly ListEntry e; private readonly FieldStream field;
+            public EntryScope(SimList list, ListEntry e, FieldStream field) { this.list = list; this.e = e; this.field = field; }
             public SimuLean.Data.ModelData Data => list.Clock.Context.Data;
+            public SimContext Model => list.Clock.Context;
+            public SimuLean.Stochastics.Streams.IRandomEngine Random => field.Stream;
             public double Now => list.Clock.GetSimulationTime();
             public SimuLean.Expressions.ExprValue Get(string root, string name)
             {
-                if (root == "item") return SimuLean.Expressions.EntityScope.OfItem(e.Item, name, Now);
-                if (root != null) return SimuLean.Expressions.ExprValue.None;
+                // item.x / origin.x / destination.x: the entry's item, origin, destination; entry.x and a bare name: its field
+                string field = root == null || root == "entry" ? name : root + "." + name;
+                double v = list.GetNumber(e, field);
+                if (!double.IsNaN(v)) return SimuLean.Expressions.ExprValue.Of(v);
+                string t = list.GetText(e, field);
+                return t != null ? SimuLean.Expressions.ExprValue.Of(t) : SimuLean.Expressions.ExprValue.None;
+            }
+
+            private SimuLean.Expressions.ExprValue Unused(string name)
+            {
                 double v = list.GetNumber(e, name);
                 if (!double.IsNaN(v)) return SimuLean.Expressions.ExprValue.Of(v);
                 string t = list.GetText(e, name);
@@ -205,8 +254,7 @@ namespace SimuLean.Collections
         }
 
         // The order of a pull: none (the first match wins) when it is the list's own order — oldest first by age or push
-        // time, the order entries are kept in — so a pull stops at its first match instead of comparing every entry
-        // (review2 #18). A put-back entry (a pull cancelled after its match) may break that order: then the full sort.
+        // time, the order entries are kept in — so a pull stops at its first match instead of comparing every entry. A put-back entry (a pull cancelled after its match) may break that order: then the full sort.
         private Comparison<ListEntry> OrderOf(ListQuery query)
         {
             var keys = query.Keys(defaultOrder);
@@ -216,8 +264,14 @@ namespace SimuLean.Collections
                 string f = aliases.TryGetValue(keys[0].Key, out string target) ? target : keys[0].Key;
                 if ((f == "age" && keys[0].Value) || (f == "pushTime" && !keys[0].Value)) return null;
             }
-            return query.Sort(this, defaultOrder);
+            var o = order;
+            if (o == null || !ReferenceEquals(o.Query, query) || !ReferenceEquals(o.Keys, keys)) order = o = query.Sort(this, defaultOrder);
+            return o.Begin();
         }
+
+        // the last pull's order, reused by the next pull with the same query; one slot, so
+        // a query built at every pull costs what it did before and nothing piles up
+        private ListQuery.Order order;
 
         // true while an entry sits out of its push-time order (put back); cleared when the list empties
         private bool pushOrderBroken;
@@ -232,8 +286,13 @@ namespace SimuLean.Collections
         {
             if (onDelivered == null) throw new ArgumentNullException(nameof(onDelivered));
             if (TryPull(query, out ListEntry now)) { onDelivered(now); return null; }
+            return BackOrder(query ?? ListQuery.All, onDelivered);
+        }
 
-            query = query ?? ListQuery.All;
+        // A pull that waits for a matching push.
+        // In its own method: a closure that captures a parameter is allocated at every call, used or not.
+        private ListPull BackOrder(ListQuery query, Action<ListEntry> onDelivered)
+        {
             var pull = new ListPull { List = this, Run = run };
             pull.BackOrder = inner.Pull(query.Filter(this), null, e =>
             {
@@ -260,26 +319,29 @@ namespace SimuLean.Collections
             var all = inner.Snapshot();
             var idx = new List<int>(all.Count);
             for (int i = 0; i < all.Count; i++) if (filter == null || filter(all[i])) idx.Add(i);
-            if (keys != null)
-            {
-                // each entry's order values are read once (live fields such as utilization or distance cost a lookup or a
-                // route each), then a stable sort on them — ties keep the list order (review2 #15)
-                int nk = keys.Count;
-                var vals = new double[all.Count * nk];
-                foreach (int i in idx) for (int k = 0; k < nk; k++) vals[i * nk + k] = ListQuery.OrderValueOf(this, all[i], keys[k].Key);
-                idx.Sort((a, b) =>
-                {
-                    for (int k = 0; k < nk; k++)
-                    {
-                        int c = vals[a * nk + k].CompareTo(vals[b * nk + k]);
-                        if (c != 0) return keys[k].Value ? -c : c;
-                    }
-                    return a.CompareTo(b);
-                });
-            }
+            if (keys != null) SortByKeys(all, idx, keys);
             var result = new List<ListEntry>(idx.Count);
             foreach (int i in idx) result.Add(all[i]);
             return result;
+        }
+
+        // Each entry's order values are read once (live fields such as utilization or distance cost a lookup or a route each),
+        // then a stable sort on them — ties keep the list order
+        // In its own method: a closure that captures a parameter is allocated at every call, used or not.
+        private void SortByKeys(IReadOnlyList<ListEntry> all, List<int> idx, IReadOnlyList<KeyValuePair<string, bool>> keys)
+        {
+            int nk = keys.Count;
+            var vals = new double[all.Count * nk];
+            foreach (int i in idx) for (int k = 0; k < nk; k++) vals[i * nk + k] = ListQuery.OrderValueOf(this, all[i], keys[k].Key);
+            idx.Sort((a, b) =>
+            {
+                for (int k = 0; k < nk; k++)
+                {
+                    int c = vals[a * nk + k].CompareTo(vals[b * nk + k]);
+                    if (c != 0) return keys[k].Value ? -c : c;
+                }
+                return a.CompareTo(b);
+            });
         }
 
         /// <summary>Takes a specific entry out of the list as a pull (counted, waiting time recorded). False if not listed.</summary>
@@ -350,9 +412,13 @@ namespace SimuLean.Collections
             {
                 case "age": return Now - e.PushTime;
                 case "pushTime": return e.PushTime;
-                case "itemPriority": return e.Item != null ? e.Item.priority : double.NaN;
             }
             if (calculated.TryGetValue(field, out var f)) return f(e);
+            if (field.IndexOf('.') > 0 && !(e.Value is IListFieldSource))
+            {
+                var pv = Prefixed(e, field);
+                return pv.Missing || pv.IsText ? double.NaN : pv.Number;
+            }
             if (e.Item != null)
             {
                 double? v = e.Item.GetLabelValue(field);
@@ -372,10 +438,10 @@ namespace SimuLean.Collections
         public string GetText(ListEntry e, string field)
         {
             if (aliases.TryGetValue(field, out string target)) field = target;
-            switch (field)
+            if (field.IndexOf('.') > 0 && !(e.Value is IListFieldSource) && !calculated.ContainsKey(field))
             {
-                case "owner": return e.Owner?.GetName();
-                case "type": return e.Item?.GetTypeName();
+                var pv = Prefixed(e, field);
+                return pv.Missing ? null : pv.ToString();
             }
             if (e.Item != null)
             {
@@ -388,6 +454,32 @@ namespace SimuLean.Collections
                 return Convert.ToString(o, CultureInfo.InvariantCulture);
             double n = GetNumber(e, field);
             return double.IsNaN(n) ? null : n.ToString("R", CultureInfo.InvariantCulture);
+        }
+
+        // item.x (the entry's item: its labels and built-ins) / origin.x (the element it comes from: properties and built-ins)
+        private SimuLean.Expressions.ExprValue Prefixed(ListEntry e, string field)
+        {
+            int dot = field.IndexOf('.');
+            string root = field.Substring(0, dot), name = field.Substring(dot + 1);
+            switch (root)
+            {
+                case "item": return SimuLean.Expressions.EntityScope.OfItem(e.Item, name, Now);
+                case "origin": return SimuLean.Expressions.EntityScope.OfElement(e.Owner, name);
+            }
+            return SimuLean.Expressions.ExprValue.None;
+        }
+
+        private HashSet<string> warnedFields;
+
+        /// <summary>An order or a filter read <paramref name="field"/> of an item entry that does not have it (a label set
+        /// during the run): warned once per list and field, as an expression's missing label.</summary>
+        internal void MissingField(ListEntry e, string field)
+        {
+            if (e.Item == null) return;
+            if (warnedFields == null) warnedFields = new HashSet<string>();
+            if (!warnedFields.Add(field)) return;
+            Clock.Context.Warn($"[SimuLean] t={Now.ToString("0.###", CultureInfo.InvariantCulture)} list '{Name}': an entry has no field '{field}' " +
+                               "(read as 0 / no text by an order or a query); warned once.");
         }
 
         internal static double NumberOf(object o) => ToNumber(o);
@@ -409,6 +501,7 @@ namespace SimuLean.Collections
                 }
             }
             string text = GetText(e, field);
+            if (text == null && double.IsNaN(lhs)) MissingField(e, field);
             int c = string.CompareOrdinal(text, want);
             switch (op)
             {

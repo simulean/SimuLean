@@ -26,8 +26,7 @@ namespace SimuLean.Unity
         /// <c>SceneManager</c> lists them; objects of no loaded scene last), then as the Hierarchy window shows them
         /// (depth first, a parent before its children — the order of <c>GetComponentsInChildren</c>), then by the
         /// component's position on its GameObject. Unlike <see cref="FindAll{T}()"/> the order is stable across saves
-        /// and reloads (sibling order is serialized), so a model built from it builds the same way every time
-        ///.
+        /// and reloads (sibling order is serialized), so a model built from it builds the same way every time.
         /// </summary>
         public static T[] FindAllInHierarchyOrder<T>() where T : Component
         {
@@ -58,6 +57,23 @@ namespace SimuLean.Unity
                 if (a.path[i] != b.path[i]) return a.path[i].CompareTo(b.path[i]);
             if (a.path.Length != b.path.Length) return a.path.Length.CompareTo(b.path.Length);   // the parent first
             return a.component.CompareTo(b.component);
+        }
+
+        /// <summary>
+        /// The first component of type <typeparamref name="T"/> in the loaded scene <paramref name="scene"/> (inactive ones
+        /// included, hierarchy order), or null — the lookup for a reference that must stay inside its own scene: with several
+        /// scenes open, <see cref="FindAny{T}()"/> may answer another scene's object, and Unity drops cross-scene references
+        /// on save (architecture §8).
+        /// </summary>
+        public static T FindInScene<T>(UnityEngine.SceneManagement.Scene scene) where T : Component
+        {
+            if (!scene.IsValid() || !scene.isLoaded) return null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                var c = root.GetComponentInChildren<T>(true);
+                if (c != null) return c;
+            }
+            return null;
         }
 
         /// <summary>Every loaded object of <paramref name="type"/> (non-generic, e.g. types found by reflection), unsorted.</summary>

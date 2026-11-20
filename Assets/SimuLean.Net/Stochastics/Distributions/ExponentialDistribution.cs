@@ -59,8 +59,11 @@ namespace SimuLean.Stochastics.Distributions
         public override double Sample()
         {
             // Inverse transform sampling: F^(-1)(U) = -ln(1 - U) / rate
-            double u = randomEngine.NextDouble();
-            return -Math.Log(1.0 - u) / rate;
+            return FromUniform(randomEngine.NextDouble(), rate);
         }
+
+        /// <summary>The exponential number of this rate for the uniform <paramref name="u"/> in [0, 1) (inverse transform;
+        /// the expression function <c>exponential(rate)</c> draws through it too).</summary>
+        public static double FromUniform(double u, double rate) => -Math.Log(1.0 - u) / rate;
     }
 }

@@ -143,8 +143,39 @@ static class Program
         Console.WriteLine("- times recorded in a run (RunData): stay times and inter-arrivals of a reference model");
 
         Console.WriteLine($"{passed} passed, {failed} failed");
+        TestFitMoments();
+        Console.WriteLine("- each fit's mean and standard deviation: those of a large sample of its own family");
         return failed == 0 ? 0 : 1;
     }
 
     static double D(string s) => double.Parse(s, Ci);
+
+    // a large sample drawn from a known family (test data only: System.Random): its fit of that family has the sample's
+    // mean and standard deviation (the moments the fit row gives beside its parameters)
+    static void TestFitMoments()
+    {
+        var rng = new Random(7);
+        double U() => 1 - rng.NextDouble();
+        double N() => Math.Sqrt(-2 * Math.Log(U())) * Math.Cos(2 * Math.PI * rng.NextDouble());
+        var draws = new (string family, Func<double> draw)[]
+        {
+            ("Exponential", () => -Math.Log(U()) * 4),
+            ("Normal", () => 10 + 2 * N()),
+            ("LogNormal", () => Math.Exp(1 + 0.5 * N())),
+            ("Uniform", () => 2 + 6 * rng.NextDouble()),
+            ("Triangular", () => { double u = rng.NextDouble(), a = 1, c = 2, b2 = 6, f = (c - a) / (b2 - a);
+                                   return u < f ? a + Math.Sqrt(u * (b2 - a) * (c - a)) : b2 - Math.Sqrt((1 - u) * (b2 - a) * (b2 - c)); }),
+            ("Gamma", () => 3 * (-Math.Log(U()) - Math.Log(U()))),
+            ("Weibull", () => 5 * Math.Pow(-Math.Log(U()), 1 / 1.5)),
+        };
+        foreach (var (family, draw) in draws)
+        {
+            var sample = new FitSample(Enumerable.Range(0, 20000).Select(_ => draw()).ToList());
+            var fit = DistributionFitter.FitAll(sample).FirstOrDefault(r => r.Distribution.Family == family)?.Distribution;
+            Check(fit != null, family + " fitted");
+            if (fit == null) continue;
+            Check(Rel(fit.Mean, sample.Mean) < 0.03, $"{family}: mean {fit.Mean:G5} (sample {sample.Mean:G5})");
+            Check(Rel(fit.StdDev, sample.StdDev) < 0.05, $"{family}: std {fit.StdDev:G5} (sample {sample.StdDev:G5})");
+        }
+    }
 }

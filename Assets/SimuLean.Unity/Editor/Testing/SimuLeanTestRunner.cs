@@ -89,7 +89,11 @@ namespace SimuLean.Unity.Editor
 
         /// <summary>
         /// Starts the EditMode tests whose full name contains <paramref name="filter"/> (empty = all). Returns
-        /// "started", or "blocked: …" listing the modified scenes (nothing is started).
+        /// "started", or "blocked: …" listing the modified scenes (nothing is started). A run that includes the runner's
+        /// own tests (<see cref="RunnerTests"/>; a full run always does) first makes sure the external runner of this
+        /// engine version is built (<see cref="ExternalRunner.EnsureBuilt"/>, ~40 s after an engine change; the status is
+        /// <c>running</c> with <c>"phase": "building runner"</c> meanwhile), so those tests never find it missing; a runner
+        /// that cannot be built is a failure of the run, not a skipped test.
         /// </summary>
         public static string Start(string filter = "")
         {
@@ -109,11 +113,87 @@ namespace SimuLean.Unity.Editor
             if (collector != null) api.UnregisterCallbacks(collector);
             collector = new Collector(filter ?? "", DateTime.UtcNow.Ticks, string.IsNullOrEmpty(filter) ? TreeFingerprint() : "");
             api.RegisterCallbacks(collector);
+            if (SelectsRunnerTests(filter))
+            {
+                var build = ExternalRunner.EnsureBuilt();
+                if (!build.IsCompleted)
+                {
+                    Write("running", filter, null, collector, "building runner");
+                    ExecuteAfter(build, filter, collector);
+                    return "started";
+                }
+                NoteRunner(build.Result, collector);
+            }
             Write("running", filter, null, collector);
+            Execute(filter);
+            return "started";
+        }
+
+        /// <summary>The fixture of the runner's own tests (they need the runner of this engine version).</summary>
+        public const string RunnerTests = "SimuLean.Unity.Editor.Tests.ExternalRunnerTests";
+
+        // true when the filter selects a test of RunnerTests (a part of one of their full names, or a full name)
+        private static bool SelectsRunnerTests(string filter)
+        {
+            if (string.IsNullOrEmpty(filter)) return true;
+            var type = typeof(SimuLeanTestRunner).Assembly.GetType(RunnerTests);
+            if (type == null) return false;
+            foreach (var m in type.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly))
+            {
+                string name = RunnerTests + "." + m.Name;
+                if (name.Contains(filter) || filter.StartsWith(name, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        private static void Execute(string filter)
+        {
             var f = new Filter { testMode = TestMode.EditMode };
             if (!string.IsNullOrEmpty(filter)) f.groupNames = new[] { Escape(filter) };
             api.Execute(new ExecutionSettings(f));
-            return "started";
+        }
+
+        // no runner for this engine version: the run fails (its tests would only be skipped)
+        private static void NoteRunner(string whyNot, Collector c)
+        {
+            if (whyNot == null) return;
+            c.Failed++;
+            c.Failures.Add(RunnerTests + ": no external runner for this engine version, so its tests cannot run: " + whyNot);
+        }
+
+        // the tests start once the runner's build has ended (checked at each editor tick; the build runs off the main thread)
+        private static void ExecuteAfter(System.Threading.Tasks.Task<string> build, string filter, Collector c)
+        {
+            EditorApplication.CallbackFunction tick = null;
+            AssemblyReloadEvents.AssemblyReloadCallback reload = null;
+            void Stop() { EditorApplication.update -= tick; AssemblyReloadEvents.beforeAssemblyReload -= reload; }
+            tick = () =>
+            {
+                if (!build.IsCompleted) return;
+                Stop();
+                var dirty = ModifiedScenes();
+                if (dirty.Count > 0)
+                {
+                    // a scene was changed while the runner was built: the Test Runner would stop on its save dialog
+                    c.Running = false;
+                    c.Failed++;
+                    c.Failures.Add("The EditMode run did not start: open scenes got unsaved changes while the runner was built: " + string.Join(", ", dirty));
+                    Write("completed", filter, c);
+                    return;
+                }
+                NoteRunner(build.IsFaulted ? build.Exception?.GetBaseException().Message : build.Result, c);
+                Write("running", filter, null, c);
+                Execute(filter);
+            };
+            reload = () =>
+            {
+                // a recompile ends the wait (the editor's state is lost): the run has to be started again
+                Stop();
+                c.Running = false;
+                Write("interrupted", "a script recompile interrupted the wait for the runner's build: start the run again", null, c);
+            };
+            EditorApplication.update += tick;
+            AssemblyReloadEvents.beforeAssemblyReload += reload;
         }
 
         /// <summary>
@@ -153,10 +233,11 @@ namespace SimuLean.Unity.Editor
         // groupNames is a regex on the full test name: match the filter literally
         private static string Escape(string s) => System.Text.RegularExpressions.Regex.Escape(s);
 
-        private static void Write(string status, string message, Collector c = null, Collector started = null)
+        private static void Write(string status, string message, Collector c = null, Collector started = null, string phase = null)
         {
             var sb = new StringBuilder();
             sb.Append("{\"status\":\"").Append(status).Append("\",\"message\":\"").Append(Json(message)).Append('"');
+            if (phase != null) sb.Append(",\"phase\":\"").Append(Json(phase)).Append('"');
             var run = c ?? started;
             if (run != null)
                 sb.Append(",\"full\":").Append(run.Full ? "true" : "false").Append(",\"startedUtc\":").Append(run.StartedUtc)
@@ -198,10 +279,13 @@ namespace SimuLean.Unity.Editor
 
             private OpenScenes beforeRun, beforeTest;
 
-            public void RunStarted(ITestAdaptor testsToRun) { beforeRun = OpenScenes.Take(); }
+            // the tests run studies in the editor (results that do not depend on whether the runner is built yet); the runner's
+            // own tests turn it on themselves
+            public void RunStarted(ITestAdaptor testsToRun) { beforeRun = OpenScenes.Take(); ExternalRunner.Suspended = true; }
 
             public void RunFinished(ITestResultAdaptor result)
             {
+                ExternalRunner.Suspended = false;
                 string left = beforeRun?.Restore();
                 if (left != null) { Failed++; Failures.Add("The EditMode run: " + left); }
                 // Unity's Test Runner ran the tests in an untitled scene and puts the user's scenes back after this call:
@@ -293,7 +377,7 @@ namespace SimuLean.Unity.Editor
                 return sb.ToString();
             }
 
-            /// <summary>True once the editor shows the same scenes (by path) as before the run.</summary>
+            /// <summary>True once the editor shows the same scenes (by path) as when the run started.</summary>
             public static bool Restored(UserScenes u)
             {
                 if (u == null) return true;

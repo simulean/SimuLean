@@ -17,19 +17,11 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void ADeletedElementsConnectionIsRemoved()
         {
-            var active = SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                SceneManager.MoveGameObjectToScene(root, scene);
-                T Make<T>(string n) where T : Component
-                {
-                    var go = new GameObject(n);
-                    go.transform.SetParent(root.transform);
-                    return go.AddComponent<T>();
-                }
+                var root = test.Root;
+                var scene = test.Scene;
+                T Make<T>(string n) where T : Component => test.Make<T>(n);
                 var a = Make<UnityQueue>("A");
                 var b = Make<UnitySink>("B");
                 var c = Make<UnitySink>("C");
@@ -45,15 +37,10 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.AreSame(c, a.nextElements[0], "C is now output 0, as the run sees it");
                 Assert.AreEqual(0, ConnectionCleaner.Clean(scene), "nothing left");
             }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
-            }
         }
 
         /// <summary>The hook itself: an undoable delete (the Delete key, the MCP's delete_gameobject) cleans the entry
-        /// once the editor publishes its change events — no explicit Clean call (the delayCall-only cleaner
+        /// once the editor publishes its change events — no explicit Clean call (a delayCall-only cleaner
         /// never ran while the editor was in the background).</summary>
         [UnityTest]
         public IEnumerator AnUndoableDeleteIsCleanedByTheHook()

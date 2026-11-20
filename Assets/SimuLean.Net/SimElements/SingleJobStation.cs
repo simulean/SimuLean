@@ -5,13 +5,15 @@ namespace SimuLean
     /// <summary>
     /// A station that works on one job at a time and gathers what the job needs before processing it (Combiner:
     /// components; PickingStation: picked stock). One cycle: the job item arrives (<c>RECEIVING</c>,
-    /// <see cref="OnJobArrived"/>); the subclass gathers and calls <see cref="StartJob"/>; the resources are acquired
+    /// <see cref="OnJobArrived"/>); the subclass gathers and calls <see cref="StartJob"/>; the station sets up if its
+    /// <see cref="Setup"/> says so (<c>SETUP</c>, its crew first); the resources are acquired
     /// (<c>WAITING_FOR_RESOURCE</c>, optional <see cref="Resources"/>); it processes for the sampled delay
     /// (<c>PROCESSING</c>, <see cref="OnProcessingStarted"/>); the job is sent out — or waits (<c>BLOCKED</c>) until
     /// <see cref="Unblock"/> sends it; then the slot is freed and the resources released (<see cref="OnJobLeaving"/>,
     /// <see cref="OnJobLeft"/>). The element's state is the slot's, so utilisation is the time share PROCESSING.
     /// </summary>
-    public abstract class SingleJobStation : Element, IWorkStation, SimuLean.Resources.IResourceUser
+    public abstract class SingleJobStation : Element, IWorkStation, SimuLean.Resources.IResourceUser, SimuLean.Resources.IInterruptibleStation,
+                                             ISetupStation, ISetupHost
     {
         private readonly IRandomSampler delay;
         private ServerProcess process;
@@ -20,6 +22,12 @@ namespace SimuLean
 
         /// <summary>Resources the station needs for each job; null = none.</summary>
         public SimuLean.Resources.StationResources Resources { get; set; }
+
+        /// <summary>Its setup before each job's process (null = none).</summary>
+        public StationSetup Setup { get; set; }
+
+        /// <summary>The station is free and set up for <paramref name="item"/> (its last job had the item's value).</summary>
+        public bool IsSetUpFor(Item item) => Setup != null && IsState(ElementState.IDLE) && Setup.Matches(process, item);
 
         /// <summary>The job slot (Unity views follow its item); null before <see cref="Start"/>.</summary>
         public ServerProcess ActiveProcess => process;
@@ -40,8 +48,11 @@ namespace SimuLean
             base.Start();
             process = new ServerProcess(this, delay, simClock);
             process.SetState(ElementState.IDLE);
+            waitingExit = false;
+            ForgetExitReservations();
             totalServiceTime = 0;
             completedJobs = 0;
+            Setup?.ResetStatistics();
         }
 
         public override void ResetStatistics()
@@ -49,6 +60,7 @@ namespace SimuLean
             base.ResetStatistics();
             totalServiceTime = 0;
             completedJobs = 0;
+            Setup?.ResetStatistics();
         }
 
         /// <summary>Time share spent processing (one slot).</summary>
@@ -65,13 +77,19 @@ namespace SimuLean
 
         // ── the cycle ─────────────────────────────────────────────────────
 
-        public override bool CheckAvailability(Item theItem) => IsState(ElementState.IDLE);   // admission: the link (CanAccept)
+        public override bool CheckAvailability(Item theItem)
+        {
+            return IsState(ElementState.IDLE);   // admission: the link (CanAccept)
+        }
+
+        private bool waitingExit;   // the job waits for a place downstream (BLOCKED before its process)
 
         public override bool Receive(Item theItem)
         {
             if (!IsState(ElementState.IDLE)) return false;
             process.SetState(ElementState.RECEIVING);
             process.SetItem(theItem);
+            process.job = null;
             SetState(ElementState.RECEIVING);
             OnJobArrived(theItem);
             return true;
@@ -80,17 +98,49 @@ namespace SimuLean
         /// <summary>The job arrived (state RECEIVING): start gathering; call <see cref="StartJob"/> when complete.</summary>
         protected abstract void OnJobArrived(Item job);
 
-        /// <summary>Everything is gathered: acquire the resources (if any), then process.</summary>
+        /// <summary>Everything is gathered: set up (if needed), acquire the resources (if any), then process.</summary>
         protected void StartJob()
+        {
+            if (!TryReserveExit(process.GetItem()))
+            {
+                // no place downstream can be promised: the job waits (BLOCKED) until one can
+                waitingExit = true;
+                process.SetState(ElementState.BLOCKED);
+                SetState(ElementState.BLOCKED);
+                return;
+            }
+            waitingExit = false;
+            bool setup = Setup != null && Setup.Needed(process, process.GetItem());
+            if (setup)
+            {
+                Setup.Begin(this, process, Resources, this);
+                return;
+            }
+            BeginProcess(process);
+        }
+
+        // The job's process: its resources first (if any), then the process.
+        private void BeginProcess(ServerProcess p)
         {
             if (Resources != null)
             {
-                process.SetState(ElementState.WAITING_FOR_RESOURCE);
+                p.SetState(ElementState.WAITING_FOR_RESOURCE);
                 SetState(ElementState.WAITING_FOR_RESOURCE);
-                var p = process;
                 p.job = Resources.Acquire(this, p.GetItem(), () => ((IWorkStation)this).StartProcessing(p));
             }
-            else ((IWorkStation)this).StartProcessing(process);
+            else ((IWorkStation)this).StartProcessing(p);
+        }
+
+        void ISetupHost.SetupState(ServerProcess slot, ElementState state)
+        {
+            slot.SetState(state);
+            SetState(state);
+        }
+
+        void ISetupHost.SetupEnded(ServerProcess slot, bool keptResources)
+        {
+            if (keptResources) ((IWorkStation)this).StartProcessing(slot);   // the setup's resources stay for the process
+            else BeginProcess(slot);
         }
 
         void IWorkStation.StartProcessing(ServerProcess p)
@@ -102,7 +152,24 @@ namespace SimuLean
             p.lastDelay = time;
             vElement.UnloadItem(p.GetItem());
             OnProcessingStarted(p.GetItem());
-            ScheduleWork(p, time);
+            var work = ScheduleWork(p, time);
+            Resources?.ProcessStarted(p, work);   // its resources may be taken while it works
+        }
+
+        /// <summary>The job lost a resource: the station waits for it, its process (or setup) paused; then it goes on.</summary>
+        void SimuLean.Resources.IInterruptibleStation.JobPaused(SimuLean.Resources.ResourceJob job, bool paused, bool restart)
+        {
+            var p = job.Slot;
+            if (p == null) return;
+            var state = paused ? ElementState.WAITING_FOR_RESOURCE : p.InSetup ? ElementState.SETUP : ElementState.PROCESSING;
+            if (!paused)
+            {
+                if (p.InSetup) { if (restart) p.SetupStart = simClock.GetSimulationTime(); else p.SetupStart += job.LastPause; }
+                else if (restart) p.loadTime = simClock.GetSimulationTime();
+                else p.loadTime += job.LastPause;
+            }
+            p.SetState(state);
+            SetState(state);
         }
 
         /// <summary>Processing starts (after the view unloaded the job).</summary>
@@ -125,6 +192,11 @@ namespace SimuLean
 
         public override bool Unblock()
         {
+            if (waitingExit)
+            {
+                StartJob();   // try to reserve the place again
+                return !waitingExit;
+            }
             if (!IsState(ElementState.BLOCKED) || !SendOut(process.GetItem())) return false;
             JobLeft();
             return true;
@@ -150,14 +222,14 @@ namespace SimuLean
 
         public override int GetFreeCapacity() => IsState(ElementState.IDLE) ? 1 : 0;
 
-        /// <summary>Progress views: shift the running job's load time by the part of the pause it spent loaded (see
-        /// <see cref="MultiServer"/>).</summary>
+        /// <summary>Progress views: shift the running job's load time (or the running setup's start) by the part of the
+        /// pause it spent loaded (see <see cref="MultiServer"/>).</summary>
         protected override void OnResumed(StopToken token)
         {
-            if (!ResumedWork(token) || !IsState(ElementState.PROCESSING)) return;
-            process.loadTime += PauseShiftFor(process.loadTime);
+            if (!ResumedWork(token)) return;
+            if (IsState(ElementState.PROCESSING)) process.loadTime += PauseShiftFor(process.loadTime);
+            else if (IsState(ElementState.SETUP)) process.SetupStart += PauseShiftFor(process.SetupStart);
         }
 
-        string IWorkStation.GetName() => GetName();
     }
 }

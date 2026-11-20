@@ -5,13 +5,17 @@ schedule-work Assets/SimuLean.Net/SimElements/ElementDowntime.cs # the work list
 schedule-work Assets/SimuLean.Net/SimElements/Source.cs # arrivals (absolute times / inter-arrival times)
 schedule-work Assets/SimuLean.Net/Downtime/DowntimeGenerators.cs # stops and their ends (timetables, MTBF / MTTR, shifts)
 schedule-work Assets/SimuLean.Net/Healthcare/Agenda.cs # booked sessions by date
+schedule-work Assets/SimuLean.Net/Resources/MilkRun.cs # the departure timetable and departure-rule re-checks (the trains' work runs as their tasks)
 schedule-work Assets/SimuLean.Net/Collections/SimList.cs # zero-delay delivery of back-orders
 schedule-work Assets/SimuLean.Net/Signals/Signals.cs # zero-delay delivery of signals and clock signals
 schedule-work Assets/SimuLean.Net/Signals/Reaction.cs # timed actions of a reaction (stop for a time)
+schedule-work Assets/SimuLean.Net/SimElements/WaitLimit.cs # max-wait timers: the limit of a wait, not an element's work (a stop does not pause the time waited)
+schedule-work Assets/SimuLean.Net/Serialization/RunMonitor.cs # the "no progress" end condition's background check, not an element's work
 # random-streams: the random engines themselves and code that is not model code.
 random-streams Assets/SimuLean.Net/Stochastics/Streams/DefaultRandomEngine.cs # the stream implementation (System.Random seeded per stream)
 random-streams Assets/SimuLean.Net/Stochastics/Streams/UnassignedStreamEngine.cs # the fallback that warns at its first draw
 random-streams Assets/SimuLean.Unity/Visuals/RollerConveyorMesh.cs # a mesh detail with a fixed seed (view, not model)
+random-streams Assets/SimuLean.Unity/Visuals/Storage/StorageRackVisuals.cs # rack textures with a fixed seed (view, not model)
 random-streams Assets/SimuLean.Unity/Editor/ModularKitEditors.cs # an inspector button that moves a crane preview (editor)
 # unity-compat: the adapter itself.
 unity-compat Assets/SimuLean.Unity/Core/UnityCompat.cs # the single place that calls the Unity APIs

@@ -27,9 +27,7 @@ namespace SimuLean.Optimization.Editor
             EditorGUILayout.LabelField("Objective (maximised)", EditorStyles.boldLabel);
             var fitness = serializedObject.FindProperty("fitness");
             EditorGUILayout.PropertyField(fitness, new GUIContent("Fitness"));
-            string error = Expression.Check(fitness.stringValue);
-            if (error != null) EditorGUILayout.HelpBox(error, MessageType.Error);
-            else EditorGUILayout.LabelField(" ", "metric names are variables; negate to minimise", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField(" ", "metric names are variables; negate to minimise", EditorStyles.miniLabel);
 
             EditorGUILayout.Space(4);
             EditorGUILayout.LabelField("Search", EditorStyles.boldLabel);
@@ -40,7 +38,9 @@ namespace SimuLean.Optimization.Editor
             EditorGUILayout.PropertyField(serializedObject.FindProperty("seed"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("maxEvaluations"), new GUIContent("Max Evaluations (0 = algorithm)", "Stop after this many simulated candidates; 0 = when the algorithm ends."));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("maxSeconds"), new GUIContent("Max Seconds (0 = no limit)", "Wall-clock time limit of the search."));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("threads"), new GUIContent("Threads (0 = auto)", "Candidates simulated at once: 0 = one per processor up to 8."));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("threads"), new GUIContent($"Threads (0 = auto: {Study.DefaultThreads} here)",
+                "Runs simulated at once. 0 = automatic: half the logical processors (about one per physical core), 1 to 16. More " +
+                "threads than physical cores rarely help: the runs are bound by memory."));
             foreach (string f in new[] { "exportFormats", "seriesInterval", "recordTimeline" })
                 EditorGUILayout.PropertyField(serializedObject.FindProperty(f));
 

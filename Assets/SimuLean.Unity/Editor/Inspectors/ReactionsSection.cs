@@ -7,7 +7,7 @@ using UnityEngine;
 namespace SimuLean.Unity.Editor
 {
     /// <summary>
-    /// The element inspector's <i>Reactions</i> section: the reactions that listen to the
+    /// The element inspector's <i>Reactions</i> section the reactions that listen to the
     /// element or act on it — each a line that selects it — and <b>+ Reaction</b>, which creates one already listening to
     /// the element. The scene's reactions are looked up again only when the scene changes.
     /// </summary>

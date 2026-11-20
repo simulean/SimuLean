@@ -9,7 +9,7 @@ using SimuLean.Naval;
 using SimuLean.Serialization;
 using SimuLean.Headless;
 
-// Naval library N1: the block breakdown — reading (table, SQL), validation,
+// Naval library: the block breakdown — reading (table, SQL), validation,
 // erection order, the generated parts — and sources that read SQL / a breakdown part when the model is built.
 internal static class Program
 {
@@ -112,7 +112,7 @@ internal static class Program
 
         Section("a block whose predecessor never comes: the yard waits, reported");
         var stuck = SimuLean.Testing.ReferenceModels.ErectionPrecedence();
-        var table = (Dictionary<string, List<string>>)stuck.Elements.Find(e => e.Id == "blocks").Parameters["arrivalsTable"];
+        var table = stuck.Elements.Find(e => e.Id == "blocks").Get<Dictionary<string, List<string>>>("arrivalsTable");
         int row1 = table["block"].IndexOf("1");
         foreach (var col in table.Keys.ToList()) table[col].RemoveAt(row1);
         var ms = Run(stuck, 500);
@@ -122,15 +122,15 @@ internal static class Program
         Section("sink keeping items; holdFor with the item leaving later");
         var cfg = new SimulationConfig { UseFixedSeed = true, Seed = 5, MaxSimulationTime = 100 };
         ElementConfig El(string id, string type) => new ElementConfig(id, type, id);
-        var src = El("src", "UnitySource"); src.Parameters["sourceMode"] = "InterArrival"; src.Parameters["interArrivalStrategyType"] = "Constant"; src.Parameters["constantValue"] = 10.0;
-        var ms2 = El("paint", "UnityMultiServer"); ms2.Parameters["capacity"] = 1; ms2.Parameters["delayStrategyType"] = "Constant"; ms2.Parameters["constantValue"] = 8.0;
-        ms2.Parameters[ResourceUseKeys.ProcessTeam] = "painters"; ms2.Parameters[ResourceUseKeys.ProcessHoldFor] = "Constant~3";
-        var snk = El("store", "UnitySink"); snk.Parameters["keepItems"] = true;
+        var src = El("src", "Source"); src.Set("mode", "InterArrival"); src.Set("interArrivalDistribution.strategyType", "Constant"); src.Set("interArrivalDistribution.constantValue", 10.0);
+        var ms2 = El("paint", "MultiServer"); ms2.Set("capacity", 1); ms2.Set("delayStrategy.strategyType", "Constant"); ms2.Set("delayStrategy.constantValue", 8.0);
+        ms2.Set("processBy.team", "painters"); ms2.Set("processBy.holdFor", "Constant~3");
+        var snk = El("store", "Sink"); snk.Set("keepItems", true);
         foreach (var e in new[] { src, ms2, snk }) cfg.Elements.Add(e);
         cfg.Connections.Add(new ConnectionConfig("src", "paint", "General"));
         cfg.Connections.Add(new ConnectionConfig("paint", "store", "General"));
         var team = new ResourceTeamConfig { Id = "painters", Name = "painters" };
-        team.Members.Add(new ResourceMemberConfig { Name = "Painter", Labels = new List<string>() });
+        team.Members.Add(new ResourceMemberConfig { Name = "Painter", Properties = new List<string>() });
         cfg.ResourceTeams.Add(team);
         var mh = Run(cfg, 100);
         var store = (Sink)mh.GetElement("store");
@@ -143,11 +143,11 @@ internal static class Program
 
     private static SimuLean.RunStatus SimClockRun(HeadlessModelFactory m) => m.Clock.Context.Run;
 
-    // the block process of the presets (IJPR flow on existing elements) on the sample hull
+    // the block process of the presets (a block-assembly flow on existing elements) on the sample hull
     // an item announces its visual, so the views that show its labels get it
     private static void VisualHookTests()
     {
-        Section("item visual hook (N5): assigning a visual raises Item.VisualAttached; null does not");
+        Section("item visual hook: assigning a visual raises Item.VisualAttached; null does not");
         var seen = new System.Collections.Generic.List<Item>();
         System.Action<Item> h = i => seen.Add(i);
         Item.VisualAttached += h;
@@ -164,7 +164,7 @@ internal static class Program
 
     private static void BlockProcessTests()
     {
-        Section("the block process (N3): kits -> sub-assembly -> turning -> yard -> block bays -> outfitting -> painting -> slipway -> launch");
+        Section("the block process: kits -> sub-assembly -> turning -> yard -> block bays -> outfitting -> painting -> slipway -> launch");
         var hull = SimuLean.Testing.ReferenceModels.SampleHull();
         Check(hull.IsValid && hull.BlockCount == 4 && hull.SubBlocks.Count == 7, "the sample hull is valid");
         var m = Run(SimuLean.Testing.ReferenceModels.NavalBlockProcess(), 2000);
@@ -267,29 +267,29 @@ internal static class Program
             Section("a model built from the breakdown: kits → yard → block bays (nsub by block) → sink");
             var cfg = new SimulationConfig { UseFixedSeed = true, Seed = 3, MaxSimulationTime = 1000 };
             ElementConfig El(string id, string type) => new ElementConfig(id, type, id);
-            var kitSrc = El("kits", "UnitySource");
-            kitSrc.Parameters["sourceMode"] = "Schedule";
-            kitSrc.Parameters["tableSource"] = TableSources.NavalSpec(BlockBreakdown.Part.SubBlocks, BlockBreakdown.DefaultTable, interval: 10);
-            kitSrc.Parameters["tableDatabase"] = dbPath;
-            var orderSrc = El("orders", "UnitySource");
-            orderSrc.Parameters["sourceMode"] = "Schedule";
-            orderSrc.Parameters["tableSource"] = TableSources.NavalSpec(BlockBreakdown.Part.Blocks, BlockBreakdown.DefaultTable, interval: 10);
-            orderSrc.Parameters["tableDatabase"] = dbPath;
-            var yard = El("yard", "UnityQueue");
-            yard.Parameters["capacity"] = 20;
-            yard.Parameters["releaseMode"] = "AnyAccepted";
-            var bay = El("bay", "UnityCombiner");
-            bay.Parameters["requirements"] = new[] { 1 };
-            bay.Parameters["capacity"] = 2;
-            bay.Parameters["pullModeType"] = "SingleLabel";
-            bay.Parameters["singleLabelName"] = "block";
-            bay.Parameters["singleLabelValue"] = "";
-            bay.Parameters["updateRequirements"] = true;
-            bay.Parameters["updateLabels"] = new List<string> { "nsub" };
-            bay.Parameters["delayStrategyType"] = "Constant";
-            bay.Parameters["constantValue"] = 8.0;
-            bay.Parameters["inputOrder"] = new List<string> { "orders", "yard" };
-            var sink = El("hull", "UnitySink");
+            var kitSrc = El("kits", "Source");
+            kitSrc.Set("mode", "Schedule");
+            kitSrc.Set("tableSource", TableSources.NavalSpec(BlockBreakdown.Part.SubBlocks, BlockBreakdown.DefaultTable, interval: 10));
+            kitSrc.Set("tableDatabase", dbPath);
+            var orderSrc = El("orders", "Source");
+            orderSrc.Set("mode", "Schedule");
+            orderSrc.Set("tableSource", TableSources.NavalSpec(BlockBreakdown.Part.Blocks, BlockBreakdown.DefaultTable, interval: 10));
+            orderSrc.Set("tableDatabase", dbPath);
+            var yard = El("yard", "Queue");
+            yard.Set("capacity", 20);
+            yard.Set("offerOrder", "AnyAccepted");
+            var bay = El("bay", "Combiner");
+            bay.Set("requirements", new[] { 1 });
+            bay.Set("capacity", 2);
+            bay.Set("pullModeType", "SingleLabel");
+            bay.Set("singleLabelName", "block");
+            bay.Set("singleLabelValue", "");
+            bay.Set("updateRequirements", true);
+            bay.Set("updateLabels", new List<string> { "nsub" });
+            bay.Set("delayStrategy.strategyType", "Constant");
+            bay.Set("delayStrategy.constantValue", 8.0);
+            bay.Set("inputOrder", new List<string> { "orders", "yard" });
+            var sink = El("hull", "Sink");
             foreach (var e in new[] { kitSrc, orderSrc, yard, bay, sink }) cfg.Elements.Add(e);
             cfg.Connections.Add(new ConnectionConfig("kits", "yard", "General"));
             cfg.Connections.Add(new ConnectionConfig("orders", "bay", "General"));
@@ -305,8 +305,8 @@ internal static class Program
             Check(model.GetElement("yard").GetQueueLength() == 0, "every sub-block used (yard empty)");
 
             // the same model with a ship variant (a query without block 4): the spec is the scenario
-            kitSrc.Parameters["tableSource"] = "naval:subblocks:SELECT * FROM block_breakdown WHERE block <> '4'";
-            orderSrc.Parameters["tableSource"] = "naval:blocks:SELECT * FROM block_breakdown WHERE block <> '4'";
+            kitSrc.Set("tableSource", "naval:subblocks:SELECT * FROM block_breakdown WHERE block <> '4'");
+            orderSrc.Set("tableSource", "naval:blocks:SELECT * FROM block_breakdown WHERE block <> '4'");
             var clock2 = new SimClock(3);
             var model2 = new HeadlessModelFactory(clock2);
             model2.BuildModel(cfg);
@@ -315,7 +315,7 @@ internal static class Program
             Check(((Sink)model2.GetElement("hull")).GetNumberItems() == 3, "the variant assembles 3 blocks");
 
             // a missing table fails the build with the source's name
-            kitSrc.Parameters["tableSource"] = "naval:subblocks:no_such_table";
+            kitSrc.Set("tableSource", "naval:subblocks:no_such_table");
             bool failedBuild = false;
             try { new HeadlessModelFactory(new SimClock(3)).BuildModel(cfg); }
             catch (Exception e) { failedBuild = e.ToString().Contains("kits") && e.ToString().Contains("no_such_table"); }

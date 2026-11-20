@@ -1,7 +1,7 @@
 namespace SimuLean.Storage
 {
     /// <summary>
-    /// Factory for the industry storage types of the proposal (§3): each type
+    /// Factory for the industry storage types: each type
     /// is the single parametric <see cref="StorageLane"/> with a preset
     /// combination of access discipline, SKU constraint and depth.
     ///

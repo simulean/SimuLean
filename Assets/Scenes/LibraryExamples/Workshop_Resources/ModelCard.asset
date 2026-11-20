@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: "Workshop \u2014 shared operators, preemption and repairs"
+  description: 'Two machining lines share two walking operators: urgent orders take an operator from the normal line (Resume preemption).
+
+    A mechanic repairs the CNC failures, and the operators break down and hand their work over.'
+  author: SimuLean
+  scenePath: Assets/Scenes/LibraryExamples/Workshop_Resources.unity
+  copiedFrom: 
+  created: 2026-11-04 12:00:00
+  modified: 2026-11-04 12:00:00
+  represents: "A machining workshop in one 8 h shift: normal orders (Normal Orders \u2192 Normal Buffer \u2192 CNC A, two spindles \u2192 Inspection \u2192 Shipped) and urgent orders (Urgent Orders \u2192 Urgent Buffer \u2192 CNC B \u2192 Shipped Urgent) share the team Operators (2 walking operators); CNC A asks with priority 1, CNC B with priority 5, both with Resume preemption, so an urgent job takes an operator from CNC A, whose job pauses and resumes where it was.\nThe downtime CNC Failure (MTBF / MTTR on CNC A and CNC B) is repaired by the team Mechanics (1 mechanic, repair priority 10, not preemptable, returns to the maintenance corner); the downtime Operator Breakdown stops each operator (Immediate), who hands the job over to the other (On Stop HandOver). Inspection needs no operator. Left out: setups, material supply, breaks, scrap."
+  kpis: "Throughput: normal=Shipped.input, urgent=Shipped Urgent.input (seed 1: 288 and 62 in 8 h).\nPreemption: preemptions=team:Operators.preemptions (47), interruptions of the normal line's jobs CNC A.interruptions, its time paused interruptedA=CNC A.interrupted_time (s; open pauses counted up to the end) and CNC A.interrupted_time_avg (per interruption).\nRepairs: repairWaitA=downtime:CNC Failure@CNC A.repair_wait_avg, repairWaitB=downtime:CNC Failure@CNC B.repair_wait_avg (s, stop \u2192 mechanic there), downtime:CNC Failure@CNC A.repairs, downtime:CNC Failure@CNC A.downtime_total.\nOperator breakdowns: downtime:Operator Breakdown@Operator 1.stops / @Operator 2.\nUtilisation: team:Operators.utilization (0.81), team:Mechanics.utilization (0.24), CNC A.utilization, CNC B.utilization, CNC A.state:WAITING_FOR_RESOURCE."
+  parameters: "Urgent priority: CNC B.processBy.priority (5; CNC A 1): a constant priority is a study factor, e.g. CNC B.processBy.priority=1|5 to compare with no priority.\nPreemption modes: CNC A.processBy.preemption / CNC B.processBy.preemption = None|Resume|Restart (Abort never interrupts a station's job); CNC A.processBy.preemptable / CNC B.processBy.preemptable = true|false.\nTeam sizes: team:Operators.members=1..4, team:Mechanics.members=1..2; walking speed team:Operators.speed (1.2 m/s).\nFailures: downtime:CNC Failure.timeToFailure.uniformMin / .uniformMax (uniform 1800..2700 s between failures), downtime:CNC Failure.timeToRepair.triangularMin / .triangularMode / .triangularMax (triangular 180 / 300 / 420 s repair); downtime:Operator Breakdown.timeToFailure.exponentialRate (exponential rate 0.000185 /s = every ~1.5 h), downtime:Operator Breakdown.timeToRepair.uniformMin / .uniformMax (uniform 240..480 s).\nArrivals: Normal Orders.interArrivalDistribution.exponentialRate (0.0111 /s = every 90 s), Urgent Orders.interArrivalDistribution.exponentialRate (0.00238 /s = every 7 min).\nProcess times: CNC A.delayStrategy.triangularMin / Mode / Max (80 / 100 / 125 s), CNC B (150 / 180 / 240 s), Inspection (30 / 45 / 60 s)."
+  assumptions: 'One shift of 8 h (horizon 28800 s, time unit s, no warm-up: the run starts empty), fixed seed 1; end condition Stop When No Progress For 1800 s (items waiting and nothing moving).
+
+    Operators and the mechanic walk in straight lines at 1.2 m/s between the work points (no network or grid); the mechanic returns home after each repair, the operators stay where they worked.
+
+    Failures on calendar time (MTBF counted from the end of the repair), Immediate stops blocking the machine''s input; an operator''s breakdown hands the job over to the free operator, else the job waits.
+
+    Buffers of 100 (never full); illustrative times, not calibrated to any plant.'

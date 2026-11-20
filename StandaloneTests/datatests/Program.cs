@@ -42,15 +42,15 @@ static class Program
     static SimulationConfig TimedLine()
     {
         var c = new SimulationConfig { UseFixedSeed = true, Seed = 1, MaxSimulationTime = 100 };
-        var src = new ElementConfig("src", "UnitySource", "src");
-        src.Parameters["sourceMode"] = "Schedule";
-        src.Parameters["arrivalsTable"] = Cols(("Time", new[] { "0", "0", "0", "0" }), ("Name", new[] { "s", "s", "s", "s" }),
-                                               ("Q", new[] { "1", "1", "1", "1" }), ("kind", new[] { "a", "a", "a", "a" }));
-        var srv = new ElementConfig("srv", "UnityMultiServer", "srv");
-        srv.Parameters["capacity"] = 1;
-        srv.Parameters["delayStrategyType"] = "Expression";
-        srv.Parameters["expression"] = "table('times', item.kind, 'time')";
-        c.Elements.Add(src); c.Elements.Add(srv); c.Elements.Add(new ElementConfig("sink", "UnitySink", "sink"));
+        var src = new ElementConfig("src", "Source", "src");
+        src.Set("mode", "Schedule");
+        src.Set("arrivalsTable", Cols(("Time", new[] { "0", "0", "0", "0" }), ("Name", new[] { "s", "s", "s", "s" }),
+                                               ("Q", new[] { "1", "1", "1", "1" }), ("kind", new[] { "a", "a", "a", "a" })));
+        var srv = new ElementConfig("srv", "MultiServer", "srv");
+        srv.Set("capacity", 1);
+        srv.Set("delayStrategy.strategyType", "Expression");
+        srv.Set("delayStrategy.expression", "table('times', item.kind, 'time')");
+        c.Elements.Add(src); c.Elements.Add(srv); c.Elements.Add(new ElementConfig("sink", "Sink", "sink"));
         c.Connections.Add(new ConnectionConfig("src", "srv", "General"));
         c.Connections.Add(new ConnectionConfig("srv", "sink", "General"));
         c.Tables.Add(new DataTableConfig { Name = "times", Columns = Cols(("kind", new[] { "a" }), ("time", new[] { "5" })) });
@@ -129,7 +129,7 @@ static class Program
             string qerr = Fails(() => Build(badSql));
             Check(qerr != null && qerr.Contains("'q'"), $"a failing query names the table: {qerr}");
 
-            Console.WriteLine("- Import into the project database (D2): types inferred, append or replace, tables listed");
+            Console.WriteLine("- Import into the project database: types inferred, append or replace, tables listed");
             var plan = Cols(("block", new[] { "B1", "B2", "B3" }), ("start", new[] { "0", "12,5", "" }), ("note", new[] { "a", "1", "c" }));
             Check(db.ImportTable("plan", plan) == 3, "3 rows imported");
             var types = db.QueryTable("SELECT typeof(start) AS s, typeof(note) AS n FROM plan ORDER BY block");
@@ -144,7 +144,7 @@ static class Program
             Check(Fails(() => db.ImportTable("bad name", plan))?.Contains("not a valid table name") == true, "an unsafe table name is refused");
             Check(Fails(() => db.ImportTable("t2", Cols(("a b", new[] { "1" }))))?.Contains("not a valid column name") == true, "an unsafe column name is refused");
 
-            Console.WriteLine("- Data variants in studies (D5): data:Table.file / data:Table.sql, one scenario per level");
+            Console.WriteLine("- Data variants in studies: data:Table.file / data:Table.sql, one scenario per level");
             var timed = TimedLine();
             File.WriteAllLines(Path.Combine(dir, "fast.csv"), new[] { "kind,time", "a,1" });
             File.WriteAllLines(Path.Combine(dir, "slow.csv"), new[] { "kind,time", "a,3" });
@@ -166,11 +166,11 @@ static class Program
             Check(new SimuLean.Optimization.Study(timed).Factor("data:times.rows", "1").Validate()?.Contains("'file' or 'sql'") == true,
                   "only file / sql vary");
 
-            Console.WriteLine("- A Schedule Source reads its arrivals from a data table (D3)");
+            Console.WriteLine("- A Schedule Source reads its arrivals from a data table");
             var fromTable = TimedLine();
             var srcCfg = fromTable.Elements.Find(e => e.Id == "src");
-            srcCfg.Parameters.Remove("arrivalsTable");
-            srcCfg.Parameters["dataTable"] = "arrivals";
+            srcCfg.Remove("arrivalsTable");
+            srcCfg.Set("dataTable", "arrivals");
             fromTable.Tables.Add(new DataTableConfig
             {
                 Name = "arrivals",
@@ -182,21 +182,23 @@ static class Program
             var variants = new SimuLean.Optimization.Study(fromTable).Factor("data:arrivals.file", Path.Combine(dir, "three.csv"))
                 .Metric("out", "sink.input").WithRunTime(100).Run();
             Check(variants.Runs[0].Metrics["out"] == 3, "data:arrivals.file varies the source's arrivals");
-            var byFileKey = new SimuLean.Optimization.Study(fromTable).Factor("src.fileName", Path.Combine(dir, "three.csv"))
+            var byFileKey = new SimuLean.Optimization.Study(fromTable).Factor("src.table", Path.Combine(dir, "three.csv"))
                 .Metric("out", "sink.input").WithRunTime(100).Run();
-            Check(byFileKey.Runs[0].Metrics["out"] == 3, "Owner.fileName (#29) still works: its file wins over the data table");
+            Check(byFileKey.Runs[0].Metrics["out"] == 3, "Owner.table: its file wins over the data table");
+            string aliasErr = Fails(() => new SimuLean.Optimization.Study(fromTable).Factor("src.fileName", "x.csv").Metric("out", "sink.input").Run());
+            Check(aliasErr != null && aliasErr.Contains("src.table"), "Owner.fileName is not a factor (one name: Owner.table): " + aliasErr);
             var both = fromTable.Clone();
-            both.Elements.Find(e => e.Id == "src").Parameters["fileName"] = Path.Combine(dir, "three.csv");
+            both.Elements.Find(e => e.Id == "src").Set("fileName", Path.Combine(dir, "three.csv"));
             string bErr = Fails(() => Build(both));
             Check(bErr != null && bErr.Contains("'arrivals'") && bErr.Contains("data:arrivals.file"),
                   $"a hand-written config with a data table and a file fails instead of ignoring the file: {bErr}");
             var missingTable = TimedLine();
-            missingTable.Elements.Find(e => e.Id == "src").Parameters.Remove("arrivalsTable");
-            missingTable.Elements.Find(e => e.Id == "src").Parameters["dataTable"] = "nope";
+            missingTable.Elements.Find(e => e.Id == "src").Remove("arrivalsTable");
+            missingTable.Elements.Find(e => e.Id == "src").Set("dataTable", "nope");
             string mErr = Fails(() => Build(missingTable));
             Check(mErr != null && mErr.Contains("'src'") && mErr.Contains("'nope'") && mErr.Contains("times"), $"an unknown data table names the source, the table and those there are: {mErr}");
 
-            Console.WriteLine("- A downtime timetable read from a data table (D3b): keys to targets, code rules");
+            Console.WriteLine("- A downtime timetable read from a data table: keys to targets, code rules");
             var stopsModel = TimedLine();
             stopsModel.Tables.Add(new DataTableConfig
             {
@@ -205,13 +207,14 @@ static class Program
                                ("duration", new[] { "4", "3", "5", "7" }), ("code", new[] { "A", "X", "B", "A" })),
             });
             var dt = new DowntimeConfig("plan", "Timetable", "srv");
-            dt.Parameters["dataTable"] = "stops";
-            dt.Parameters["targetColumn"] = "machine";
-            dt.Parameters["startColumn"] = "start";
-            dt.Parameters["durationColumn"] = "duration";
-            dt.Parameters["codeColumn"] = "code";
-            dt.Parameters["codeRules"] = new List<string> { "X|||1|1", "B||Immediate|2|0" };
-            dt.Parameters["targetKeys"] = new List<string> { "M1|srv" };
+            dt.Set("dataTable", "stops");
+            dt.Set("targetColumn", "machine");
+            dt.Set("startColumn", "start");
+            dt.Set("durationColumn", "duration");
+            dt.Set("codeColumn", "code");
+            dt.Set("codeRules", new List<DowntimeCodeRuleSettings> { new DowntimeCodeRuleSettings { Code = "X", Ignore = true },
+                                                                      new DowntimeCodeRuleSettings { Code = "B", Mode = StopMode.Immediate, Factor = 2 } });
+            dt.Set("targetKeys", new List<DowntimeTargetKeySettings> { DowntimeTargetKeySettings.Of("M1", "srv") });
             stopsModel.Downtimes.Add(dt);
             var dclock = new SimClock(1);
             var dmodel = new HeadlessModelFactory(dclock);
@@ -223,12 +226,12 @@ static class Program
                   $"M1's rows only, X dropped, B doubled: 4 + 2 x 5 = 14 ({gen.StopCount} stops, {gen.TotalDowntime})");
             var noTable = TimedLine();
             var dt2 = new DowntimeConfig("plan", "Timetable", "srv");
-            dt2.Parameters["dataTable"] = "nope";
+            dt2.Set("dataTable", "nope");
             noTable.Downtimes.Add(dt2);
             string dErr = Fails(() => Build(noTable));
             Check(dErr != null && dErr.Contains("'plan'") && dErr.Contains("'nope'"), $"an unknown table names the downtime and the table: {dErr}");
 
-            Console.WriteLine("- Pick lists from a data table (D3c): indexed once, per order key or one shared list");
+            Console.WriteLine("- Pick lists from a data table: indexed once, per order key or one shared list");
             var picks = ModelTable.From("picks", Cols(("order_id", new[] { "7.0", "7", "8", "8" }), ("sku", new[] { "A", "B", "A", "A" }),
                                                       ("qty", new[] { "2", "1", "3", "1" })));
             var perOrder = new TablePickListSource(picks, "sku", "qty", "order_id", "order_id");
@@ -245,8 +248,8 @@ static class Program
             Check(shared.GetPickList(o9)["A"] == 6, "no key column: the whole table is one list");
             Check(Fails(() => new TablePickListSource(picks, "sku", "amount"))?.Contains("'amount'") == true, "a missing column names it");
             var pickCfg = ReferenceModels.PickingModel();
-            var stationCfg = pickCfg.Elements.Find(e => e.Type == "UnityPickingStation");
-            stationCfg.Parameters["pickTable"] = "nope";
+            var stationCfg = pickCfg.Elements.Find(e => e.Type == "PickingStation");
+            stationCfg.Set("pickTable", "nope");
             string pErr = Fails(() => Build(pickCfg));
             Check(pErr != null && pErr.Contains("'nope'") && pErr.Contains(stationCfg.Name), $"a picking station with an unknown table names it: {pErr}");
 

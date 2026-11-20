@@ -1,0 +1,12 @@
+<!-- Shared settings of a standalone suite: those of Engine.props (target framework, C# 9 as in Unity, warnings), but the
+     engine sources are not compiled into the suite: it references the engine library built once (Engine/Engine.csproj).
+     Import it from a suite's csproj: <Import Project="..\Tests.props" />. The runner (Tools/Runner) still
+     compiles the sources itself through Engine.props. -->
+<Project>
+  <Import Project="Engine.props" />
+  <ItemGroup>
+    <Compile Remove="$(EngineRoot)\**\*.cs" />
+    <Compile Remove="$(UserLogicRoot)\**\*.cs" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)Engine\Engine.csproj" />
+  </ItemGroup>
+</Project>

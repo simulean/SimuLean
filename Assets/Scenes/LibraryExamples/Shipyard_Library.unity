@@ -1034,19 +1034,19 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 1
+      value: -0.00000004371139
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.x
-      value: -0.00000003774895
+      value: 1.650059e-15
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: 0.00000003774895
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -1627,30 +1627,26 @@ MonoBehaviour:
   teamName: Welders
   members:
   - name: Welders_1
-    labels:
-    - label: skill
-      value: welder
+    properties:
+    - skill = 'welder'
     loadTime: 0
     unloadTime: 0
     spawnPoint: {fileID: 0}
   - name: Welders_2
-    labels:
-    - label: skill
-      value: welder
+    properties:
+    - skill = 'welder'
     loadTime: 0
     unloadTime: 0
     spawnPoint: {fileID: 0}
   - name: Welders_3
-    labels:
-    - label: skill
-      value: welder
+    properties:
+    - skill = 'welder'
     loadTime: 0
     unloadTime: 0
     spawnPoint: {fileID: 0}
   - name: Welders_4
-    labels:
-    - label: skill
-      value: welder
+    properties:
+    - skill = 'welder'
     loadTime: 0
     unloadTime: 0
     spawnPoint: {fileID: 0}
@@ -1673,6 +1669,7 @@ MonoBehaviour:
   axisAccel: {x: 0, y: 0, z: 0}
   axesSequential: 0
   homeNode: {fileID: 0}
+  returnHome: 0
   speed: 1
   units: 0
   memberPrefab: {fileID: 7763353081010453246, guid: d9fdf3cee97ee8a4493122a10218bec2, type: 3}
@@ -2079,16 +2076,14 @@ MonoBehaviour:
   teamName: Fitters
   members:
   - name: Fitters_1
-    labels:
-    - label: skill
-      value: fitter
+    properties:
+    - skill = 'fitter'
     loadTime: 0
     unloadTime: 0
     spawnPoint: {fileID: 0}
   - name: Fitters_2
-    labels:
-    - label: skill
-      value: fitter
+    properties:
+    - skill = 'fitter'
     loadTime: 0
     unloadTime: 0
     spawnPoint: {fileID: 0}
@@ -2111,6 +2106,7 @@ MonoBehaviour:
   axisAccel: {x: 0, y: 0, z: 0}
   axesSequential: 0
   homeNode: {fileID: 0}
+  returnHome: 0
   speed: 1
   units: 0
   memberPrefab: {fileID: 8465133387090875316, guid: f47ceec2ae967de49a6df4ca438385a4, type: 3}
@@ -2166,7 +2162,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnitySource
   nextElements:
   - {fileID: 595980513}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -2339,12 +2334,12 @@ MonoBehaviour:
     matrix: {fileID: 0}
     waitAtDoor: 0
   itemPrefab: {fileID: 1567758041406052350, guid: 96e79c7d6a6d23545bde78220c8b71a2, type: 3}
+  sizeFromModel: 1
   separation: 1
   itemPosition: {fileID: 0}
   mode: 1
-  assignLabels:
-  - label: prio
-    value: 0
+  createLabels:
+  - prio = 0
   demandFactor: 1
   interArrivalDistribution:
     strategyType: 0
@@ -2443,7 +2438,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 363212837}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
   m_LocalPosition: {x: -14, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -3315,9 +3310,8 @@ MonoBehaviour:
   teamName: Painters
   members:
   - name: Painters_1
-    labels:
-    - label: skill
-      value: painter
+    properties:
+    - skill = 'painter'
     loadTime: 0
     unloadTime: 0
     spawnPoint: {fileID: 0}
@@ -3340,6 +3334,7 @@ MonoBehaviour:
   axisAccel: {x: 0, y: 0, z: 0}
   axesSequential: 0
   homeNode: {fileID: 0}
+  returnHome: 0
   speed: 1
   units: 0
   memberPrefab: {fileID: 2224070814875796415, guid: 3d48938dce86e1c4a9cbe70efed4c1cb, type: 3}
@@ -3575,7 +3570,6 @@ MonoBehaviour:
   nextElements:
   - {fileID: 1724838826}
   - {fileID: 1626265502}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 6
     parameterKey: routing_mode
@@ -3793,8 +3787,8 @@ MonoBehaviour:
     discreteUniformMax: 7
   capacity: 2
   outputItemPrefab: {fileID: 8786491418570364396, guid: 63ca77259233f864fbce3d15f212a1ff, type: 3}
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerScan: 0
   serverAnimator: {fileID: 0}
 --- !u!114 &595980514
 MonoBehaviour:
@@ -3855,7 +3849,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 595980512}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
+  m_LocalRotation: {x: 0, y: -0.7071069, z: 0, w: 0.70710677}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -3874,6 +3868,14 @@ PrefabInstance:
     m_TransformParent: {fileID: 1958064367}
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: b33d52d616b65aa4e9efac0b1a059b22, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1.5
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: b33d52d616b65aa4e9efac0b1a059b22, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1.9
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: b33d52d616b65aa4e9efac0b1a059b22, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0
       objectReference: {fileID: 0}
@@ -3887,7 +3889,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: b33d52d616b65aa4e9efac0b1a059b22, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 1
+      value: 0.7071068
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: b33d52d616b65aa4e9efac0b1a059b22, type: 3}
       propertyPath: m_LocalRotation.x
@@ -3895,11 +3897,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: b33d52d616b65aa4e9efac0b1a059b22, type: 3}
       propertyPath: m_LocalRotation.y
-      value: -0
+      value: 0.7071068
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: b33d52d616b65aa4e9efac0b1a059b22, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: b33d52d616b65aa4e9efac0b1a059b22, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -4388,7 +4390,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityMultiServer
   nextElements:
   - {fileID: 1147012692}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -4597,8 +4598,8 @@ MonoBehaviour:
     discreteUniformMax: 7
   capacity: 1
   outputItemPrefab: {fileID: 0}
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerScan: 0
   serverAnimator: {fileID: 0}
 --- !u!114 &676042289
 MonoBehaviour:
@@ -4659,7 +4660,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 676042287}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: 0, y: -1, z: 0, w: -0.00000004371139}
   m_LocalPosition: {x: 88, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -5367,7 +5368,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.Naval.UnityErectionDock
   nextElements:
   - {fileID: 1958064363}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -6716,7 +6716,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -8.5
+      value: 8.5
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalPosition.y
@@ -6724,23 +6724,23 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0
+      value: -0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 1
+      value: -0.00000004371139
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.x
-      value: -0.00000003774895
+      value: 1.650059e-15
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: 0.00000003774895
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -7158,7 +7158,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -8.5
+      value: 8.5
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalPosition.y
@@ -7166,23 +7166,23 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0
+      value: -0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 1
+      value: -0.00000004371139
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.x
-      value: -0.00000003774895
+      value: 1.650059e-15
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: 0.00000003774895
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -7219,6 +7219,14 @@ PrefabInstance:
     m_TransformParent: {fileID: 1637540345}
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1.5
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1.9
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0
       objectReference: {fileID: 0}
@@ -7240,11 +7248,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
       propertyPath: m_LocalRotation.y
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -7506,7 +7514,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityQueue
   nextElements:
   - {fileID: 839043226}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -7679,8 +7686,9 @@ MonoBehaviour:
     matrix: {fileID: 0}
     waitAtDoor: 0
   capacity: 6
-  releaseMode: 1
-  releaseScan: 0
+  offerOrder: 1
+  offerScan: 0
+  gated: 0
   layoutMode: 1
   separation: 0
   gridArea: {x: 0, y: 0}
@@ -7854,7 +7862,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -8.5
+      value: 8.5
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalPosition.y
@@ -7862,23 +7870,23 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0
+      value: -0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 1
+      value: -0.00000004371139
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.x
-      value: -0.00000003774895
+      value: 1.650059e-15
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: 0.00000003774895
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 9f5a6694a853cdb44a2ae0d00e6fea93, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -8365,7 +8373,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1232986815}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: -0.00000004371139}
   m_LocalPosition: {x: 0, y: 1.2, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -8789,7 +8797,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1301249579}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: -0.00000004371139}
   m_LocalPosition: {x: 0, y: 1.2, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -9744,7 +9752,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityCombiner
   nextElements:
   - {fileID: 1906331949}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -9940,6 +9947,8 @@ MonoBehaviour:
   singleLabelName: block
   singleLabelValue: 
   multiLabelPairs: []
+  heightLabel: height
+  partsPerLayer: 0
   delayStrategy:
     strategyType: 5
     constantValue: 5
@@ -9977,6 +9986,8 @@ MonoBehaviour:
   outItemPosition: {fileID: 0}
   separation: 0
   componentLayout: 1
+  componentEntries: []
+  animateAssembly: 1
   serverAnimator: {fileID: 0}
   visualMode: 1
 --- !u!114 &1438783875
@@ -10038,7 +10049,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1438783873}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
+  m_LocalRotation: {x: 0, y: -0.7071069, z: 0, w: 0.70710677}
   m_LocalPosition: {x: 44, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -10073,8 +10084,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1492497122}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.00000003774895, y: 0, z: -0, w: 1}
-  m_LocalPosition: {x: 8.5, y: 0, z: 0}
+  m_LocalRotation: {x: 1.650059e-15, y: 1, z: 0.00000003774895, w: -0.00000004371139}
+  m_LocalPosition: {x: -8.5, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -10377,8 +10388,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1578907974}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.00000003774895, y: 0, z: -0, w: 1}
-  m_LocalPosition: {x: 8.5, y: 0, z: 0}
+  m_LocalRotation: {x: 1.650059e-15, y: 1, z: 0.00000003774895, w: -0.00000004371139}
+  m_LocalPosition: {x: -8.5, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -10667,7 +10678,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityQueue
   nextElements:
   - {fileID: 1438783874}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -10840,8 +10850,9 @@ MonoBehaviour:
     matrix: {fileID: 0}
     waitAtDoor: 0
   capacity: 8
-  releaseMode: 1
-  releaseScan: 0
+  offerOrder: 1
+  offerScan: 0
+  gated: 0
   layoutMode: 1
   separation: 0
   gridArea: {x: 0, y: 0}
@@ -10949,7 +10960,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnitySource
   nextElements:
   - {fileID: 1438783874}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -11122,12 +11132,12 @@ MonoBehaviour:
     matrix: {fileID: 0}
     waitAtDoor: 0
   itemPrefab: {fileID: 2236379719727854452, guid: 1057ebf3e3b216845b92de4bf1425309, type: 3}
+  sizeFromModel: 1
   separation: 1
   itemPosition: {fileID: 0}
   mode: 1
-  assignLabels:
-  - label: prio
-    value: 0
+  createLabels:
+  - prio = 0
   demandFactor: 1
   interArrivalDistribution:
     strategyType: 0
@@ -11226,7 +11236,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1637540340}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
   m_LocalPosition: {x: 44, y: 0, z: 21}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -11446,7 +11456,7 @@ MonoBehaviour:
   teamName: Slipway Crane
   members:
   - name: Slipway Crane_1
-    labels: []
+    properties: []
     loadTime: 0
     unloadTime: 0
     spawnPoint: {fileID: 0}
@@ -11469,6 +11479,7 @@ MonoBehaviour:
   axisAccel: {x: 0, y: 0, z: 0}
   axesSequential: 0
   homeNode: {fileID: 0}
+  returnHome: 0
   speed: 1
   units: 0
   memberPrefab: {fileID: 758087740918177754, guid: b9919c55a68028f4b9f61b4e9db706b4, type: 3}
@@ -11515,8 +11526,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1659166410}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.00000003774895, y: 0, z: -0, w: 1}
-  m_LocalPosition: {x: 8.5, y: 0, z: 0}
+  m_LocalRotation: {x: 1.650059e-15, y: 1, z: 0.00000003774895, w: -0.00000004371139}
+  m_LocalPosition: {x: -8.5, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -11917,7 +11928,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityMultiServer
   nextElements:
   - {fileID: 1626265502}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -12126,8 +12136,8 @@ MonoBehaviour:
     discreteUniformMax: 7
   capacity: 1
   outputItemPrefab: {fileID: 0}
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerScan: 0
   serverAnimator: {fileID: 0}
 --- !u!114 &1724838827
 MonoBehaviour:
@@ -12201,7 +12211,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1724838825}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: 0, y: -1, z: 0, w: -0.00000004371139}
   m_LocalPosition: {x: 11, y: 0, z: -28}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -12233,7 +12243,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1727299124}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: -0.00000004371139}
   m_LocalPosition: {x: 0, y: 1.2, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -12861,7 +12871,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606a83454b2fca544bf63ee866885603, type: 3}
       propertyPath: m_LocalRotation.x
-      value: -0.00000003774895
+      value: 0.00000003774895
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606a83454b2fca544bf63ee866885603, type: 3}
       propertyPath: m_LocalRotation.y
@@ -12869,7 +12879,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606a83454b2fca544bf63ee866885603, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: -3.300118e-15
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606a83454b2fca544bf63ee866885603, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -12968,7 +12978,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityMultiServer
   nextElements:
   - {fileID: 676042288}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -13177,8 +13186,8 @@ MonoBehaviour:
     discreteUniformMax: 7
   capacity: 2
   outputItemPrefab: {fileID: 0}
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerScan: 0
   serverAnimator: {fileID: 0}
 --- !u!114 &1906331950
 MonoBehaviour:
@@ -13239,7 +13248,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1906331948}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
+  m_LocalRotation: {x: 0, y: -0.7071069, z: 0, w: 0.70710677}
   m_LocalPosition: {x: 66, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -13372,7 +13381,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnitySink
   nextElements: []
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -13835,6 +13843,14 @@ PrefabInstance:
     m_TransformParent: {fileID: 363212842}
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1.5
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1.9
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0
       objectReference: {fileID: 0}
@@ -13856,11 +13872,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
       propertyPath: m_LocalRotation.y
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x

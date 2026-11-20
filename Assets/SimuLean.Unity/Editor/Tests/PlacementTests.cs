@@ -72,13 +72,9 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void MembersSpawnAtTheirOwnPointsAndWorkAtTheStationsWorkNodes()
         {
-            var active = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root, scene);
+                var root = test.Root;
                 T Make<T>(string n, Vector3 at = default) where T : Component
                 {
                     var go = new GameObject(n);
@@ -133,20 +129,15 @@ namespace SimuLean.Unity.Editor.Tests
 
                 var config = SceneExtractor.Extract(root).Config;
                 var block = config.Elements.Find(e => e.Name == "Block");
-                CollectionAssert.AreEqual(new[] { w1.NodeId, w2.NodeId }, (List<string>)block.Parameters["workNodes"], "work nodes go to the config");
+                CollectionAssert.AreEqual(new[] { w1.NodeId, w2.NodeId }, block.Get<List<string>>("workNodes"), "work nodes go to the config");
 
                 var clock = new SimClock(1);
                 var model = new SimuLean.Headless.HeadlessModelFactory(clock);
                 model.BuildModel(config);
                 model.StartModel();
                 clock.AdvanceClock(100);
-                var at = model.Executors.Where(x => x.GetName() == "Wa" || x.GetName() == "Wb").Select(x => x.Location).OrderBy(x => x).ToList();
+                var at = model.Executors.Where(x => x.Name == "Wa" || x.Name == "Wb").Select(x => x.Location).OrderBy(x => x).ToList();
                 CollectionAssert.AreEqual(new[] { w1.NodeId, w2.NodeId }.OrderBy(x => x).ToList(), at, "each welder stood at a work point, not on the block");
-            }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
             }
         }
     }

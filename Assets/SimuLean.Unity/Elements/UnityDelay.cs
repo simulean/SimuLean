@@ -5,12 +5,12 @@ namespace SimuLean.Unity
 {
     /// <summary>
     /// Unity component of a <see cref="Delay"/>: an activity without capacity where every item
-    /// waits its own delay at once — a patient at home for a night, a therapy of three months, a curing time, a transit.
+    /// waits its own delay at once — a patient at home, a therapy of three months, a curing time, a transit.
     /// Its items are laid out as a queue's (<see cref="ItemLayout"/>), and can be hidden behind a count with an
     /// <see cref="UnityElementLabel"/>.
     /// </summary>
-    [SimuLeanElement(SimuLeanModules.Processors, "Delay", Icon = "Assets/SimuLean.Unity/Editor/Icons/Delay.png",
-        Description = "Every item waits its own delay, all at once (no capacity): a night at home, a therapy, a curing time", Order = 5)]
+    [SimuLeanElement(SimuLeanModules.Processors, "Delay", Model = "BufferPosition/BufferPosition.fbx", Icon = "Assets/SimuLean.Unity/Editor/Icons/Delay.png",
+        Description = "Every item waits its own delay, all at once (no capacity): a stay at home, a therapy, a curing time", Order = 3)]
     public class UnityDelay : SElement, IVElement
     {
         private Delay theDelay;

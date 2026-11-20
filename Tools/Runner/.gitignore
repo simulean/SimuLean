@@ -1,0 +1,5 @@
+bin/
+obj/
+dist/
+# the root .gitignore ignores the *.csproj Unity generates; this one is the runner's
+!simulean.csproj

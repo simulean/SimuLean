@@ -147,7 +147,7 @@ namespace SimuLean.Storage
 
         protected override StorageLane SelectLaneCore(IReadOnlyList<StorageLane> candidates, Item item, LocationContext ctx)
         {
-            string sku = item.GetTypeName();
+            string sku = item.Name;
             string laneId;
             if (sku != null && skuToLaneId.TryGetValue(sku, out laneId))
             {

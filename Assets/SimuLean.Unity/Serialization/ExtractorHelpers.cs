@@ -10,102 +10,69 @@ namespace SimuLean.Serialization
     internal static class ExtractorHelpers
     {
         /// <summary>
-        /// Writes a RandomProcessConfig into ElementConfig.Parameters using the given prefix
-        /// (e.g. "delay" → key "delayStrategyType", "interArrival" → "interArrivalStrategyType").
+        /// Writes a RandomProcessConfig as the element's setting at the path of its field (<c>delayStrategy</c> →
+        /// <c>delayStrategy.strategyType</c>, <c>delayStrategy.constantValue</c>…; a typed
+        /// <see cref="SamplerSettings"/> with the chosen distribution's fields only; the build side is
+        /// <c>ElementBuildHelpers.BuildRandomProcess</c>).
         /// </summary>
         public static void ExtractRandomProcessConfig(
-            RandomProcessConfig randomConfig, ElementConfig config, string prefix)
+            RandomProcessConfig randomConfig, ElementConfig config, string field)
         {
             if (randomConfig == null) return;
-
-            string typeKey = prefix + "StrategyType";
-            config.Parameters[typeKey] = randomConfig.GetStrategyTypeName();
-
-            ExtractBaseRandomProcessParameters(randomConfig.strategyType, randomConfig, config);
+            config.Set(field, randomConfig.ToSettings());
         }
 
         public static void ExtractOutputStrategyConfig(
             OutputStrategyConfig strategyConfig, ElementConfig elementConfig)
         {
             if (strategyConfig == null) return;
-            elementConfig.Parameters["outputStrategyType"]      = strategyConfig.strategyType.ToString();
-            elementConfig.Parameters["outputStrategy_paramKey"] = strategyConfig.parameterKey ?? "";
-            elementConfig.Parameters["outputStrategy_expression"] = strategyConfig.routingExpression ?? "";
+            elementConfig.Set("outputStrategy.strategyType", strategyConfig.strategyType.ToString());
+            elementConfig.Set("outputStrategy.parameterKey", strategyConfig.parameterKey ?? "");
+            elementConfig.Set("outputStrategy.routingExpression", strategyConfig.routingExpression ?? "");
+            if (strategyConfig.strategyType == OutputStrategyType.BestScore)
+            {
+                elementConfig.Set("outputStrategy.scoreExpression", strategyConfig.scoreExpression ?? "");
+                elementConfig.Set("outputStrategy.whenBestFull", strategyConfig.whenBestFull);
+            }
+            if (strategyConfig.strategyType == OutputStrategyType.Rule)
+            {
+                // a routing rule (a choice rule): its type name, the full policy and its parameters
+                elementConfig.Set("outputStrategy.rule", (strategyConfig.rule ?? "").Trim());
+                elementConfig.Set("outputStrategy.whenBestFull", strategyConfig.whenBestFull);
+                RuleParameterValue.Extract(elementConfig, strategyConfig.ruleParameters);
+            }
             if (strategyConfig.strategyType == OutputStrategyType.Probability)
             {
-                var parts = new List<string>();
+                // each weight as its shortest text, read back as a double (0.9f is 0.9, as it always was)
+                var weights = new List<double>();
                 if (strategyConfig.weights != null)
-                    foreach (float w in strategyConfig.weights) parts.Add(w.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
-                elementConfig.Parameters[ElementConfigKeys.OutputWeights] = string.Join("|", parts);
+                    foreach (float w in strategyConfig.weights)
+                        weights.Add(double.Parse(w.ToString("R", System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture));
+                elementConfig.Set("outputStrategy.weights", weights.ToArray());
             }
+        }
+
+        /// <summary>A MultiLabel admission's records, typed.</summary>
+        public static List<LabelValueSettings> LabelValues(List<LabelValuePair> pairs)
+        {
+            var list = new List<LabelValueSettings>();
+            if (pairs != null)
+                foreach (var p in pairs)
+                    if (p != null) list.Add(LabelValueSettings.Of(p.label, p.value));
+            return list;
         }
 
         public static void ExtractInputStrategyConfig(
             InputStrategyConfig strategyConfig, ElementConfig elementConfig)
         {
             if (strategyConfig == null) return;
-            elementConfig.Parameters["inputStrategyType"]              = strategyConfig.strategyType.ToString();
-            elementConfig.Parameters["inputStrategy_singleLabelName"]  = strategyConfig.singleLabelName ?? "";
-            elementConfig.Parameters["inputStrategy_condition"]        = strategyConfig.condition ?? "";
-            elementConfig.Parameters["inputStrategy_singleLabelValue"] = strategyConfig.singleLabelValue ?? "";
+            elementConfig.Set("inputStrategy.strategyType", strategyConfig.strategyType.ToString());
+            elementConfig.Set("inputStrategy.singleLabelName", strategyConfig.singleLabelName ?? "");
+            elementConfig.Set("inputStrategy.condition", strategyConfig.condition ?? "");
+            elementConfig.Set("inputStrategy.singleLabelValue", strategyConfig.singleLabelValue ?? "");
 
             if (strategyConfig.multiLabelPairs != null)
-                elementConfig.Parameters["inputStrategy_multiLabelPairs"] =
-                    new List<string>(strategyConfig.multiLabelPairs);
-        }
-
-        private static void ExtractBaseRandomProcessParameters(RandomProcessType t,
-            RandomProcessConfig c, ElementConfig e)
-        {
-            switch (t)
-            {
-                case RandomProcessType.Constant:
-                    e.Parameters["constantValue"]   = c.constantValue;    break;
-                case RandomProcessType.Uniform:
-                    e.Parameters["uniformMin"]      = c.uniformMin;
-                    e.Parameters["uniformMax"]      = c.uniformMax;       break;
-                case RandomProcessType.Normal:
-                    e.Parameters["normalMean"]      = c.normalMean;
-                    e.Parameters["normalStdDev"]    = c.normalStdDev;    break;
-                case RandomProcessType.Exponential:
-                    e.Parameters["exponentialRate"] = c.exponentialRate;  break;
-                case RandomProcessType.Triangular:
-                    e.Parameters["triangularMin"]   = c.triangularMin;
-                    e.Parameters["triangularMode"]  = c.triangularMode;
-                    e.Parameters["triangularMax"]   = c.triangularMax;   break;
-                case RandomProcessType.Expression:
-                    e.Parameters["expression"] = c.expression;  break;
-                case RandomProcessType.Gamma:
-                    e.Parameters["gammaShape"]      = c.gammaShape;
-                    e.Parameters["gammaScale"]      = c.gammaScale;       break;
-                case RandomProcessType.Weibull:
-                    e.Parameters["weibullShape"]    = c.weibullShape;
-                    e.Parameters["weibullScale"]    = c.weibullScale;     break;
-                case RandomProcessType.LogNormal:
-                    e.Parameters["logNormalMu"]     = c.logNormalMu;
-                    e.Parameters["logNormalSigma"]  = c.logNormalSigma;  break;
-                case RandomProcessType.Beta:
-                    e.Parameters["betaAlpha"]       = c.betaAlpha;
-                    e.Parameters["betaBeta"]        = c.betaBeta;
-                    e.Parameters["betaMin"]         = c.betaMin;
-                    e.Parameters["betaMax"]         = c.betaMax;          break;
-                case RandomProcessType.ChiSquare:
-                    e.Parameters["chiSquareDf"]     = c.chiSquareDf;      break;
-                case RandomProcessType.StudentT:
-                    e.Parameters["studentTDf"]      = c.studentTDf;
-                    e.Parameters["studentTClamp"]   = c.studentTClamp;   break;
-                case RandomProcessType.FDistribution:
-                    e.Parameters["fDistD1"]         = c.fDistD1;
-                    e.Parameters["fDistD2"]         = c.fDistD2;          break;
-                case RandomProcessType.Poisson:
-                    e.Parameters["poissonLambda"]   = c.poissonLambda;    break;
-                case RandomProcessType.Binomial:
-                    e.Parameters["binomialN"]       = c.binomialN;
-                    e.Parameters["binomialP"]       = c.binomialP;        break;
-                case RandomProcessType.DiscreteUniform:
-                    e.Parameters["discreteUniformMin"] = c.discreteUniformMin;
-                    e.Parameters["discreteUniformMax"] = (int)c.discreteUniformMax; break;
-            }
+                elementConfig.Set("inputStrategy.multiLabelPairs", LabelValues(strategyConfig.multiLabelPairs));
         }
     }
 }

@@ -1,0 +1,29 @@
+<!-- The engine (Assets/SimuLean.Net + the choice rules of Assets/SimuLean.UserLogic, as Engine.props lists them) built
+     ONCE as the library SimuLean.Net, the name of its Unity assembly, that every suite references (Tests.props),
+     rather than each suite compiling all the engine sources itself.
+     The suites test internals too, as when they compiled the sources: every suite folder (a StandaloneTests/<name>/<name>.csproj)
+     gets InternalsVisibleTo. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <AssemblyName>SimuLean.Net</AssemblyName>
+    <RootNamespace>SimuLean</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <Import Project="..\Engine.props" />
+  <ItemGroup>
+    <SimuLeanSuite Include="$(MSBuildThisFileDirectory)..\*\*.csproj" Exclude="$(MSBuildThisFileFullPath)" />
+  </ItemGroup>
+  <Target Name="SimuLeanSuiteInternals" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <SimuLeanInternalsFile>$(IntermediateOutputPath)SuiteInternals.g.cs</SimuLeanInternalsFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(SimuLeanInternalsFile)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="@(SimuLeanSuite->'[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(&quot;%(Filename)&quot;)]')" />
+    <ItemGroup>
+      <Compile Include="$(SimuLeanInternalsFile)" />
+    </ItemGroup>
+  </Target>
+</Project>

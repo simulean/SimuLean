@@ -5,14 +5,14 @@ using UnityEngine;
 namespace SimuLean.Unity
 {
     /// <summary>
-    /// Unity component of an <see cref="Agenda"/>: an appointment book — patients are booked
+    /// Unity component of an <see cref="Agenda"/> an appointment book — patients are booked
     /// into the first free slot of its weekly sessions (at least the lead time ahead), wait at home, and are released to
     /// the next element (the consultation) at their appointment. The visit station needs no shift. Its waiting patients
     /// are drawn with the queue's layouts (<see cref="ItemLayout"/>), or hidden behind a count with an
     /// <see cref="UnityElementLabel"/>.
     /// </summary>
     [SimuLeanElement(SimuLeanModules.Healthcare, "Agenda",
-        Description = "Appointment book: books each patient into the first free slot of its sessions and releases it at its appointment", Order = 0)]
+        Description = "Appointment book: books each patient into the first free slot of its sessions and releases it at its appointment", Order = 0, Icon = "Assets/SimuLean.Unity/Art/Models/ReceptionDesk/ReceptionDesk.fbx")]
     public class UnityAgenda : SElement, IVElement
     {
         private Agenda theAgenda;
@@ -31,6 +31,7 @@ namespace SimuLean.Unity
         public AgendaOverflow overflow = AgendaOverflow.Ordinary;
         [Tooltip("No-show probability, an expression over the patient (e.g. 0.08, or item.dx == 'control' ? 0.12 : 0.05). " +
                  "Empty = none. Sets the label no_show (0 / 1): route on it.")]
+        [SimuLean.Unity.SimuLeanExpression("agenda")]
         public string noShow = "";
         [Tooltip("The agenda's own holidays (dates), on top of the model's.")]
         public List<string> holidays = new List<string>();
@@ -41,6 +42,7 @@ namespace SimuLean.Unity
         public bool arriveOnTime;
         [Tooltip("Cancellation probability, an expression over the patient (e.g. 0.05). A patient that cancels frees its slot " +
                  "and books again (label rescheduled). Empty = none.")]
+        [SimuLean.Unity.SimuLeanExpression("agenda")]
         public string cancel = "";
         [Tooltip("Templates of later periods, 'date | sessions | slot minutes' (e.g. '2026-04-01 | Mon-Fri 08:30-13:10 | 20'): " +
                  "from that date the agenda uses them.")]

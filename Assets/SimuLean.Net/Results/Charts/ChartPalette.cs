@@ -17,8 +17,8 @@ namespace SimuLean.Results.Charts
         /// <summary>Preferred display order of the core states (others follow).</summary>
         public static readonly string[] StateOrder =
         {
-            "PROCESSING", "RECEIVING", "TRAVELLING", "TRAVELLING_LOADED", "LOADING", "UNLOADING", "TRAVELLING_EMPTY",
-            "SETUP", "WAITING_FOR_RESOURCE", "BLOCKED", "STOPPED", "BREAKDOWN", "SCHEDULED_DOWN", "OFF_SHIFT", "IDLE",
+            "PROCESSING", "RECEIVING", "TRAVELING", "TRAVELING_LOADED", "LOADING", "UNLOADING", "TRAVELING_EMPTY",
+            "SETUP", "WAITING_FOR_RESOURCE", "BLOCKED", "STOPPED", "WAITING_FOR_REPAIR", "BREAKDOWN", "SCHEDULED_DOWN", "OFF_SHIFT", "WAITING_DEPARTURE", "IDLE",
         };
 
         /// <summary>A state's colour (known states fixed, others from a stable hash of the name).</summary>
@@ -26,16 +26,22 @@ namespace SimuLean.Results.Charts
         {
             switch (name)
             {
-                case "PROCESSING": case "TRAVELLING_LOADED": return Rgb(0.30f, 0.75f, 0.35f);
-                case "RECEIVING": return Rgb(0.50f, 0.82f, 0.45f);
+                case "PROCESSING": case "TRAVELING_LOADED": return Rgb(0.30f, 0.75f, 0.35f);
+                // busy with items but not processing (a combiner gathering its components): khaki, told apart from
+                // PROCESSING's green at a glance (a lighter green was hard to tell from it)
+                case "RECEIVING": return Rgb(0.78f, 0.70f, 0.45f);
                 case "SETUP": return Rgb(0.95f, 0.80f, 0.25f);
                 case "WAITING_FOR_RESOURCE": return Rgb(0.80f, 0.60f, 0.85f);
                 case "BLOCKED": return Rgb(0.97f, 0.56f, 0.18f);
                 case "STOPPED": case "BREAKDOWN": return Rgb(0.88f, 0.28f, 0.24f);
+                // down and waiting for the repair crew: a darker red, told apart from the repair itself
+                case "WAITING_FOR_REPAIR": return Rgb(0.62f, 0.16f, 0.20f);
                 case "SCHEDULED_DOWN": case "OFF_SHIFT": return Rgb(0.38f, 0.50f, 0.90f);
-                case "TRAVELLING": case "LOADING": return Rgb(0.30f, 0.72f, 0.82f);
+                case "TRAVELING": case "LOADING": return Rgb(0.30f, 0.72f, 0.82f);
                 case "UNLOADING": return Rgb(0.16f, 0.50f, 0.62f);
-                case "TRAVELLING_EMPTY": return Rgb(0.62f, 0.80f, 0.98f);
+                case "TRAVELING_EMPTY": return Rgb(0.62f, 0.80f, 0.98f);
+                // reserved but not busy (a milk-run train waiting for departure): a lighter grey, next to IDLE
+                case "WAITING_DEPARTURE": return Rgb(0.74f, 0.76f, 0.80f);
                 case "IDLE": return Rgb(0.55f, 0.57f, 0.61f);
                 case null: return 0x808080;
             }

@@ -23,6 +23,11 @@ namespace SimuLean
 
         /// <summary>Tie-break weight: among equally-ready tasks, higher runs first.</summary>
         public int Priority = 0;
+
+        /// <summary>The task's own resources: its requirements — of any team, all at once or in order —
+        /// with the station's priority, preemption and release (<see cref="AssemblyStation.Resources"/>); null = the
+        /// station's use.</summary>
+        public SimuLean.Resources.StationResources Resources;
     }
 
     /// <summary>
@@ -35,8 +40,14 @@ namespace SimuLean
     /// <see cref="AssemblyTaskSpec.Priority"/> then declaration order.
     /// Consumed materials are attached to the job as sub-items; when every task
     /// has completed the job is sent onward.
+    /// <para><b>Setup</b> (optional, <see cref="Setup"/>): the station changes over <b>per job</b> (an order),
+    /// before its first task — on every job (EachItem) or when the job's label differs from the previous job's
+    /// (LabelChange) —, by the machine alone or a crew of its own (its process resources are asked per task, so they cannot
+    /// stay from the setup: <see cref="StationSetup.KeepForProcess"/> is not offered). A setup of one task is a task of the
+    /// network already.</para>
     /// </summary>
-    public class AssemblyStation : Element, SimuLean.Resources.IResourceUser
+    public class AssemblyStation : Element, SimuLean.Resources.IResourceUser, SimuLean.Resources.IInterruptibleStation,
+                                   ISetupStation, ISetupHost
     {
         // ── task run = one scheduled Eventcs per executing task ─────────────
         private class TaskRun : IEvent
@@ -47,6 +58,7 @@ namespace SimuLean
             internal long   ReadySeq;
             internal int    DeclIndex;
             internal SimuLean.Resources.ResourceJob ResJob;
+            internal bool Paused;   // lost its resource (preemption): its work waits, paused
 
             internal TaskRun(AssemblyStation station, AssemblyTaskSpec spec, int declIndex)
             {
@@ -71,11 +83,35 @@ namespace SimuLean
         private readonly List<TaskRun> ready         = new List<TaskRun>(); // dispatchable
         private int running;              // tasks started or waiting for their operator
         private long readySeqCounter;
+        private readonly List<TaskRun> working = new List<TaskRun>();   // tasks whose work runs (or is paused, preemption)
 
         /// <summary>Resources each task needs (one request per task); null = none. With
         /// <see cref="SimuLean.Resources.ProcessRelease.ItemLeaves"/> the last task's resources are kept until the job leaves.</summary>
         public SimuLean.Resources.StationResources Resources { get; set; }
         private SimuLean.Resources.ResourceJob lastTaskJob;   // the last task's resources (ItemLeaves), released in FinishJob
+        private SimuLean.Resources.StationResources lastTaskUse;
+
+        // A task's resources: its own, else the station's.
+        private SimuLean.Resources.StationResources UseOf(TaskRun task) => task.Spec.Resources ?? Resources;
+
+        /// <summary>Its changeover before each job's first task (null = none); the previous job is the station's.</summary>
+        public StationSetup Setup { get; set; }
+        // the job's setup slot: what the setup tracks (the last job's value, the running setup)
+        private ServerProcess setupSlot;
+
+        /// <summary>The station is free and set up for <paramref name="job"/> (the last job had its value).</summary>
+        public bool IsSetUpFor(Item job) => Setup != null && this.job == null && Setup.Matches(setupSlot, job);
+
+        /// <summary>The job's setup is running (or waits for its crew): no task starts.</summary>
+        public bool InSetup => setupSlot != null && setupSlot.InSetup;
+
+        void ISetupHost.SetupState(ServerProcess slot, ElementState state) => SetState(state);
+
+        void ISetupHost.SetupEnded(ServerProcess slot, bool keptResources)
+        {
+            SetState(ElementState.RECEIVING);
+            PromoteAndDispatch();
+        }
 
         /// <param name="specs">Task definitions; validated (unknown predecessors / cycles throw).</param>
         /// <param name="workerCount">Max concurrently running tasks (≥1).</param>
@@ -146,7 +182,16 @@ namespace SimuLean
             ready.Clear();
             running = 0;
             readySeqCounter = 0;
+            working.Clear();
+            setupSlot = new ServerProcess(null, null, simClock);
+            Setup?.ResetStatistics();
             stockPort.Start();
+        }
+
+        public override void ResetStatistics()
+        {
+            base.ResetStatistics();
+            Setup?.ResetStatistics();
         }
 
         // ── main input (jobs) ────────────────────────────────────────────────
@@ -181,6 +226,12 @@ namespace SimuLean
                 return true;
             }
 
+            setupSlot.SetItem(theItem);
+            if (Setup != null && Setup.Needed(setupSlot, theItem))
+            {
+                Setup.Begin(this, setupSlot, null, this);   // its own crew or the machine; the tasks wait for its end
+                return true;
+            }
             PromoteAndDispatch();
             return true;
         }
@@ -189,7 +240,7 @@ namespace SimuLean
 
         private void OnMaterialArrived(Item theItem)
         {
-            if (job != null)
+            if (job != null && !InSetup)
                 PromoteAndDispatch();
         }
 
@@ -238,11 +289,12 @@ namespace SimuLean
                         job.AddItem(item);
 
                 running++;
-                if (Resources != null)
+                var use = UseOf(next);
+                if (use != null)
                 {
                     TaskRun task = next;
                     if (running == 1) SetState(ElementState.WAITING_FOR_RESOURCE);
-                    task.ResJob = Resources.Acquire(this, job, () => StartTask(task));
+                    task.ResJob = use.Acquire(this, job, () => StartTask(task));
                 }
                 else
                     StartTask(next);
@@ -254,7 +306,35 @@ namespace SimuLean
             SetState(ElementState.PROCESSING);
             IRandomSampler d = task.Spec.Duration;
             double duration = SimuLean.Expressions.Samplers.Sample(d, job, this);   // expressions: per job
-            ScheduleWork(task, duration);
+            var work = ScheduleWork(task, duration);
+            var use = UseOf(task);
+            if (use != null)
+            {
+                // the task's resources may be taken while it works (preemption): only this task waits then
+                task.ResJob = use.ProcessStarted(task.ResJob, work);
+                task.Paused = false;
+                working.Add(task);
+            }
+        }
+
+        /// <summary>A task lost its resource (preemption): that task's work waits, paused, and asks for a member again
+        /// (its own request); the other tasks go on. The station waits for resources while no task works.</summary>
+        void SimuLean.Resources.IInterruptibleStation.JobPaused(SimuLean.Resources.ResourceJob resJob, bool paused, bool restart)
+        {
+            if (resJob.Slot != null && resJob.Slot == setupSlot)
+            {
+                // the setup crew lost a member: the setup waits, paused, then goes on
+                if (!paused) { if (restart) setupSlot.SetupStart = simClock.GetSimulationTime(); else setupSlot.SetupStart += resJob.LastPause; }
+                SetState(paused ? ElementState.WAITING_FOR_RESOURCE : ElementState.SETUP);
+                return;
+            }
+            TaskRun task = null;
+            foreach (var t in working) if (t.ResJob == resJob) { task = t; break; }
+            if (task == null) return;
+            task.Paused = paused;
+            if (!paused) { SetState(ElementState.PROCESSING); return; }
+            foreach (var t in working) if (!t.Paused) return;   // another task works on
+            SetState(ElementState.WAITING_FOR_RESOURCE);
         }
 
         /// <summary>First-ready-first; ties: higher Priority, then declaration order.</summary>
@@ -281,18 +361,21 @@ namespace SimuLean
         private void TaskCompleted(TaskRun t)
         {
             running--;
+            if (working.Count > 0) working.Remove(t);
             completed.Add(t.Spec.Id);
 
-            Resources?.ProcessEnded(t.ResJob);   // EndOfProcess: released now
+            var use = UseOf(t);
+            use?.ProcessEnded(t.ResJob);   // EndOfProcess: released now
             if (completed.Count == specs.Count && running == 0)
             {
                 lastTaskJob = t.ResJob;                    // ItemLeaves: kept until the job leaves
+                lastTaskUse = use;
                 t.ResJob = null;
                 CompleteJob();
                 return;
             }
 
-            Resources?.ItemLeft(t.ResJob);             // tasks before the last one never keep their resources
+            use?.ItemLeft(t.ResJob);             // tasks before the last one never keep their resources
             t.ResJob = null;
             PromoteAndDispatch();
         }
@@ -317,8 +400,9 @@ namespace SimuLean
         {
             job = null;
             jobBlocked = false;
-            Resources?.ItemLeft(lastTaskJob);
+            lastTaskUse?.ItemLeft(lastTaskJob);
             lastTaskJob = null;
+            lastTaskUse = null;
             SetState(ElementState.IDLE);
             vElement.ReportState("Exit");
 
@@ -351,6 +435,8 @@ namespace SimuLean
         /// <summary>Completed / total task counts for dashboards.</summary>
         public int CompletedTaskCount => completed.Count;
         public int TotalTaskCount     => specs.Count;
+        /// <summary>The tasks of each job (their specs, in declaration order).</summary>
+        public IReadOnlyList<AssemblyTaskSpec> Tasks => specs;
         public int RunningTaskCount   => running;
     }
 }

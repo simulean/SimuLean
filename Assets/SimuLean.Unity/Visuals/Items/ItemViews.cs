@@ -23,6 +23,7 @@ namespace SimuLean.Unity
         {
             if (installed) return;
             Item.VisualAttached += OnVisual;
+            Item.LookChanged += ItemLooks.Apply;   // a reaction's Set Item Look (view only)
             installed = true;
         }
 
@@ -31,12 +32,14 @@ namespace SimuLean.Unity
             if (item.vItem is GameObject go && go != null) Bind(item, go);
         }
 
-        /// <summary>Binds every item view on <paramref name="go"/> (and its children) to <paramref name="item"/>.</summary>
+        /// <summary>Binds every item view on <paramref name="go"/> (and its children) to <paramref name="item"/>, then shows the
+        /// item's look (<see cref="ItemLooks"/>), so a new visual keeps the colour / scale a reaction gave the item.</summary>
         public static void Bind(Item item, GameObject go)
         {
             // a view may replace a look and so destroy the views under it (a look by label): skip those
             foreach (var v in go.GetComponentsInChildren<IItemView>(true))
                 if (v is Object o && o != null) v.Bind(item);
+            ItemLooks.Apply(item, go);
         }
 
         /// <summary>A label of the item as text: the label's value, <c>#id</c> the item's id, <c>#name</c> its name.</summary>

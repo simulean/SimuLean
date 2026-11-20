@@ -26,10 +26,10 @@ namespace SimuLean.Unity.Editor.Tests
                 a.templates = new List<string> { "2026-04-01 | Mon-Fri 08:30-13:10 | 20" };
 
                 var config = SceneExtractor.ExtractElement(a);
-                Assert.AreEqual("UnityAgenda", config.Type);
-                Assert.AreEqual("Mon-Fri 08:30-12:30", config.GetParameter<string>("sessions"));
-                Assert.AreEqual("WaitReserved", config.GetParameter<string>("overflow"));
-                CollectionAssert.AreEqual(new[] { "2026-12-25" }, config.GetParameter<List<string>>("holidays"));
+                Assert.AreEqual("Agenda", config.Type);
+                Assert.AreEqual("Mon-Fri 08:30-12:30", config.Get<string>("sessions"));
+                Assert.AreEqual("WaitReserved", config.Get<string>("overflow"));
+                CollectionAssert.AreEqual(new[] { "2026-12-25" }, config.Get<List<string>>("holidays"));
 
                 var model = new SimuLean.Headless.HeadlessModelFactory(new SimClock(1));
                 model.BuildModel(new SimulationConfig { Elements = { config } });

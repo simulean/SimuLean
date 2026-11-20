@@ -28,7 +28,7 @@ namespace SimuLean.Unity
         /// <summary>What a member does at a station, from the station's model.</summary>
         public enum Work { Desk, Examine, Machine, Weld, Paint }
 
-        [Tooltip("The people clips (Art/Models/Operator/People.controller, built by Tools ▸ SimuLean ▸ Build People Animations).")]
+        [Tooltip("The people clips (Art/Models/Operator/People.controller, built by Tools ▸ SimuLean ▸ Developer ▸ Build People Animations).")]
         public RuntimeAnimatorController controller;
         [Tooltip("An item's pose (set by the layouts: seats → Sit, a patient socket → Lie).")]
         public Pose pose = Pose.Stand;
@@ -158,7 +158,7 @@ namespace SimuLean.Unity
                 if (a == null) continue;
                 Vector3 d = a.transform.position - point; d.y = 0f;
                 if (d.sqrMagnitude > r2) continue;
-                // its look's renderers, found once when the look was bound (no search per door per frame; review2 #22)
+                // its look's renderers, found once when the look was bound (no search per door per frame)
                 var shown = a.renderers.Length > 0 ? a.renderers : a.GetComponentsInChildren<Renderer>(false);
                 foreach (var r in shown) if (r != null && r.enabled) return true;
             }
@@ -194,7 +194,7 @@ namespace SimuLean.Unity
             bool moving = ex != null ? (ex.CurrentLeg != null || mover.Stepping) && speed > 0.05f : driven ? drivenMoving && speed > 0.05f : walking;
             var step = ex?.CurrentStep;
             bool working = ex != null && ex.CurrentLeg == null && step != null && (step.Kind == StepKind.Process || step.Kind == StepKind.Hold);
-            bool carrying = ex != null && ex.Carried.Count > 0 && !working;   // a station's item held while serving is not carried (B7)
+            bool carrying = ex != null && ex.Carried.Count > 0 && !working;   // a station's item held while serving is not carried
             bool handing = ex != null && ex.CurrentLeg == null && step != null && (step.Kind == StepKind.Load || step.Kind == StepKind.Unload);
             Work? work = working ? WorkAt(ModelName(ex.CurrentTask?.Requester)) : (Work?)null;
             string clip = ClipFor(walking ? Pose.Stand : pose, moving, carrying, pushes, work, handing && !pushes, (Hash & 1u) == 1u);

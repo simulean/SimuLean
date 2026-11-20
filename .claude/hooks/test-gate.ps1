@@ -5,6 +5,12 @@
 #               StandaloneTests/run-all.ps1, and if any C# under Assets changed, compile-check the Unity
 #               code without the editor (StandaloneTests/unity-compile-check.ps1); on failure exit 2 so
 #               the failure is reported back immediately (a broken bulk-edit script is caught at once).
+#               Cheap when nothing changed (2026-11-13; it fires on every Bash call, read-only ones too): an edit of a
+#               file outside the repository returns at once, the fingerprints are one directory walk (~0.2 s) checked
+#               BEFORE the lock, and a failure is reported once per fingerprint (the next calls stay quiet until the
+#               sources change: a fix re-runs the battery). The lock is waited for 2 minutes at most, and not at all
+#               while a pre-commit run holds it (a batch Unity run can take 45 minutes): the call is skipped, the next
+#               one checks again. Hook timeout (.claude/settings.json): 600 s = that wait + a cold build and run.
 #   precommit - git pre-commit hook (.githooks/pre-commit; every commit: console, GitHub Desktop,
 #               Claude). Fails the commit (exit 1) unless
 #               1. the standalone tests pass, the Unity code compiles, and
@@ -17,7 +23,9 @@
 #                  b. else they run in batch mode (Unity.exe -runTests), which needs the editor CLOSED
 #                     (Unity locks the project). With the editor open the commit goes ahead with a warning
 #                     and the tests stay pending: they run on the first commit made with the editor closed
-#                     (CLAUDE.md: the agent asks the user to close Unity, or leaves them pending).
+#                     (CLAUDE.md: the agent asks the user to close Unity, or leaves them pending). Before Unity
+#                     starts, the external runner of this engine version is built when missing (~40 s; its tests
+#                     need it, and built by the editor mid-run they were inconclusive and the editor hung on exit).
 #                  SIMULEAN_SKIP_UNITY_TESTS=1 skips step 2.
 #               The tests see the working tree: when code (.cs / .asmdef, the baselines, the package manifest)
 #               has unstaged changes or untracked scripts, a pass is not cached for the index.
@@ -25,7 +33,8 @@
 #
 # A fingerprint avoids re-running a battery when nothing changed; the last passing / failing fingerprints
 # live in .claude/hooks/.state (git-ignored). Standalone and the compile check fingerprint the files (path + size
-# + write time) of Assets/SimuLean.Net and StandaloneTests / of the C# under Assets. The Unity EditMode verdict
+# + write time; bin / obj skipped) of everything the suites compile or read ($saPaths below, plus any file outside
+# StandaloneTests a suite's csproj includes) / of the C# under Assets. The Unity EditMode verdict
 # fingerprints the git INDEX (what is committed: scripts, scenes, prefabs and assets under Assets, the package
 # manifest and the baselines), so the user's unstaged work in progress does not invalidate it (2026-10-08).
 # Unity editor: $env:UNITY_EDITOR_PATH, else the Hub install of ProjectSettings/ProjectVersion.txt.
@@ -40,18 +49,40 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $uPaths = @('Assets', 'Packages\manifest.json', 'ProjectSettings\ProjectVersion.txt', 'StandaloneTests\referencemodels\baselines')
 $uExts = @('.cs', '.unity', '.prefab', '.asset', '.asmdef', '.json', '.txt')
 
+# Path + size + write time of every file under $paths (files or folders, relative to the root) with an extension in
+# $exts ('' = none), bin / obj folders (and this hook's .state) skipped, hashed in ordinal path order. One
+# DirectoryInfo walk: the enumeration returns size and time with each name (no stat per file) - ~0.2 s for the
+# repository's sources, where two
+# Get-ChildItem | Sort-Object walks took seconds (2026-11-13).
+$script:walked = @{}
+$script:walkedDirs = @{}
 function Get-Fingerprint([string[]]$paths, [string[]]$exts) {
-    $sb = New-Object System.Text.StringBuilder
+    $extSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($e in $exts) { [void]$extSet.Add($e) }
+    $lines = New-Object 'System.Collections.Generic.List[string]'
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $stack = New-Object 'System.Collections.Generic.Stack[IO.DirectoryInfo]'
     foreach ($p in $paths) {
-        $full = Join-Path $root $p
-        if (-not (Test-Path $full)) { continue }
-        Get-ChildItem -Path $full -Recurse -File |
-            Where-Object { $exts -contains $_.Extension -and $_.FullName -notmatch '\\(bin|obj)\\' } |
-            Sort-Object FullName |
-            ForEach-Object { [void]$sb.Append("$($_.FullName)|$($_.Length)|$($_.LastWriteTimeUtc.Ticks)`n") }
+        $full = [IO.Path]::GetFullPath((Join-Path $root $p))
+        if ([IO.File]::Exists($full)) {
+            $f = New-Object IO.FileInfo $full
+            if ($extSet.Contains($f.Extension) -and $seen.Add($f.FullName)) { $lines.Add("$($f.FullName)|$($f.Length)|$($f.LastWriteTimeUtc.Ticks)") }
+        } elseif ([IO.Directory]::Exists($full)) { $stack.Push((New-Object IO.DirectoryInfo $full)) }
     }
+    while ($stack.Count -gt 0) {
+        $d = $stack.Pop()
+        $files = $script:walked[$d.FullName]   # a folder walked by an earlier call of this run (Assets: both fingerprints)
+        if ($null -eq $files) { $files = @($d.EnumerateFiles()); $script:walked[$d.FullName] = $files }
+        foreach ($f in $files) {
+            if ($extSet.Contains($f.Extension) -and $seen.Add($f.FullName)) { $lines.Add("$($f.FullName)|$($f.Length)|$($f.LastWriteTimeUtc.Ticks)") }
+        }
+        $subs = $script:walkedDirs[$d.FullName]
+        if ($null -eq $subs) { $subs = @($d.EnumerateDirectories()); $script:walkedDirs[$d.FullName] = $subs }
+        foreach ($s in $subs) { if ($s.Name -ne 'bin' -and $s.Name -ne 'obj' -and $s.Name -ne '.state') { $stack.Push($s) } }
+    }
+    $lines.Sort([StringComparer]::Ordinal)
     $sha = [System.Security.Cryptography.SHA1]::Create()
-    $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($sb.ToString()))
+    $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes(($lines -join "`n")))
     return ([System.BitConverter]::ToString($bytes) -replace '-', '')
 }
 
@@ -69,21 +100,56 @@ function Get-UnstagedCode {
              Where-Object { $_ } | Sort-Object -Unique)
 }
 
-# One gate at a time per checkout: parallel tool calls (or sessions) would otherwise build the same test
-# projects concurrently and fail on locked files. Later callers wait, then usually hit the cache.
-$mutexName = 'Global\SimuLeanTestGate_' + (($root.ToLowerInvariant() -replace '[^a-z0-9]', '_'))
-$mutex = New-Object System.Threading.Mutex($false, $mutexName)
-# Bounded wait: a hung holder (a stuck batch Unity) must not block every later hook of every session.
-$owned = $false
-try { $owned = $mutex.WaitOne([TimeSpan]::FromMinutes(20)) } catch [System.Threading.AbandonedMutexException] { $owned = $true }   # previous holder died: we own it now
-if (-not $owned) {
-    [Console]::Error.WriteLine('test-gate: another gate run has held the lock for 20 minutes (a hung batch Unity?) - giving up.')
-    exit 2
-}
 $stateDir = Join-Path $PSScriptRoot '.state'
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
-if ($Mode -eq 'post') { [void][Console]::In.ReadToEnd() }   # the hook's JSON event (not needed)
+# post: the hook's JSON event. An edit of a file outside the repository (scratch files, memory) cannot change what the
+# gate checks: done. Bash / PowerShell calls cannot be told apart cheaply; the fingerprints decide for them.
+if ($Mode -eq 'post') {
+    $hookEvent = [Console]::In.ReadToEnd()
+    if ($hookEvent -match '"tool_name"\s*:\s*"(Edit|Write|MultiEdit|NotebookEdit)"' -and
+        $hookEvent -match '"(?:file_path|notebook_path)"\s*:\s*"((?:[^"\\]|\\.)*)"') {
+        $edited = $Matches[1] -replace '\\(["\\/])', '$1'   # JSON escapes in a path: \\ \" \/
+        if ([IO.Path]::IsPathRooted($edited) -and
+            -not ([IO.Path]::GetFullPath($edited)).StartsWith($root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { exit 0 }
+    }
+}
+
+# ── fingerprints ─────────────────────────────────────────────────────────────
+
+# What the standalone verdict depends on: what the suites compile (the engine and the choice rules, through
+# Engine.props / Tests.props; StandaloneTests) and what they read (architecturelint: every C# file under Assets;
+# docsymboltests: the docs, the code and script corpus of Assets / StandaloneTests / Tools / .claude/hooks / .githooks;
+# agentinterfacetests: docs/agents; run-all's commands.md check: Tools/Docs and the pipeline commands). Files outside
+# StandaloneTests that a suite's csproj includes or imports (Tools/Runner/RunnerCli.cs, Fingerprint.targets) are added
+# from the csproj files themselves, so a new one is covered without editing this list.
+$saPaths = @('Assets', 'StandaloneTests', 'Tools', 'docs', '.claude\hooks', '.claude\skills', '.githooks')
+# the root's own files (CLAUDE.md, AGENTS.md, README.md...): docsymboltests checks that every file a doc names exists, so
+# deleting or restoring one is an input too (a folder elsewhere is covered only by the folders above)
+$saPaths += @([IO.Directory]::GetFiles($root) | ForEach-Object { [IO.Path]::GetFileName($_) })
+foreach ($proj in [IO.Directory]::EnumerateFiles((Join-Path $root 'StandaloneTests'), '*.*proj*', 'AllDirectories')) {
+    if ($proj -match '\\(bin|obj)\\') { continue }
+    foreach ($m in [regex]::Matches([IO.File]::ReadAllText($proj), '(?:Include|Project)="([^"*$;]+)"')) {
+        $rel = $m.Groups[1].Value
+        if ($rel -notmatch '^\.\.') { continue }
+        $full = [IO.Path]::GetFullPath((Join-Path (Split-Path $proj) $rel))
+        if ($full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { $saPaths += $full.Substring($root.Length + 1) }
+    }
+}
+$saExts = @('.cs', '.csproj', '.props', '.proj', '.targets', '.json', '.ps1', '.md', '.py', '.txt', '.tsv', '.asmdef', '.sh', '')
+$saFp = Get-Fingerprint $saPaths $saExts
+$ccPaths = @('Assets', 'Assembly-CSharp.csproj', 'Assembly-CSharp-Editor.csproj', 'StandaloneTests\unity-compile-check.ps1')
+$ccFp = Get-Fingerprint $ccPaths @('.cs', '.asmdef', '.csproj', '.ps1')
+
+# post: a failure is reported once per fingerprint (2026-11-13). The same "still failing" on every following call,
+# read-only ones included, was most of the gate's output; the sources changing (a fix) re-runs the check.
+function Test-Reported([string]$name, [string]$fp) {
+    $f = Join-Path $stateDir "$name-reported.txt"
+    return (Test-Path $f) -and ((Get-Content $f -Raw).Trim() -eq $fp)
+}
+function Set-Reported([string]$name, [string]$fp) {
+    if ($Mode -eq 'post') { Set-Content -Path (Join-Path $stateDir "$name-reported.txt") -Value $fp -Encoding ascii }
+}
 
 # Fingerprint of the staged (index) versions of the tracked files under $paths with an extension in $exts.
 function Get-IndexFingerprint([string[]]$paths, [string[]]$exts) {
@@ -134,11 +200,50 @@ function Fail([string]$message, [string[]]$summary) {
     if ($Mode -eq 'post') { exit 2 } else { exit 1 }
 }
 
+# post: nothing to do when both verdicts are known and passing, or failing and already reported - decided before the
+# lock, so an ordinary call costs the fingerprints only.
+if ($Mode -eq 'post') {
+    $quiet = $true
+    foreach ($c in @(@('standalone', $saFp), @('unitycompile', $ccFp))) {
+        $v = Get-Cached $c[0] $c[1]
+        if ($null -eq $v -or (-not $v.ok -and -not (Test-Reported $c[0] $c[1]))) { $quiet = $false }
+    }
+    if ($quiet) { exit 0 }
+}
+
+# One gate at a time per checkout: parallel tool calls (or sessions) would otherwise build the same test
+# projects concurrently and fail on locked files. Later callers wait, then usually hit the cache.
+$mutexName = 'Global\SimuLeanTestGate_' + (($root.ToLowerInvariant() -replace '[^a-z0-9]', '_'))
+$mutex = New-Object System.Threading.Mutex($false, $mutexName)
+$holderFile = Join-Path $stateDir 'lock-holder.txt'
+$owned = $false
+try {
+    if ($Mode -eq 'post') {
+        # post never waits for a pre-commit run (a batch Unity run holds the lock up to 45 minutes) and waits 2 minutes at
+        # most for another post run (its own run usually fills the cache): within the hook's 600 s timeout.
+        $owned = $mutex.WaitOne(0)
+        if (-not $owned -and (Test-Path $holderFile) -and ((Get-Content $holderFile -Raw) -match '^precommit')) {
+            Write-Output 'test-gate: a pre-commit run holds the gate; this check is skipped (the next call checks again).'
+            exit 0
+        }
+        if (-not $owned) { $owned = $mutex.WaitOne([TimeSpan]::FromMinutes(2)) }
+    } else {
+        # Bounded wait: a hung holder (a stuck batch Unity) must not block every later commit forever.
+        $owned = $mutex.WaitOne([TimeSpan]::FromMinutes(20))
+    }
+} catch [System.Threading.AbandonedMutexException] { $owned = $true }   # previous holder died: we own it now
+if (-not $owned) {
+    if ($Mode -eq 'post') {
+        Write-Output 'test-gate: another gate run has held the lock for 2 minutes; this check is skipped (the next call checks again).'
+        exit 0
+    }
+    [Console]::Error.WriteLine('test-gate: another gate run has held the lock for 20 minutes (a hung batch Unity?) - giving up.')
+    exit 2
+}
+Set-Content -Path $holderFile -Value "$Mode $PID" -Encoding ascii
+
 # ── 1. standalone battery ────────────────────────────────────────────────────
 
-$saPaths = @('Assets\SimuLean.Net', 'StandaloneTests')
-$saExts = @('.cs', '.csproj', '.props', '.json', '.ps1')
-$saFp = Get-Fingerprint $saPaths $saExts
 $cached = Get-Cached 'standalone' $saFp
 $blocked = if ($Mode -eq 'precommit') { 'Commit blocked: ' } else { '' }
 
@@ -151,22 +256,31 @@ if ($null -eq $cached) {
     $ErrorActionPreference = 'Stop'
     $summary = @()
     if ($code -ne 0) {
-        $summary = @($out | Where-Object { $_ -match 'FAIL|EXCEPTION|error|Error|^== ' -and $_ -notmatch ', 0 failed$|RemoteException' } |
-                     Select-Object -First 60)
+        # the failing lines under their suite's "== name" header; a check's title ("- ...") is not a failure even when it
+        # says "fails" or "errors" (it filled the summary with the titles of passing suites)
+        $suite = ''
+        foreach ($line in $out) {
+            if ($line -match '^== ') { $suite = $line; continue }
+            if ($line -match '^- ' -or $line -match ', 0 failed$|RemoteException') { continue }
+            if ($line -match 'FAIL|EXCEPTION|[1-9]\d* failed|error|Error') {
+                if ($suite) { $summary += $suite; $suite = '' }
+                $summary += $line
+            }
+        }
+        $summary = @($summary | Select-Object -First 60)
         if ($summary.Count -eq 0) { $summary = @($out | Select-Object -Last 40) }
     }
     Set-Cached 'standalone' $saFp ($code -eq 0) $summary
-    if ($code -ne 0) { Fail "${blocked}standalone tests FAILED (StandaloneTests/run-all.ps1):" $summary }
+    if ($code -ne 0) { Set-Reported 'standalone' $saFp; Fail "${blocked}standalone tests FAILED (StandaloneTests/run-all.ps1):" $summary }
     if ($Mode -eq 'post') { Write-Output 'Standalone tests passed.' }
-} elseif (-not $cached.ok) {
+} elseif (-not $cached.ok -and -not ($Mode -eq 'post' -and (Test-Reported 'standalone' $saFp))) {
     $what = if ($Mode -eq 'precommit') { 'Commit blocked: the standalone tests fail' } else { 'Standalone tests still failing (sources unchanged since the failing run)' }
+    Set-Reported 'standalone' $saFp
     Fail $what $cached.summary
 }
 
 # ── 2. Unity code compiles (no editor needed: StandaloneTests/unity-compile-check.ps1) ──
 
-$ccPaths = @('Assets', 'Assembly-CSharp.csproj', 'Assembly-CSharp-Editor.csproj', 'StandaloneTests\unity-compile-check.ps1')
-$ccFp = Get-Fingerprint $ccPaths @('.cs', '.asmdef', '.csproj', '.ps1')
 $cached = Get-Cached 'unitycompile' $ccFp
 if ($null -eq $cached) {
     $ErrorActionPreference = 'Continue'
@@ -175,9 +289,10 @@ if ($null -eq $cached) {
     $ErrorActionPreference = 'Stop'
     $summary = if ($code -ne 0) { @($out | Where-Object { $_ -notmatch '^== ' } | Select-Object -First 40) } else { @() }
     Set-Cached 'unitycompile' $ccFp ($code -eq 0) $summary
-    if ($code -ne 0) { Fail "${blocked}Unity code does NOT compile (StandaloneTests/unity-compile-check.ps1):" $summary }
-} elseif (-not $cached.ok) {
+    if ($code -ne 0) { Set-Reported 'unitycompile' $ccFp; Fail "${blocked}Unity code does NOT compile (StandaloneTests/unity-compile-check.ps1):" $summary }
+} elseif (-not $cached.ok -and -not ($Mode -eq 'post' -and (Test-Reported 'unitycompile' $ccFp))) {
     $what = if ($Mode -eq 'precommit') { 'Commit blocked: the Unity code does not compile' } else { 'Unity code still does not compile (sources unchanged since the failing check)' }
+    Set-Reported 'unitycompile' $ccFp
     Fail $what $cached.summary
 }
 if ($Mode -eq 'post') { exit 0 }
@@ -261,6 +376,50 @@ if (-not $unity) {
 }
 if (-not (Test-Path $unity)) {
     Fail "Commit blocked: Unity editor not found at '$unity' (set UNITY_EDITOR_PATH)." @()
+}
+
+# The external runner (ExternalRunner.Folder: Library/SimuLeanRunner/<engine fingerprint><runner sources suffix>) is
+# built BEFORE Unity starts (2026-10-30). Built by the editor during the run, as it is on first use, its tests came out
+# inconclusive (the build not finished) and the batch editor hung on exit until the 45-minute kill, after every engine
+# change. Same algorithms as EngineFingerprint.OfSources / Tools/Runner/Fingerprint.targets and
+# ExternalRunner.RunnerSourcesSuffix; a mismatch only costs a build (the editor then builds its own, as before).
+function Get-Sha([System.Collections.Generic.IEnumerable[object]]$entries, [int]$bytes) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    foreach ($e in $entries) {
+        $text = [IO.File]::ReadAllText($e.Full, [Text.Encoding]::UTF8).Replace("`r", '')
+        $b = [Text.Encoding]::UTF8.GetBytes($e.Name + "`n" + $text + "`n")
+        [void]$sha.TransformBlock($b, 0, $b.Length, $null, 0)
+    }
+    [void]$sha.TransformFinalBlock([byte[]]@(), 0, 0)
+    return (($sha.Hash[0..($bytes - 1)] | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+function Get-RunnerFolder {
+    $engine = (Resolve-Path (Join-Path $root 'Assets\SimuLean.Net')).Path.TrimEnd('\', '/')
+    $files = @(Get-ChildItem -Path $engine -Recurse -File -Filter '*.cs' | Where-Object { $_.Extension -eq '.cs' } | ForEach-Object {
+        [pscustomobject]@{ Name = $_.FullName.Substring($engine.Length + 1).Replace('\', '/'); Full = $_.FullName } })
+    $files = [Linq.Enumerable]::ToArray([Linq.Enumerable]::OrderBy([object[]]$files, [Func[object, string]] { param($f) $f.Name }, [StringComparer]::Ordinal))
+    $fp = Get-Sha $files 8
+    $suffix = ''
+    $runnerDir = Join-Path $root 'Tools\Runner'
+    if (Test-Path $runnerDir) {
+        $own = @(Get-ChildItem -Path $runnerDir -File | Where-Object { $_.Name -like '*.cs' -or $_.Name -like '*.csproj' -or $_.Name -like '*.targets' } |
+            ForEach-Object { [pscustomobject]@{ Name = $_.Name; Full = $_.FullName } })
+        $own = [Linq.Enumerable]::ToArray([Linq.Enumerable]::OrderBy([object[]]$own, [Func[object, string]] { param($f) $f.Name }, [StringComparer]::Ordinal))
+        $suffix = '-' + (Get-Sha $own 4)
+    }
+    return Join-Path $root "Library\SimuLeanRunner\$fp$suffix"
+}
+$runnerProject = Join-Path $root 'Tools\Runner\simulean.csproj'
+if ((Test-Path $runnerProject) -and (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    $runnerFolder = Get-RunnerFolder
+    if (-not (Test-Path (Join-Path $runnerFolder 'simulean.exe'))) {
+        $rid = if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'win-arm64' } else { 'win-x64' }
+        Write-Host "Building the external runner for this engine version ($(Split-Path $runnerFolder -Leaf))..."
+        & dotnet publish "$runnerProject" -c Release -r $rid --self-contained true -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:PublishReadyToRun=true `
+            -o "$runnerFolder" --nologo -v quiet | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: the runner build failed (exit $LASTEXITCODE); the editor builds it during the run." }
+    }
 }
 
 $results = Join-Path $stateDir 'editmode-results.xml'

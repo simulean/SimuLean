@@ -27,6 +27,8 @@ namespace SimuLean.Optimization
     {
         public List<string> Errors { get; } = new List<string>();
         public List<string> Warnings { get; } = new List<string>();
+        /// <summary>Facts worth knowing that need no change (a default the build chose: a team's home node).</summary>
+        public List<string> Info { get; } = new List<string>();
         public bool Ok => Errors.Count == 0;
 
         internal void Add(bool error, string message)
@@ -44,9 +46,11 @@ namespace SimuLean.Optimization
     /// — from code, from the MCP or from the Experimenter component, which runs through it. Engine-only.
     /// <para><b>Factor paths</b> — <c>Owner.key</c> (an element's catalog key, e.g. <c>Yard.capacity</c>,
     /// <c>Srv.delay~1</c>), <c>team:Welders.members</c>, <c>team:Ops.members[skill=welding]</c> (the members with that
-    /// label, <see cref="TeamLabelMembersParameter"/>), <c>downtime:id.key</c>, <c>Source.table</c> (a schedule
+    /// label, <see cref="TeamPropertyMembersParameter"/>), <c>downtime:id.key</c>, <c>Source.table</c> (a schedule
     /// source's arrivals table read from a file per level, <see cref="SourceTableParameter"/>), and
-    /// <c>data:Table.file</c> / <c>data:Table.sql</c> (a data table's source per level, <see cref="DataTableParameter"/>).
+    /// <c>data:Table.file</c> / <c>data:Table.sql</c> (a data table's source per level, <see cref="DataTableParameter"/>),
+    /// and a declared text setting by its texts (<c>Station.processBy.priority</c>, <c>team:Ops.requestOrder</c>,
+    /// <see cref="TextSettingParameter"/>).
     /// <b>Metric paths</b> — <c>model.makespan</c>, <c>Sink.input</c>, <c>team:Welders.utilization</c>,
     /// <c>list:Yard.wait_avg</c> (<see cref="MetricCatalog"/>).</para>
     /// </summary>
@@ -65,16 +69,17 @@ namespace SimuLean.Optimization
         public double RunTime { get; set; }
         /// <summary>Time series interval of each run (0 = none).</summary>
         public double SeriesInterval { get; set; }
-        /// <summary>Every run also keeps its state intervals (the Gantt, G3c; opt-in: the results grow with every state change).</summary>
+        /// <summary>Every run also keeps its state intervals (the Gantt; opt-in: the results grow with every state change).</summary>
         public bool RecordTimeline { get; set; }
         /// <summary>Record every statistic of each run (<see cref="RunResults"/>); off = only the metrics.</summary>
         public bool RecordStatistics { get; set; } = true;
         /// <summary>Runs at once (0 = <see cref="DefaultThreads"/>).</summary>
         public int Threads { get; set; }
 
-        /// <summary>Runs at once by default: one per processor, at most 8 — the runs are bound by allocation and garbage
-        /// collection, and 16 threads were slower than 8 for resource models (review2 #21, perfbench <c>study</c>).</summary>
-        public static int DefaultThreads => Math.Max(1, Math.Min(Environment.ProcessorCount, 8));
+        /// <summary>Runs at once by default: half the logical processors — about one per physical core —, between 1 and 16.
+        /// The runs are bound by memory and garbage collection, so two on one core gain little (measured
+        /// on a 10-core / 16-thread machine: the gain levels off from 6–8 threads). The user can set it.</summary>
+        public static int DefaultThreads => Math.Max(1, Math.Min(Environment.ProcessorCount / 2, 16));
         public double Confidence { get; set; } = 0.95;
         /// <summary>Reads a table file for <see cref="SourceTableParameter"/> (default: <see cref="TableReader.Read"/>, CSV /
         /// .data; Unity passes its reader for Excel too).</summary>
@@ -107,7 +112,7 @@ namespace SimuLean.Optimization
         /// <summary>Adds a metric by path (<c>model.makespan</c>, <c>Sink.input</c>, <c>team:T.utilization</c>…).</summary>
         public Study Metric(string name, string path)
         {
-            Metrics.Add(ParseMetric(name, path));
+            Metrics.Add(ParseMetric(name, path, model));
             return this;
         }
 
@@ -154,6 +159,22 @@ namespace SimuLean.Optimization
         /// <summary>The factors' labels (their paths, or the parameter's name), in factor order — the order of a scenario's
         /// values.</summary>
         public IReadOnlyList<string> FactorLabels => Enumerable.Range(0, factors.Count).Select(FactorLabel).ToList();
+
+        /// <summary>The model's value of a factor path as a level is written (<c>4</c>, <c>true</c>, <c>Fifo</c>), or null when
+        /// it has none to show (a data table, a source's table, labelled members) or the path names nothing.</summary>
+        public string CurrentLevel(string path)
+        {
+            try
+            {
+                var (scopeText, owner, key) = Split((path ?? "").Trim(), model);
+                if (!TryScope(scopeText, out ParameterScope scope) || scope == ParameterScope.Data) return null;
+                if (scope == ParameterScope.Element && (key == SourceTableParameter.Key || key == SourceTableParameter.FileKey)) return null;
+                if (scope == ParameterScope.Team && key.Contains("[")) return null;
+                if (ModelParameterCatalog.IsTextSetting(model, scope, owner, key)) return ModelParameterCatalog.TextSetting(model, scope, owner, key);
+                return ConfigParameter.Of(model, scope, owner, key).Info.CurrentText;
+            }
+            catch (Exception e) when (e is ArgumentException || e is FormatException || e is InvalidOperationException) { return null; }
+        }
 
         /// <summary>A metric by path, as <see cref="Metric"/> adds it.</summary>
         public static ModelMetric MetricOf(string name, string path) => ParseMetric(name, path);
@@ -245,6 +266,7 @@ namespace SimuLean.Optimization
             factory.StartModel();
             clock.AdvanceClock(time > 0 ? time : EffectiveRunTime);
             var d = ModelDiagnosis.Of(factory, clock, all);
+            SimuLean.Logic.ModelLogic.Mark(d, config, factory);   // the decisions where items wait, with their counters
             d["seed"] = seed;
             d["horizon"] = time > 0 ? time : EffectiveRunTime;
             return d;
@@ -278,10 +300,10 @@ namespace SimuLean.Optimization
             {
                 if (path == null) continue;
                 (string scope, string owner, string key) f;
-                try { f = Split(path); } catch (ArgumentException) { continue; }
+                try { f = Split(path, model); } catch (ArgumentException) { continue; }
                 string used = f.scope == "element" ? ModelParameterCatalog.InactiveSamplerKey(model, f.owner, f.key) : null;
                 if (used == null) continue;
-                bool present = model.Elements.Exists(e => e.Name == f.owner && e.Parameters.ContainsKey(f.key));
+                bool present = model.Elements.Exists(e => e.Name == f.owner && e.Has(f.key));
                 check.Add(!present, $"Factor '{path}': '{f.key}' belongs to another distribution — '{f.owner}' uses {used}" +
                                     (present ? ", so this factor changes nothing" : "") + ". Vary that distribution's keys, or its type key too.");
             }
@@ -310,69 +332,211 @@ namespace SimuLean.Optimization
                     check.Add(true, (plan.Count > 1 ? $"Scenario '{s.Name}': " : "") + "the model cannot be built: " + e.Message);
                     continue;
                 }
-                foreach (var m in Metrics) check.Add(true, MetricCatalog.Problem(m, results, built));
+                foreach (var m in Metrics)
+                {
+                    string problem = MetricCatalog.Problem(m, results, built);
+                    check.Add(true, problem == null ? null : problem + ExpressionHint(m.Target + "." + m.Statistic));
+                }
+                // a spatial team without a home node starts at the network's first node
+                foreach (var tc in model.ResourceTeams)
+                {
+                    if (tc == null || !string.IsNullOrEmpty(tc.HomeNode) || tc.Travel == TravelKind.Abstract) continue;
+                    if (!built.Teams.TryGetValue(tc.Name ?? tc.Id ?? "", out var team) && !built.Teams.TryGetValue(tc.Id ?? "", out team)) continue;
+                    string home = team.Members.Count > 0 ? team.Members[0].HomeNode : null;
+                    string text = $"Team '{tc.Name ?? tc.Id}' has no homeNode: its members start at node '{home}', the network's first. " +
+                                  "Set homeNode to a Transport Node to choose.";
+                    if (home != null && !check.Info.Contains(text)) check.Info.Add(text);
+                }
             }
+            foreach (var m in Metrics) check.Add(false, FlowOnlyMetricNote(m, model));
+            foreach (string text in MemberStopsNotInterrupting(model)) if (!check.Info.Contains(text)) check.Info.Add(text);
+            foreach (string text in ExponentialMeans(model)) if (!check.Info.Contains(text)) check.Info.Add(text);
+            foreach (string text in ShapeScaleMeans(model)) if (!check.Info.Contains(text)) check.Info.Add(text);
+            // the model's choice rules: a rule without a Why, a rule used where the primitive it equals would do
+            var logic = SimuLean.Logic.ModelLogic.Of(model);
+            foreach (string w in logic.RuleWarnings(key => factors.Exists(f => f.path == key))) check.Add(false, w);
+            // an item label read that nothing sets: most often a text without quotes
+            foreach (string w in SimuLean.Logic.ModelLogic.UnsetLabelReads(model, logic)) check.Add(false, w);
             return check;
         }
 
+        /// <summary>The hint added to a metric's error when its path reads like an expression (a sum, a ratio, a call): a
+        /// metric is one path, and <c>derived</c> combines them. Empty otherwise.</summary>
+        public static string ExpressionHint(string path)
+            => (path ?? "").IndexOfAny(new[] { '+', '*', '/', '(', ')', '^' }) < 0 ? ""
+             : " A metric is one path; for a sum or a ratio name each part as a metric and combine them with derived: " +
+               "metrics=a=Line.content_avg;b=Clerk.content_avg derived=L=a+b.";
+
+        /// <summary>
+        /// A warning for a metric that is constant, or meaningless, by its element's type: a Source holds no items (its
+        /// <c>stay_*</c> and <c>content*</c> are always 0 — items held at a blocked source wait in its BLOCKED state); a Sink
+        /// keeps none (its <c>stay_*</c> is 0, its <c>utilization</c> ≈ 1, its <c>content_avg</c> grows with the count
+        /// received) — its time in system is <c>tis_avg</c>. Null for any other metric.
+        /// </summary>
+        public static string FlowOnlyMetricNote(ModelMetric m, SimulationConfig model)
+        {
+            if (m == null || m.Scope != MetricScope.Element || model?.Elements == null) return null;
+            var e = model.Elements.Find(x => x != null && x.Name == m.Target);
+            string s = m.Statistic ?? "";
+            bool stay = s.StartsWith("stay_", StringComparison.Ordinal);
+            if (e?.Type == "Source" && (stay || s == ResultMetrics.Content || s == ResultMetrics.ContentAvg || s == ResultMetrics.ContentMax))
+                return $"Metric '{m.Name}': '{e.Name}' is a Source: it holds no items, so {s} is always 0. The time items wait at a " +
+                       $"blocked source is its state: {e.Name}.state:BLOCKED (a share of the time), or a tally wait = age on the next element.";
+            if (e?.Type == "Sink" && (stay || s == ResultMetrics.Utilization || s == ResultMetrics.ContentAvg))
+                return $"Metric '{m.Name}': '{e.Name}' is a Sink: it keeps no items, so {s} is no KPI ({ResultMetrics.StayAvg} is 0, " +
+                       $"{ResultMetrics.Utilization} ≈ 1, {ResultMetrics.ContentAvg} grows with the count received). Its time in system: " +
+                       $"{e.Name}.{ResultMetrics.TisAvg} ({ResultMetrics.TisP90}, …); the items received: {e.Name}.{ResultMetrics.Input}.";
+            return null;
+        }
+
+        /// <summary>Exponential distributions listed at most in <see cref="ExponentialMeans"/>.</summary>
+        public const int ExponentialsShown = 12;
+
+        /// <summary>
+        /// The model's exponential distributions by their mean (<c>Exponential~x</c> takes a rate,
+        /// <c>ExponentialMean~x</c> a mean, and a scene stores the mean as its rate): one info line, <c>Src.interArrivalDistribution
+        /// mean 5 (rate 0.2)</c> per distribution of the elements, teams and downtimes (the first <see cref="ExponentialsShown"/>);
+        /// none without one.
+        /// </summary>
+        public static List<string> ExponentialMeans(SimulationConfig model)
+        {
+            var found = new List<string>();
+            string Fmt(double x) => Math.Round(x, 4).ToString("0.####", CultureInfo.InvariantCulture);
+            void Scan(string owner, IEnumerable<(string path, object value)> values)
+            {
+                var list = values.ToList();
+                var byPath = new Dictionary<string, object>(StringComparer.Ordinal);
+                foreach (var (p, x) in list) byPath[p] = x;
+                foreach (var (p, x) in list)
+                {
+                    if (!(x is string type) || !(p == "strategyType" || p.EndsWith(".strategyType", StringComparison.Ordinal))) continue;
+                    string at = p.Substring(0, p.Length - "strategyType".Length);
+                    string where = owner + (at.Length > 0 ? "." + at.TrimEnd('.') : "");
+                    if (type == "Exponential" && byPath.TryGetValue(at + "exponentialRate", out var r) && r is IConvertible
+                        && Convert.ToDouble(r, CultureInfo.InvariantCulture) is double rate && rate > 0)
+                        found.Add($"{where} mean {Fmt(1.0 / rate)} (rate {Fmt(rate)})");
+                    else if (type == "ExponentialMean" && byPath.TryGetValue(at + "exponentialMean", out var m) && m is IConvertible)
+                        found.Add($"{where} mean {Fmt(Convert.ToDouble(m, CultureInfo.InvariantCulture))}");
+                }
+            }
+            foreach (var e in model.Elements) if (e != null) Scan(e.Name ?? e.Id, e.Values());
+            foreach (var t in model.ResourceTeams) if (t != null) Scan("team:" + ResourceBuild.TeamName(t), t.Values());
+            foreach (var d in model.Downtimes) if (d != null) Scan("downtime:" + d.Id, d.Values());
+            if (found.Count == 0) return new List<string>();
+            string shown = string.Join("; ", found.Take(ExponentialsShown)) + (found.Count > ExponentialsShown ? $"; … {found.Count - ExponentialsShown} more" : "");
+            return new List<string> { "Exponential distributions by their mean (Exponential~x takes a rate, ExponentialMean~x a mean): " + shown + "." };
+        }
+
+        /// <summary>
+        /// The model's LogNormal, Gamma and Weibull distributions by their mean — their parameters are not means (a LogNormal's
+        /// mu and sigma are of ln x; Gamma and Weibull take a shape and a scale): one info line,
+        /// <c>Srv.delayStrategy LogNormal~1~0.5 mean 3.08</c> per distribution (the first <see cref="ExponentialsShown"/>);
+        /// none without one. Info only: nothing is drawn.
+        /// </summary>
+        public static List<string> ShapeScaleMeans(SimulationConfig model)
+        {
+            var found = new List<string>();
+            string Fmt(double x) => Math.Round(x, 4).ToString("0.####", CultureInfo.InvariantCulture);
+            void Scan(string owner, IEnumerable<(string path, object value)> values)
+            {
+                var list = values.ToList();
+                var byPath = new Dictionary<string, object>(StringComparer.Ordinal);
+                foreach (var (p, x) in list) byPath[p] = x;
+                double? Number(string key) => byPath.TryGetValue(key, out var v) && v is IConvertible ? Convert.ToDouble(v, CultureInfo.InvariantCulture) : (double?)null;
+                foreach (var (p, x) in list)
+                {
+                    if (!(x is string type) || !(p == "strategyType" || p.EndsWith(".strategyType", StringComparison.Ordinal))) continue;
+                    string at = p.Substring(0, p.Length - "strategyType".Length);
+                    string where = owner + (at.Length > 0 ? "." + at.TrimEnd('.') : "");
+                    double mean = double.NaN;
+                    string text = null;
+                    if (type == "LogNormal" && Number(at + "logNormalMu") is double mu && Number(at + "logNormalSigma") is double sigma)
+                    { mean = Math.Exp(mu + sigma * sigma / 2); text = $"LogNormal~{Fmt(mu)}~{Fmt(sigma)}"; }
+                    else if (type == "Gamma" && Number(at + "gammaShape") is double k && Number(at + "gammaScale") is double theta)
+                    { mean = k * theta; text = $"Gamma~{Fmt(k)}~{Fmt(theta)}"; }
+                    else if (type == "Weibull" && Number(at + "weibullShape") is double ws && ws > 0 && Number(at + "weibullScale") is double wl)
+                    { mean = wl * SimuLean.Stochastics.Probability.Gamma(1 + 1 / ws); text = $"Weibull~{Fmt(ws)}~{Fmt(wl)}"; }
+                    if (text != null && !double.IsNaN(mean) && !double.IsInfinity(mean)) found.Add($"{where} {text} mean {Fmt(mean)}");
+                }
+            }
+            foreach (var e in model.Elements) if (e != null) Scan(e.Name ?? e.Id, e.Values());
+            foreach (var t in model.ResourceTeams) if (t != null) Scan("team:" + ResourceBuild.TeamName(t), t.Values());
+            foreach (var d in model.Downtimes) if (d != null) Scan("downtime:" + d.Id, d.Values());
+            if (found.Count == 0) return new List<string>();
+            string shown = string.Join("; ", found.Take(ExponentialsShown)) + (found.Count > ExponentialsShown ? $"; … {found.Count - ExponentialsShown} more" : "");
+            return new List<string> { "LogNormal / Gamma / Weibull distributions by their mean (LogNormal~mu~sigma of ln x: mean e^(mu + sigma²/2); Gamma~shape~scale: shape × scale; Weibull~shape~scale: scale × Γ(1 + 1/shape)): " + shown + "." };
+        }
+
+        /// <summary>
+        /// The stations whose job a member's downtime will not interrupt: a downtime stops the members of a team
+        /// (a team among its targets), and a station uses that team with no preemption mode (<c>processBy.preemption</c> None),
+        /// so a member's breakdown leaves its job running as if nothing happened — one info line per station and team.
+        /// </summary>
+        public static List<string> MemberStopsNotInterrupting(SimulationConfig model)
+        {
+            var lines = new List<string>();
+            if (model?.Downtimes == null || model.ResourceTeams == null) return lines;
+            var byTeam = new Dictionary<string, (string team, List<string> downtimes)>(StringComparer.Ordinal);
+            foreach (var d in model.Downtimes)
+                foreach (string id in d?.TargetIds ?? new List<string>())
+                {
+                    var t = model.ResourceTeams.Find(x => x != null && (x.Id == id || x.Name == id));
+                    if (t == null) continue;
+                    string key = t.Id ?? t.Name;
+                    if (!byTeam.TryGetValue(key, out var entry)) byTeam[key] = entry = (t.Name ?? t.Id, new List<string>());
+                    if (!entry.downtimes.Contains(d.Id)) entry.downtimes.Add(d.Id);
+                }
+            if (byTeam.Count == 0) return lines;
+            foreach (var e in model.Elements)
+            {
+                if (e?.Settings == null) continue;
+                var values = new Dictionary<string, object>(StringComparer.Ordinal);
+                foreach (var (path, value) in e.Values()) values[path] = value;
+                if (!values.TryGetValue("processBy.team", out var main) || !(main is string)) continue;
+                string mode = values.TryGetValue("processBy.preemption", out var p) ? p?.ToString() : null;
+                if (!string.IsNullOrEmpty(mode) && mode != "None") continue;
+                var teams = values.Where(kv => kv.Key.StartsWith("processBy.", StringComparison.Ordinal) && kv.Key.EndsWith(".team", StringComparison.Ordinal))
+                                  .Select(kv => (kv.Value as string ?? "").Trim()).Where(s => s.Length > 0).Distinct().ToList();
+                foreach (string team in teams)
+                {
+                    if (!byTeam.TryGetValue(team, out var hit))
+                    {
+                        var t = model.ResourceTeams.Find(x => x != null && x.Name == team);
+                        if (t == null || !byTeam.TryGetValue(t.Id ?? t.Name, out hit)) continue;
+                    }
+                    lines.Add($"Downtime {string.Join(", ", hit.downtimes.Select(x => "'" + x + "'"))} stops members of team '{hit.team}', but " +
+                              $"'{e.Name ?? e.Id}' uses that team with processBy.preemption = None: a member's breakdown will not interrupt its job " +
+                              "(the process runs on). Give it a mode (Resume) to have breakdowns interrupt and count.");
+                }
+            }
+            return lines;
+        }
+
         /// <summary>Runs every scenario × replication headless (in parallel) and returns the result set.
-        /// <paramref name="progress"/> gets (runs done, runs in all).</summary>
-        public ResultSet Run(CancellationToken token = default, Action<int, int> progress = null)
+        /// <paramref name="progress"/> gets (runs done, runs in all). Runs through <see cref="Batch"/> (the scenarios applied
+        /// first), the same code the out-of-editor runner runs.</summary>
+        public ResultSet Run(CancellationToken token = default, Action<int, int> progress = null) => Batch().Run(token, progress);
+
+        /// <summary>The study with its scenarios applied (<see cref="StudyBatch"/>): what <see cref="Run"/> runs, and what is
+        /// sent to the out-of-editor runner. A scenario whose levels cannot be applied keeps the error for its runs.</summary>
+        public StudyBatch Batch()
         {
             var objective = Objective(out var plan);
-            var runs = new List<(StudyScenario s, int rep)>();
-            foreach (var s in plan) for (int r = 1; r <= Math.Max(1, s.Replications > 0 ? s.Replications : Replications); r++) runs.Add((s, r));
-            var done = new ResultRun[runs.Count];
-            int count = 0;
-            bool record = RecordStatistics || SeriesInterval > 0 || RecordTimeline;
-            bool cancelled = false;
-            try
+            var batch = new StudyBatch
             {
-            Parallel.For(0, runs.Count,
-                new ParallelOptions { MaxDegreeOfParallelism = Threads > 0 ? Threads : DefaultThreads, CancellationToken = token },
-                k =>
-                {
-                    var (s, rep) = runs[k];
-                    var watch = Stopwatch.StartNew();
-                    RunResults results = null;
-                    int seed = BaseSeed + rep - 1;
-                    var run = new ResultRun { Scenario = s.Name, Replication = rep, Seed = seed };
-                    // a run that fails (a level the model cannot be built with, a metric it cannot read) is recorded
-                    // with its error; the others carry on and are kept (one failure lost them all)
-                    try
-                    {
-                        var e = objective.Run(CandidateOf(objective, s), seed, record ? r => results = r : (Action<RunResults>)null);
-                        foreach (var kv in e.Metrics) run.Metrics[kv.Key] = kv.Value;
-                        run.Results = results;
-                    }
-                    catch (Exception ex) when (!(ex is OperationCanceledException)) { run.Error = ex.GetType().Name + ": " + ex.Message; }
-                    run.ElapsedSeconds = watch.Elapsed.TotalSeconds;
-                    done[k] = run;
-                    progress?.Invoke(Interlocked.Increment(ref count), runs.Count);
-                });
-            }
-            catch (OperationCanceledException) { cancelled = true; }   // the runs done so far are kept
-
-            var set = new ResultSet { Name = Name, Source = "experiment", Created = DateTime.Now, Confidence = Confidence };
-            set.MetricNames.AddRange(Metrics.Select(m => m.Name));
+                Name = Name, Replications = Replications, BaseSeed = BaseSeed, RunTime = objective.RunTime,
+                SeriesInterval = SeriesInterval, RecordTimeline = RecordTimeline, RecordStatistics = RecordStatistics,
+                Confidence = Confidence, Threads = Threads, Metrics = new List<ModelMetric>(Metrics),
+            };
             foreach (var s in plan)
             {
-                var sc = new ResultScenario { Name = s.Name };
+                var sc = new StudyBatch.Scenario { Name = s.Name, Replications = Math.Max(1, s.Replications > 0 ? s.Replications : Replications) };
                 for (int i = 0; i < s.Values.Count; i++) sc.Parameters.Add(new KeyValuePair<string, string>(FactorLabel(i), s.Values[i]));
-                set.Scenarios.Add(sc);
+                try { sc.Model = objective.ConfigFor(CandidateOf(objective, s)); }
+                catch (Exception ex) when (!(ex is OperationCanceledException)) { sc.Error = ex.GetType().Name + ": " + ex.Message; }
+                batch.Scenarios.Add(sc);
             }
-            foreach (var r in done) if (r != null) set.Runs.Add(r);
-            if (cancelled) set.Metadata.Add(new KeyValuePair<string, string>("cancelled", "true"));
-            var failedRuns = set.Runs.Where(r => r.Error != null).ToList();
-            if (failedRuns.Count > 0)
-            {
-                set.Metadata.Add(new KeyValuePair<string, string>("failed_runs", failedRuns.Count.ToString(CultureInfo.InvariantCulture)));
-                set.Metadata.Add(new KeyValuePair<string, string>("first_error", failedRuns[0].Id + ": " + failedRuns[0].Error));
-            }
-            set.Metadata.Add(new KeyValuePair<string, string>("replications", Replications.ToString(CultureInfo.InvariantCulture)));
-            set.Metadata.Add(new KeyValuePair<string, string>("base_seed", BaseSeed.ToString(CultureInfo.InvariantCulture)));
-            set.Metadata.Add(new KeyValuePair<string, string>("run_time", objective.RunTime.ToString("R", CultureInfo.InvariantCulture)));
-            return set;
+            return batch;
         }
 
         // ── building ─────────────────────────────────────────────────────────
@@ -399,7 +563,7 @@ namespace SimuLean.Optimization
             for (int i = 0; i < s.Values.Count; i++)
             {
                 try { c.SetText(i, s.Values[i]); }
-                catch (FormatException e) { throw new InvalidOperationException($"Scenario '{s.Name}': {e.Message}"); }
+                catch (FormatException e) { throw new InvalidOperationException($"Scenario '{s.Name}': {e.Message}", e); }
             }
             return c;
         }
@@ -413,48 +577,86 @@ namespace SimuLean.Optimization
             return n;
         }
 
+        /// <summary>A file path level by its file name without extension (<c>Data/push.csv</c> → <c>push</c>); any other
+        /// text as given — an expression level (<c>item.a / 2</c>) is no path, and two shortened alike would share a
+        /// scenario name. No <c>System.IO.Path</c>: it refuses characters an expression may hold on some runtimes.</summary>
         private static string ShortValue(string v)
-            => v != null && (v.Contains("/") || v.Contains("\\")) ? System.IO.Path.GetFileNameWithoutExtension(v) : v;
+        {
+            if (v == null || v.IndexOfAny(new[] { '/', '\\' }) < 0) return v;
+            int slash = v.LastIndexOfAny(new[] { '/', '\\' });
+            string name = v.Substring(slash + 1);
+            int dot = name.LastIndexOf('.');
+            bool file = dot > 0 && dot < name.Length - 1 && name.IndexOfAny(new[] { ' ', '(', ')', '\'', '"', '*', '+', '<', '>', '=' }) < 0
+                        && v.IndexOfAny(new[] { '(', ')', '\'', '"', '*', '+', '<', '>', '=' }) < 0;
+            return file ? name.Substring(0, dot) : v;
+        }
 
         /// <summary>A factor path as a model parameter whose range covers <paramref name="values"/>.</summary>
         private ModelParameter ParseParameter(string path, List<string> levels, IEnumerable<string> values)
         {
-            var (scope, owner, key) = Split(path);
-            if (scope == "team")
+            var (scopeText, owner, key) = Split(path, model);
+            if (!TryScope(scopeText, out ParameterScope scope))
+                throw new ArgumentException($"Factor '{path}': unknown scope '{scopeText}' ({ScopeNames<ParameterScope>()}).");
+            switch (scope)
             {
-                int br = key.IndexOf('[');
-                if (br > 0 && key.EndsWith("]"))
+                case ParameterScope.Team:
                 {
-                    string label = key.Substring(br + 1, key.Length - br - 2);
-                    int eq = label.IndexOf('=');
-                    if (key.Substring(0, br) != ModelParameterCatalog.TeamMembers || eq <= 0)
-                        throw new ArgumentException($"Factor '{path}': use team:Team.members[label=value].");
-                    var (lo, hi) = Range(path, values);
-                    return new TeamLabelMembersParameter(owner, label.Substring(0, eq).Trim(), label.Substring(eq + 1).Trim(), (int)lo, (int)hi, path);
+                    int br = key.IndexOf('[');
+                    if (br > 0 && key.EndsWith("]"))
+                    {
+                        string label = key.Substring(br + 1, key.Length - br - 2);
+                        int eq = label.IndexOf('=');
+                        if (key.Substring(0, br) != ModelParameterCatalog.TeamMembers || eq <= 0)
+                            throw new ArgumentException($"Factor '{path}': use team:Team.members[label=value].");
+                        var (lo, hi) = Range(path, values);
+                        return new TeamPropertyMembersParameter(owner, label.Substring(0, eq).Trim(), label.Substring(eq + 1).Trim(), (int)lo, (int)hi, path);
+                    }
+                    return Ranged(model, scope, owner, key, path, values);
                 }
-                return Ranged(model, ParameterScope.Team, owner, key, path, values);
+                case ParameterScope.Data:
+                    if (!model.Tables.Exists(t => t.Name == owner))
+                        throw new ArgumentException($"Factor '{path}': no data table '{owner}' in the model (tables: " +
+                                                    $"{(model.Tables.Count == 0 ? "none" : string.Join(", ", model.Tables.Select(t => t.Name)))}).");
+                    return new DataTableParameter(owner, key, levels, TableLoader, path);
+                case ParameterScope.Element:
+                    if (key == SourceTableParameter.Key) return new SourceTableParameter(owner, levels, TableLoader, path);
+                    if (key == SourceTableParameter.FileKey)
+                        throw new ArgumentException($"Factor '{path}': a source's arrivals file per level is '{owner}.{SourceTableParameter.Key}'.");
+                    return Ranged(model, scope, owner, key, path, values);
+                default:
+                    return Ranged(model, scope, owner, key, path, values);
             }
-            if (scope == "downtime") return Ranged(model, ParameterScope.Downtime, owner, key, path, values);
-            if (scope == "reaction") return Ranged(model, ParameterScope.Reaction, owner, key, path, values);
-            if (scope == "data")
-            {
-                if (!model.Tables.Exists(t => t.Name == owner))
-                    throw new ArgumentException($"Factor '{path}': no data table '{owner}' in the model (tables: " +
-                                                $"{(model.Tables.Count == 0 ? "none" : string.Join(", ", model.Tables.Select(t => t.Name)))}).");
-                return new DataTableParameter(owner, key, levels, TableLoader, path);
-            }
-            if (scope != "element") throw new ArgumentException($"Factor '{path}': unknown scope '{scope}' (element, team, downtime, reaction, data).");
-            if (key == SourceTableParameter.Key || key == SourceTableParameter.FileKey) return new SourceTableParameter(owner, levels, TableLoader, path);
-            return Ranged(model, ParameterScope.Element, owner, key, path, values);
         }
+
+        /// <summary>A scope by its lower-case name (any case), defined in <typeparamref name="T"/> (not a number).</summary>
+        public static bool TryScope<T>(string text, out T scope) where T : struct, Enum
+            => Enum.TryParse(text, true, out scope) && Enum.IsDefined(typeof(T), scope) && !char.IsDigit((text ?? "0").TrimStart('-').FirstOrDefault());
+
+        /// <summary>The names of a scope enum as written in a path (lower case, comma-separated).</summary>
+        public static string ScopeNames<T>() where T : struct, Enum => string.Join(", ", Enum.GetNames(typeof(T)).Select(n => n.ToLowerInvariant()));
 
         private static ModelParameter Ranged(SimulationConfig model, ParameterScope scope, string owner, string key, string path, IEnumerable<string> values)
         {
-            var p = ConfigParameter.Of(model, scope, owner, key, name: path);
+            ConfigParameter p;
+            bool text = ModelParameterCatalog.IsTextSetting(model, scope, owner, key);
+            // a declared text setting the catalog does not offer (an expression that reads the item, a request order written
+            // in place, a reference): varied by its texts; any other key keeps the catalog's error and its did-you-mean
+            try { p = ConfigParameter.Of(model, scope, owner, key, name: path); }
+            catch (ArgumentException) when (text) { return new TextSettingParameter(scope, owner, key, values, path); }
+            // offered while its value is a number (a constant priority) or one of its records' names: a level that is
+            // neither makes it a text factor
+            if (text && values.Any(v => !Accepts(p, v)))
+                return new TextSettingParameter(scope, owner, key, values, path);
             var kind = p.Variable.Kind;
             if (kind != VariableKind.Integer && kind != VariableKind.Real) return p;
             var (lo, hi) = Range(path, values);
             return ConfigParameter.Of(model, scope, owner, key, lo, hi, path);
+        }
+
+        private static bool Accepts(ConfigParameter p, string level)
+        {
+            try { p.ParseText(level); return true; }
+            catch (FormatException) { return false; }
         }
 
         private static (double lo, double hi) Range(string path, IEnumerable<string> values)
@@ -464,43 +666,75 @@ namespace SimuLean.Optimization
                 foreach (string part in (v ?? "").Trim('[', ']').Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries))
                 {
                     if (!double.TryParse(part.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double d))
-                        throw new FormatException($"Factor '{path}': '{part.Trim()}' is not a number.");
+                        throw new FormatException($"Factor '{path}': '{part.Trim()}' is not a number." + RangeHint(part));
                     lo = Math.Min(lo, d); hi = Math.Max(hi, d);
                 }
             return double.IsInfinity(lo) ? (0, 0) : (lo, hi);
         }
 
-        private static ModelMetric ParseMetric(string name, string path)
+        /// <summary>The hint for a level written as a range (<c>1..10</c>): a study lists its levels; a range is the
+        /// optimiser's. Empty otherwise.</summary>
+        public static string RangeHint(string level)
+            => (level ?? "").Contains("..") ? " A study lists its levels (1|2|3); lo..hi is a range for simulean_optimize_start." : "";
+
+        private static ModelMetric ParseMetric(string name, string path, SimulationConfig model = null)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException($"Metric '{name}' needs a path.");
             path = path.Trim();
             if (path.StartsWith("model.", StringComparison.OrdinalIgnoreCase))
                 return new ModelMetric(name, MetricScope.Model, "model", path.Substring(6));
-            var (scope, owner, key) = Split(path);
-            switch (scope)
-            {
-                case "element": return new ModelMetric(name, MetricScope.Element, owner, key);
-                case "team": return new ModelMetric(name, MetricScope.Team, owner, key);
-                case "list": return new ModelMetric(name, MetricScope.List, owner, key);
-                case "reaction": return new ModelMetric(name, MetricScope.Reaction, owner, key);
-            }
-            throw new ArgumentException($"Metric '{name}': unknown scope '{scope}' (model, element, team, list, reaction)." +
-                                        (scope == "resource" || scope == "member"
+            (string scopeText, string owner, string key) parts;
+            try { parts = Split(path, model); }
+            catch (ArgumentException e) when (ExpressionHint(path).Length > 0) { throw new ArgumentException($"Metric '{name}': {e.Message}" + ExpressionHint(path), e); }
+            var (scopeText, owner, key) = parts;
+            if (TryScope(scopeText, out MetricScope scope) && scope != MetricScope.Model)
+                return new ModelMetric(name, scope, owner, key);
+            throw new ArgumentException($"Metric '{name}': unknown scope '{scopeText}' ({ScopeNames<MetricScope>()})." +
+                                        (scopeText == "resource" || scopeText == "member"
                                              ? " A team member's statistics are read through its team: 'team:Team." + ResultMetrics.Utilization + "'."
-                                             : ""));
+                                             : "") +
+                                        (scope == MetricScope.Model ? " A model statistic is 'model.<statistic>'." : "") + ExpressionHint(path));
         }
 
-        // "team:Welders.members" → (team, Welders, members); "Yard.capacity" → (element, Yard, capacity);
-        // "Exit.tally:time_in_system:p90" → (element, Exit, tally:time_in_system:p90): a scope only before the first dot
-        private static (string scope, string owner, string key) Split(string path)
+        /// <summary>
+        /// A path as (scope, owner, key) — the factor / metric grammar <c>[scope:]Owner.key</c> (keys are field
+        /// paths and contain dots, <c>Srv.delayStrategy.constantValue</c>). The scope is the text before a colon that comes
+        /// before the first dot (<c>team:Welders.members</c>); element when there is none. The owner is the longest name of
+        /// that scope in <paramref name="model"/> (elements, teams by name or id, downtimes, reactions, data tables, lists)
+        /// followed by a dot — so an owner whose name has dots or spaces (<c>Line 1.Buffer</c>) is found whole — and the key
+        /// is the rest. Without a model, or no known name, the owner ends at the first dot (names without dots).
+        /// <c>"Exit.tally:time_in_system:p90"</c> → (element, Exit, tally:time_in_system:p90).
+        /// </summary>
+        public static (string scope, string owner, string key) Split(string path, SimulationConfig model = null)
         {
             string scope = "element";
             int colon = path.IndexOf(':');
             int firstDot = path.IndexOf('.');
             if (colon > 0 && (firstDot < 0 || colon < firstDot)) { scope = path.Substring(0, colon).Trim().ToLowerInvariant(); path = path.Substring(colon + 1); }
+            string owner = null;
+            foreach (string name in OwnerNames(model, scope))
+                if (!string.IsNullOrEmpty(name) && path.Length > name.Length + 1 && path.StartsWith(name + ".", StringComparison.Ordinal)
+                    && (owner == null || name.Length > owner.Length))
+                    owner = name;
+            if (owner != null) return (scope, owner, path.Substring(owner.Length + 1).Trim());
             int dot = path.IndexOf('.');
             if (dot <= 0 || dot == path.Length - 1) throw new ArgumentException($"'{path}': expected Owner.key.");
             return (scope, path.Substring(0, dot).Trim(), path.Substring(dot + 1).Trim());
+        }
+
+        /// <summary>The names an owner of <paramref name="scope"/> may have in <paramref name="model"/> (none without one).</summary>
+        private static IEnumerable<string> OwnerNames(SimulationConfig model, string scope)
+        {
+            if (model == null) yield break;
+            switch (scope)
+            {
+                case "element": foreach (var e in model.Elements) yield return e.Name; break;
+                case "team": foreach (var t in model.ResourceTeams) { yield return t.Name; yield return t.Id; } break;
+                case "downtime": foreach (var d in model.Downtimes) yield return d.Id; break;
+                case "reaction": foreach (var r in model.Reactions) yield return r.Id; break;
+                case "data": foreach (var t in model.Tables) yield return t.Name; break;
+                case "list": foreach (var l in model.Lists) yield return l.Name; break;
+            }
         }
     }
 
@@ -508,14 +742,14 @@ namespace SimuLean.Optimization
     /// The number of members of a team that carry a label (e.g. welders: <c>skill=welding</c>): extra members
     /// copy the last member with that label (named team_n), fewer members remove the last ones with it; the others stay.
     /// </summary>
-    public sealed class TeamLabelMembersParameter : ModelParameter
+    public sealed class TeamPropertyMembersParameter : ModelParameter
     {
         public string Team { get; }
         public string Label { get; }
         public string Value { get; }
         public override DecisionVariable Variable { get; }
 
-        public TeamLabelMembersParameter(string team, string label, string value, int min, int max, string name = null)
+        public TeamPropertyMembersParameter(string team, string label, string value, int min, int max, string name = null)
         {
             Team = team; Label = label; Value = value;
             Variable = DecisionVariable.Integer(name ?? $"team:{team}.members[{label}={value}]", Math.Max(0, min), Math.Max(min, max));
@@ -526,8 +760,9 @@ namespace SimuLean.Optimization
             var team = ModelParameterCatalog.TeamNamed(config, Team, "Study");
             int n = Math.Max(0, (int)Math.Round(candidate.Number(index)));
             string record = Label + "=" + Value;
-            bool Has(ResourceMemberConfig m) => m.Labels != null && m.Labels.Exists(l => l != null && l.Replace(" ", "") == record.Replace(" ", ""));
+            bool Has(ResourceMemberConfig m) => m.Properties != null && m.Properties.Exists(Carries);
             var with = team.Members.FindAll(Has);
+            // the member's label record (name = expression) carries the path's value: a text (quoted or not) or a number
             if (with.Count == 0) throw new ArgumentException($"Study: no member of '{Team}' has {record} (one is needed as the template).");
             var template = with[with.Count - 1];
             while (with.Count > n) { team.Members.Remove(with[with.Count - 1]); with.RemoveAt(with.Count - 1); }
@@ -539,6 +774,17 @@ namespace SimuLean.Optimization
                 with.Add(copy);
             }
         }
+
+        /// <summary>True when a member's label record sets <see cref="Label"/> to <see cref="Value"/> (constant records only;
+        /// the value of the path may be quoted).</summary>
+        private bool Carries(string record)
+        {
+            if (!LabelAssignments.TryConstant(record, out string name, out var v) || name != Label) return false;
+            string want = Value.Trim();
+            if (want.Length >= 2 && (want[0] == '\'' || want[0] == '"') && want[want.Length - 1] == want[0]) want = want.Substring(1, want.Length - 2);
+            if (v.IsText) return v.Text == want;
+            return double.TryParse(want, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double d) && d == v.Number;
+        }
     }
 
     /// <summary>
@@ -549,7 +795,8 @@ namespace SimuLean.Optimization
     public sealed class SourceTableParameter : ModelParameter
     {
         public const string Key = "table";
-        /// <summary>The source's table file (its catalog key, <c>ParameterSchema.File</c>; follow-up #29): the same factor.</summary>
+        /// <summary>The source's table file in its config (where <see cref="Apply"/> writes the level; a factor on it is refused:
+        /// the factor is <see cref="Key"/>, the one name).</summary>
         public const string FileKey = "fileName";
         public string Source { get; }
         private readonly Func<string, Dictionary<string, List<string>>> load;
@@ -572,11 +819,11 @@ namespace SimuLean.Optimization
             var e = ElementNamed(config, Source);
             var copy = new Dictionary<string, List<string>>();
             foreach (var kv in table) copy[kv.Key] = new List<string>(kv.Value);
-            e.Parameters["arrivalsTable"] = copy;
-            e.Parameters[FileKey] = file;
-            e.Parameters.Remove("dataTable");     // the file given here wins over the source's data table / table source
-            e.Parameters.Remove("tableSource");
-            e.Parameters["sourceMode"] = "Schedule";
+            e.Set("arrivalsTable", copy);
+            e.Set(FileKey, file);
+            e.Remove("dataTable");     // the file given here wins over the source's data table / table source
+            e.Remove("tableSource");
+            if (e.Get<string>("mode") != "RateTable") e.Set("mode", "Schedule");   // a rate table stays one
         }
     }
 

@@ -52,14 +52,15 @@ namespace SimuLean.Unity.Editor.Tests
                 var teamGo = new GameObject("Welders");
                 teamGo.transform.SetParent(root.transform);
                 var team = teamGo.AddComponent<UnityResourceTeam>();
+                team.travel = TeamTravel.Abstract;   // the units only (a team now travels straight by default)
                 team.units = ResourceUnits.Physical;
                 team.speed = 1.2f;
                 team.members = new List<ResourceMemberSpec> { new ResourceMemberSpec { name = "w1", loadTime = 90, unloadTime = 180 } };
 
                 var config = SceneExtractor.Extract(root).Config;
                 Assert.AreEqual(3600, config.TimeUnitSeconds, "the clock's unit goes to the config");
-                var tc = team.ToConfig("welders");
-                Assert.AreEqual("Physical", tc.Units);
+                var tc = UnityResourceTeamExtractor.Extract(team, "welders");
+                Assert.AreEqual(SimuLean.Serialization.ResourceUnits.Physical, tc.Units);
                 Assert.AreEqual(1.2, tc.Speed, 1e-6, "the config keeps the values as entered (catalog parameters in m/s)");
 
                 var engineClock = new SimClock(1);

@@ -100,27 +100,22 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.IsTrue(((JArray)scenarios[0]["resources"]).Any(), "the team's members are reported");
                 Assert.AreEqual(1, (int)scenarios[0]["runs"]["ok"], "the runs that completed");
 
-                // with metrics, the default detail is the metrics and the model block only (follow-up #30)
+                // with metrics, the default detail is the metrics and the model block only
                 var small = Get(SimuLeanCommands.RunHeadless(20, 1, 1, "", "out=S3Sink.input", "S3Model"), "scenarios")[0];
                 Assert.IsNull(small["elements"], "detail=metrics: no element KPIs");
-                Assert.IsNotNull(small["model"], "the model block stays");
+                Assert.IsNull(small["model"], "the model block only when a run stalled or deadlocked (detail=full: always)");
+                Assert.AreEqual(1, (int)small["endReasons"]["Horizon"], "the end reasons counted");
                 Assert.AreEqual(delivered, MetricMean(small, "out"), 1e-9);
 
                 // the same study in the background, polled until done, gives the same answer
                 SimuLeanCommands.RunStart(20, 1, 1, "", "out=S3Sink.input", "S3Model");
-                object status = null;
-                var watch = System.Diagnostics.Stopwatch.StartNew();
-                while (watch.Elapsed.TotalSeconds < 60)
-                {
-                    status = SimuLeanCommands.RunStatus().Result;   // wait 0: answered at once
-                    if ((string)Get(status, "status") != "running") break;
-                    System.Threading.Thread.Sleep(20);
-                }
+                Assert.IsTrue(SimuLeanCommands.WaitForBackgroundRun(60), "the background run ends within 60 s");
+                object status = SimuLeanCommands.RunStatus().Result;   // wait 0: answered at once
                 Assert.AreEqual("completed", (string)Get(status, "status"));
                 var bg = Get(status, "result")["scenarios"][0];
                 Assert.AreEqual(delivered, MetricMean(bg, "out"), 1e-9, "the background answer");
 
-                // a study of the MCP is published (the Results tab shows it) and never stored (G1b stored it)
+                // a study of the MCP is published (the Results tab shows it) and never stored
                 var store = ResultsOutput.Store(ResultsOutput.ProjectRoot);
                 Assert.AreEqual(0, store.List().Count, "the studies are not stored");
                 Assert.IsNotNull(ResultsOutput.Last, "the last study is published");
@@ -130,8 +125,10 @@ namespace SimuLean.Unity.Editor.Tests
                 var reloaded = store.Load(id);
                 Assert.AreEqual(ResultsOutput.Last.Runs.Count, reloaded.Runs.Count, "Save keeps it on request");
 
-                // the fields of the active distribution only
-                var paths = Get(p, "fields").Select(f => (string)f["path"]).ToList();
+                // compact (the default): a distribution as one text; full: the fields of the active distribution only
+                var compact = Get(p, "fields").First(f => (string)f["path"] == "delayStrategy");
+                Assert.AreEqual("Constant~2", (string)compact["value"], "a distribution as its text");
+                var paths = Get(SimuLeanCommands.Params("S3Station", "full"), "fields").Select(f => (string)f["path"]).ToList();
                 CollectionAssert.Contains(paths, "delayStrategy.constantValue");
                 CollectionAssert.DoesNotContain(paths, "delayStrategy.uniformMin", "a Constant delay hides the other distributions' fields");
 
@@ -142,7 +139,7 @@ namespace SimuLean.Unity.Editor.Tests
                 {
                     string placed = new UnityEditor.SerializedObject(prefab.GetComponent<UnityMultiServer>()).FindProperty("delayStrategy.strategyType").enumDisplayNames[
                         new UnityEditor.SerializedObject(prefab.GetComponent<UnityMultiServer>()).FindProperty("delayStrategy.strategyType").enumValueIndex];
-                    var described = Get(SimuLeanCommands.Types("UnityMultiServer"), "fields").First(f => (string)f["path"] == "delayStrategy.strategyType");
+                    var described = Get(SimuLeanCommands.Types("UnityMultiServer", "full"), "fields").First(f => (string)f["path"] == "delayStrategy.strategyType");
                     Assert.AreEqual(placed.Replace(" ", ""), (string)described["value"], "the prefab's distribution");
                 }
                 Assert.AreEqual(1, ((JArray)Get(SimuLeanCommands.Set("S3Station", "delayStrategy.uniformMin", "1"), "warnings")).Count, "a Uniform field while Constant is active: warned");
@@ -163,7 +160,7 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void ItemsWalkOnANetworkBuiltThroughTheCommands()
         {
-            // Nodes, a track (connect between two nodes), locations and walkBy, all by the commands; the
+            // nodes, a track (connect between two nodes), locations and walkBy, all by the commands; the
             // extracted model walks 12 m at 1.5 m/s (time unit 1 s) from the source to the sink: 8 s in the item's age
             var active = SceneManager.GetActiveScene();
             bool temporary = !string.IsNullOrEmpty(active.path);
@@ -191,7 +188,7 @@ namespace SimuLean.Unity.Editor.Tests
 
                 var config = SceneExtractor.Extract(root).Config;
                 var src = config.Elements.First(e => e.Name == "WalkSrc");
-                Assert.AreEqual(1.5, src.GetParameter<double>(ResourceUseKeys.WalkSpeed, 0), 1e-6, "walkSpeed extracted");
+                Assert.AreEqual(1.5, src.Get<double>("walkBy.speed", 0), 1e-6, "walkSpeed extracted");
                 var clock = new SimClock(1);
                 var model = new SimuLean.Headless.HeadlessModelFactory(clock);
                 model.BuildModel(config);
@@ -216,7 +213,7 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void ATableThatCannotBeLoadedLeavesTheSceneAsItWas()
         {
-            // A missing file left the source switched to Schedule mode with a new, empty data table
+            // a missing file left the source switched to Schedule mode with a new, empty data table
             var active = SceneManager.GetActiveScene();
             bool temporary = !string.IsNullOrEmpty(active.path);
             var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
@@ -233,6 +230,44 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.AreEqual(SourceMode.InterArrival, src.mode, "the source keeps its mode");
                 Assert.IsNull(src.dataTable, "no table linked");
                 Assert.AreEqual(tablesBefore, UnityCompat.FindAll<UnityDataTable>().Length, "no table object left behind");
+            }
+            finally
+            {
+                if (temporary)
+                {
+                    if (active.IsValid()) SceneManager.SetActiveScene(active);
+                    EditorSceneManager.CloseScene(scene, true);
+                }
+                else Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void AListOfTextsIsSplitOnlyAtTopLevelCommas()
+        {
+            // exit labels with an expression were cut at every comma
+            CollectionAssert.AreEqual(new[] { "sku = pick(0.67, 'A', 0.33, 'B')", "n = 2" },
+                                      SimuLeanCommands.SplitList("[sku = pick(0.67, 'A', 0.33, 'B'), n = 2]"));
+            CollectionAssert.AreEqual(new[] { "a = 'x, y'", "b = \"p,q\"", "c = [1, 2]", "d = {3, 4}" },
+                                      SimuLeanCommands.SplitList("a = 'x, y', b = \"p,q\", c = [1, 2], d = {3, 4}"));
+            CollectionAssert.AreEqual(new[] { "[1, 2]", "[3]" }, SimuLeanCommands.SplitList("[1, 2], [3]"),
+                                      "brackets around a part, not the whole value, are kept");
+            CollectionAssert.AreEqual(new[] { "1", "2", "3" }, SimuLeanCommands.SplitList("[1, 2,, 3]"), "plain lists as before");
+            CollectionAssert.IsEmpty(SimuLeanCommands.SplitList("[]"));
+
+            var active = SceneManager.GetActiveScene();
+            bool temporary = !string.IsNullOrEmpty(active.path);
+            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
+            if (temporary) SceneManager.SetActiveScene(scene);
+            var root = new GameObject("SplitModel");
+            SceneManager.MoveGameObjectToScene(root, scene);
+            try
+            {
+                SimuLeanCommands.AddElement("UnityMultiServer", "SplitStation", 0, 0, 0, "SplitModel");
+                SimuLeanCommands.Set("SplitStation", "exitLabels", "[sku = pick(0.67, 'A', 0.33, 'B'), n = 2]");
+                var station = GameObject.Find("SplitStation").GetComponent<UnityMultiServer>();
+                CollectionAssert.AreEqual(new[] { "sku = pick(0.67, 'A', 0.33, 'B')", "n = 2" }, station.exitLabels,
+                                          "simulean_set keeps an expression with commas as one exit label");
             }
             finally
             {

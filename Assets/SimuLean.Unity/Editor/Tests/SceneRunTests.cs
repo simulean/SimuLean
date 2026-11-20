@@ -17,19 +17,10 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void SceneRunIsTheHeadlessModelWithTheComponentsAsViews()
         {
-            var active = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root, scene);
-                T Make<T>(string n) where T : Component
-                {
-                    var go = new GameObject(n);
-                    go.transform.SetParent(root.transform);
-                    return go.AddComponent<T>();
-                }
+                var root = test.Root;
+                T Make<T>(string n) where T : Component => test.Make<T>(n);
 
                 var src = Make<UnitySource>("Src");
                 src.mode = SourceMode.InterArrival;
@@ -67,8 +58,8 @@ namespace SimuLean.Unity.Editor.Tests
                 Element headlessSink = null, headlessServer = null;
                 foreach (var e in built.Values)
                 {
-                    if (e.GetName() == "Sink") headlessSink = e;
-                    if (e.GetName() == "Server") headlessServer = e;
+                    if (e.Name == "Sink") headlessSink = e;
+                    if (e.Name == "Server") headlessServer = e;
                 }
                 Assert.Greater(sink.GetElement().GetStatsInputCount(), 200, "the scene run moved items");
                 Assert.AreEqual(headlessSink.GetStatsInputCount(), sink.GetElement().GetStatsInputCount(), "same throughput");
@@ -84,11 +75,6 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.AreNotSame(firstSink, sink.GetElement(), "rebound to the new model");
                 Assert.AreEqual(firstCount, firstSink.GetStatsInputCount(), "the previous model does not run on");
                 Assert.AreEqual(4, second.Context.Elements.Count, "the new model's context holds only its own elements");
-            }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
             }
         }
     }

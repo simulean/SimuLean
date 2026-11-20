@@ -14,7 +14,7 @@ namespace SimuLean.Unity.Editor.Tests
             var root = new GameObject("Model");
             try
             {
-                var team = new GameObject("Polygraphs").AddComponent<UnityResourceTeam>();
+                var team = new GameObject("Monitors").AddComponent<UnityResourceTeam>();
                 team.transform.SetParent(root.transform);
                 team.AddMembers(2);
                 var desk = new GameObject("Device desk").AddComponent<UnityMultiServer>();
@@ -24,8 +24,8 @@ namespace SimuLean.Unity.Editor.Tests
                 desk.processBy = new ProcessResourceUse { team = team, release = ProcessRelease.AtElement, releaseAt = back };
 
                 var config = SceneExtractor.ExtractElement(desk);
-                Assert.AreEqual("AtElement", config.GetParameter<string>(ResourceUseKeys.ProcessRelease, ""));
-                Assert.AreEqual("Device return", config.GetParameter<string>(ResourceUseKeys.ProcessReleaseAt, ""));
+                Assert.AreEqual("AtElement", config.Get<string>("processBy.release", ""));
+                Assert.AreEqual("Device return", config.Get<string>("processBy.releaseAt", ""));
             }
             finally { Object.DestroyImmediate(root); }
         }
@@ -33,12 +33,12 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void TwoCopiesOfAReleaseElementBuild()
         {
-            // review2 #13: the release element went by name; a composite placed twice (two "Device return") made the model
+            // the release element must not go by name; a composite placed twice (two "Device return") made the model
             // unbuildable ("Several elements are named …"). The scene run exports the element's id.
             var root = new GameObject("Model");
             try
             {
-                var team = new GameObject("Polygraphs").AddComponent<UnityResourceTeam>();
+                var team = new GameObject("Monitors").AddComponent<UnityResourceTeam>();
                 team.transform.SetParent(root.transform);
                 team.AddMembers(2);
                 UnityQueue firstBack = null;
@@ -56,7 +56,7 @@ namespace SimuLean.Unity.Editor.Tests
                 var x = SceneExtractor.Extract(root);
                 var model = new SimuLean.Headless.HeadlessModelFactory(new SimClock(1));
                 Assert.DoesNotThrow(() => model.BuildModel(x.Config), "two copies of the composite build");
-                Assert.IsTrue(x.Config.Elements.Exists(e => e.GetParameter<string>(ResourceUseKeys.ProcessReleaseAt, "") == x.ElementIds[firstBack]),
+                Assert.IsTrue(x.Config.Elements.Exists(e => e.Get<string>("processBy.releaseAt", "") == x.ElementIds[firstBack]),
                               "the release element goes by its id");
             }
             finally { Object.DestroyImmediate(root); }

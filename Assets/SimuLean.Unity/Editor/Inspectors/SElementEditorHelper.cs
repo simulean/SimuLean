@@ -11,8 +11,51 @@ namespace SimuLean.Unity.Editor
     {
         /// <summary>Serialized fields drawn by <see cref="DrawConnections"/> (exclude them from default drawing).</summary>
         public static readonly string[] ConnectionFields =
-            { "m_Script", "nextElements", "sendTo", "receiveFrom", "pushToList", "pullFromList", "pullQuery", "processBy", "transportBy", "location",
-              "outputStrategy", "outputStrategyAsset", "inputStrategy", "entryLabels", "exitLabels", "tallies", "tallySplit" };
+            { "m_Script", "nextElements", "sendTo", "receiveFrom", "pushToList", "pullFromList", "pullQuery", "pullMaxWait", "processBy", "transportBy", "location",
+              "outputStrategy", "inputStrategy", "entryLabels", "exitLabels", "tallies", "tallySplit", "setup" };
+
+        /// <summary>The Setup section (stations with a setup, <see cref="ISetupUser"/>): when, the label and first item (on a
+        /// label change), the time and who sets up — only the fields the chosen rule uses.</summary>
+        public static void DrawSetup(SerializedObject so)
+        {
+            var setup = so.FindProperty("setup");
+            if (setup == null) return;
+            var when = setup.FindPropertyRelative("when");
+            EditorGUILayout.PropertyField(when, new GUIContent("When", when.tooltip));
+            if (when.enumValueIndex == (int)SetupWhen.None) return;
+            var matrix = setup.FindPropertyRelative("matrix");
+            if (when.enumValueIndex == (int)SetupWhen.LabelChange || matrix.objectReferenceValue != null)
+                EditorGUILayout.PropertyField(setup.FindPropertyRelative("label"), new GUIContent("Label",
+                    "The item label whose change needs a setup (e.g. type, ref); tracked per server / assembly. The setup " +
+                    "matrix's pairs are values of it."));
+            if (when.enumValueIndex == (int)SetupWhen.LabelChange)
+                EditorGUILayout.PropertyField(setup.FindPropertyRelative("setupFirst"), new GUIContent("First Item",
+                    "The first item of each server / assembly needs a setup too."));
+            EditorGUILayout.PropertyField(setup.FindPropertyRelative("time"), new GUIContent("Setup Time",
+                "Any distribution, as the process time (its own random stream)."), true);
+            EditorGUILayout.PropertyField(matrix, new GUIContent("Setup Matrix", matrix.tooltip));
+            if (matrix.objectReferenceValue is UnityDataTable table)
+            {
+                var rows = table.Rows;
+                bool ok = rows.ContainsKey("from") && rows.ContainsKey("to") && rows.ContainsKey("time");
+                if (!ok && table.source == SimuLean.Serialization.DataSourceKind.Inline)
+                    EditorGUILayout.HelpBox($"'{table.TableName}' needs the columns from, to, time.", MessageType.Warning);
+            }
+            var keep = setup.FindPropertyRelative("keepForProcess");
+            EditorGUILayout.PropertyField(setup.FindPropertyRelative("setupBy"), new GUIContent("Setup By",
+                "A team that sets the station up (its members travel to it, SETUP). Empty = the machine alone."), true);
+            bool canKeep = !(so.targetObject is UnityAssemblyStation) && !(so.targetObject is UnityStacker);
+            if (canKeep || keep.boolValue) EditorGUILayout.PropertyField(keep, new GUIContent("Keep For Process", keep.tooltip));
+            if (keep.boolValue && !canKeep)
+                EditorGUILayout.HelpBox("This station asks its resources per task / cycle: they cannot stay from the setup, so " +
+                                        "Keep For Process is ignored (the setup crew is its own).", MessageType.Warning);
+            else if (keep.boolValue && so.targetObject is SElement se)
+            {
+                var setupTeam = setup.FindPropertyRelative("setupBy").FindPropertyRelative("team").objectReferenceValue;
+                if (se.processBy == null || se.processBy.team == null || setupTeam != se.processBy.team)
+                    EditorGUILayout.HelpBox("Keep For Process needs Setup By = the Process team; otherwise it is ignored.", MessageType.Warning);
+            }
+        }
 
         /// <summary>
         /// The connections of an element, the same in every inspector: <b>Send To</b> elements (Next Elements)
@@ -50,7 +93,7 @@ namespace SimuLean.Unity.Editor
             EditorGUILayout.PropertyField(so.FindProperty("transportBy"), new GUIContent("Transport"));
         }
 
-        // The Flow section (review2 #39, #40): where the items go (a compact list of the next elements, the routing), where
+        // The Flow section: where the items go (a compact list of the next elements, the routing), where
         // they come from, and the rarely used settings in an Advanced foldout that says how many of them are set.
         private static void DrawSendReceive(SerializedObject so, bool drawReceive)
         {
@@ -70,12 +113,9 @@ namespace SimuLean.Unity.Editor
             else
             {
                 DrawNextElements(so.FindProperty("nextElements"));
-                var asset = so.FindProperty("outputStrategyAsset");
-                if (hasOutput && asset.objectReferenceValue == null)
+                if (hasOutput)
                     EditorGUILayout.PropertyField(so.FindProperty("outputStrategy"), new GUIContent("Routing",
                         "Which next element gets each item (the numbers above are the outputs' indexes)."), true);
-                else if (hasOutput)
-                    EditorGUILayout.LabelField("Routing", $"shared asset '{asset.objectReferenceValue.name}' (Advanced)");
             }
             EditorGUI.indentLevel--;
 
@@ -91,19 +131,21 @@ namespace SimuLean.Unity.Editor
                     if (list.objectReferenceValue == null)
                         EditorGUILayout.HelpBox("Choose the list the items are pulled from.", MessageType.Warning);
                     else
+                    {
                         EditorGUILayout.PropertyField(so.FindProperty("pullQuery"), new GUIContent("Pull Query"), true);
+                        var pullWait = so.FindProperty("pullMaxWait");
+                        EditorGUILayout.PropertyField(pullWait, new GUIContent("Max Wait", pullWait.tooltip));
+                    }
                     EditorGUI.indentLevel--;
                 }
             }
 
-            // ── advanced: shared routing, labels, admission, item statistics ──
-            var routingAsset = so.FindProperty("outputStrategyAsset");
+            // ── advanced: labels, admission, item statistics ──
             var exitLabels = so.FindProperty("exitLabels");
             var admission = so.FindProperty("inputStrategy");
             var entryLabels = so.FindProperty("entryLabels");
             var tallies = so.FindProperty("tallies");
             int set = 0;
-            if (hasOutput && routingAsset.objectReferenceValue != null) set++;
             if (hasOutput && exitLabels.arraySize > 0) set++;
             if (drawReceive && hasInput)
             {
@@ -119,8 +161,6 @@ namespace SimuLean.Unity.Editor
             EditorGUI.indentLevel++;
             if (hasOutput)
             {
-                EditorGUILayout.PropertyField(routingAsset, new GUIContent("Routing Asset",
-                    "Optional shared routing strategy (Assets ▸ Create ▸ SimuLean ▸ Output Strategy). Overrides the routing above."));
                 EditorGUILayout.PropertyField(exitLabels, new GUIContent("Labels on Exit",
                     "'name = expression' set on every item that leaves (before the next element takes it)."), true);
             }
@@ -173,11 +213,11 @@ namespace SimuLean.Unity.Editor
         /// <summary>The element's user properties: a button that adds them when missing (edited in their own component).</summary>
         public static void DrawAddComponentButtons(Object target)
         {
-            if (!(target is MonoBehaviour mb) || mb.GetComponent<SElementLabels>() != null) return;
+            if (!(target is MonoBehaviour mb) || mb.GetComponent<SElementProperties>() != null) return;
             EditorGUILayout.Space();
             var r = EditorGUILayout.GetControlRect();
             r = EditorGUI.PrefixLabel(r, new GUIContent("Properties", "User properties (key = value) read by expressions, lists and routing."));
-            if (GUI.Button(r, "+ Add properties")) Undo.AddComponent<SElementLabels>(mb.gameObject);
+            if (GUI.Button(r, "+ Add properties")) Undo.AddComponent<SElementProperties>(mb.gameObject);
         }
     }
 }

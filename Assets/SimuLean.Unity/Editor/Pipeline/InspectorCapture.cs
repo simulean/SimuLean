@@ -8,7 +8,7 @@ namespace SimuLean.Unity.Editor
 {
     /// <summary>
     /// Renders an object's SimuLean inspectors (its <see cref="SElement"/> and tool components, as the Inspector draws
-    /// them) in an off-screen window and saves them as a PNG — interface reviews and documentation through the MCP,
+    /// them) in an off-screen window and saves them as a PNG — screenshots for documentation, taken through the MCP,
     /// where the docked Inspector cannot be captured. Editor only; changes nothing.
     /// </summary>
     public sealed class InspectorCapture : EditorWindow

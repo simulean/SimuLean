@@ -17,7 +17,7 @@ namespace SimuLean.Results.Charts
     }
 
     /// <summary>
-    /// Lays out and draws <see cref="ChartData"/> on an <see cref="IChartCanvas"/> (modern style G3a): a semibold
+    /// Lays out and draws <see cref="ChartData"/> on an <see cref="IChartCanvas"/>: a semibold
     /// title and a subtitle, the legend as round swatches under them, a light grid without a frame, round ticks, Inter
     /// text, bars with rounded tops and thin interval whiskers, boxes, histogram bins, scatter points, lines, stacked
     /// states. Sizes are in points × <c>scale</c> (pixels per point: 1 on a normal screen, the editor's pixels per point,
@@ -26,10 +26,11 @@ namespace SimuLean.Results.Charts
     public static class ChartRenderer
     {
         /// <param name="scale">Pixels per point (0 = from the size: 1 at 640 × 400).</param>
-        public static ChartImage Render(ChartData data, int width, int height, ChartTheme theme = null, double scale = 0)
+        /// <param name="buffers">Images kept from the view's last render, drawn into again (<see cref="ChartBuffers"/>).</param>
+        public static ChartImage Render(ChartData data, int width, int height, ChartTheme theme = null, double scale = 0, ChartBuffers buffers = null)
         {
             theme = theme ?? ChartTheme.Light;
-            var canvas = new RasterCanvas(Math.Max(80, width), Math.Max(60, height), theme.Background, 2);
+            var canvas = new RasterCanvas(Math.Max(80, width), Math.Max(60, height), theme.Background, 2, buffers);
             Draw(canvas, data, theme, scale > 0 ? scale : AutoScale(width, height));
             return canvas.ToImage();
         }
@@ -124,7 +125,7 @@ namespace SimuLean.Results.Charts
             private void Categorical(double top, double bottom)
             {
                 double lo, hi;
-                bool percent = Data.Kind == ChartKind.States || Data.Kind == ChartKind.Stacked && Data.Normalise;
+                bool percent = Data.Kind == ChartKind.States || Data.Kind == ChartKind.Stacked && Data.Normalize;
                 if (percent) { lo = 0; hi = 1; }
                 else if (Data.Kind == ChartKind.Stacked || Data.Kind == ChartKind.Area) { lo = 0; hi = Math.Max(1e-12, YTop(Data)); }
                 else
@@ -484,7 +485,7 @@ namespace SimuLean.Results.Charts
         private static int Columns(ChartData d)
             => d.Categories.Count > 0 ? d.Categories.Count : d.Series.Count == 0 ? 0 : d.Series.Max(x => x.Values.Length);
 
-        /// <summary>Stacked columns (to 100 % when <see cref="ChartData.Normalise"/>) or an area with lines, in the plot box,
+        /// <summary>Stacked columns (to 100 % when <see cref="ChartData.Normalize"/>) or an area with lines, in the plot box,
         /// the value axis from 0 to <paramref name="top"/> (1 = 100 % when normalised).</summary>
         private static void PlotColumns(IChartCanvas c, ChartData d, double px, double py, double pw, double ph, double top, double u)
         {
@@ -499,7 +500,7 @@ namespace SimuLean.Results.Charts
                 {
                     double x0 = px + col * pw / n, w = Math.Max(0.5, pw / n - gap);
                     double total = d.Series.Sum(x => col < x.Values.Length && x.Values[col] > 0 ? x.Values[col] : 0);
-                    double k = d.Normalise ? (total > 0 ? 1 / total : 0) : 1, acc = 0;
+                    double k = d.Normalize ? (total > 0 ? 1 / total : 0) : 1, acc = 0;
                     for (int i = 0; i < d.Series.Count; i++)
                     {
                         double v = col < d.Series[i].Values.Length ? Math.Max(0, d.Series[i].Values[col]) * k : 0;
@@ -532,15 +533,16 @@ namespace SimuLean.Results.Charts
         /// that write their own labels in their own font (the element inspector). <paramref name="yMax"/> is the value at the
         /// top (<see cref="NiceMax"/>; 100 for a chart to 100 %).
         /// </summary>
-        public static ChartImage RenderPlot(ChartData data, int width, int height, ChartTheme theme, out double yMax, double scale = 1)
+        public static ChartImage RenderPlot(ChartData data, int width, int height, ChartTheme theme, out double yMax, double scale = 1,
+                                           ChartBuffers buffers = null)
         {
             theme = theme ?? ChartTheme.Panel;
             if (data.Kind != ChartKind.Stacked && data.Kind != ChartKind.Area && data.Kind != ChartKind.States)
                 throw new ArgumentException($"RenderPlot draws stacked, area and state charts, not {data.Kind}.");
-            var canvas = new RasterCanvas(Math.Max(1, width), Math.Max(1, height), theme.Background, 2);
+            var canvas = new RasterCanvas(Math.Max(1, width), Math.Max(1, height), theme.Background, 2, buffers);
             for (int k = 1; k < 4; k++) canvas.Rect(0, Math.Floor(height * k / 4.0), width, 1, theme.Grid);
-            bool percent = data.Kind == ChartKind.States || data.Kind == ChartKind.Stacked && data.Normalise;
-            var plot = new ChartData { Kind = data.Kind == ChartKind.States ? ChartKind.Stacked : data.Kind, Normalise = percent, Categories = data.Categories, Series = data.Series };
+            bool percent = data.Kind == ChartKind.States || data.Kind == ChartKind.Stacked && data.Normalize;
+            var plot = new ChartData { Kind = data.Kind == ChartKind.States ? ChartKind.Stacked : data.Kind, Normalize = percent, Categories = data.Categories, Series = data.Series };
             yMax = percent ? 100 : NiceMax(YTop(plot));
             if (yMax > 0) PlotColumns(canvas, plot, 0, 0, width, height, percent ? 1 : yMax, scale);
             return canvas.ToImage();

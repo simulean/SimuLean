@@ -8,7 +8,7 @@ namespace SimuLean.Unity.Editor
     /// <summary>
     /// The wait of the long-job status commands: a <c>_status</c> call with
     /// <c>wait</c> &gt; 0 answers as soon as the job is no longer going on, or when the wait is over — instead of the agent
-    /// polling (sleep-and-poll through <c>eval</c> cost half of a long agent session). The status is read on the main thread at
+    /// polling (sleeping and polling through <c>eval</c> is slow and costly). The status is read on the main thread at
     /// each editor tick (every <see cref="Interval"/>); the command returns a task, which the pipeline server awaits off the
     /// main thread, so the editor (and the job) keeps going meanwhile. A domain reload ends the wait with the status then.
     /// </summary>

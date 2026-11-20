@@ -1,12 +1,13 @@
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace SimuLean.Serialization
 {
     /// <summary>
-    /// Compact string codec for random samplers used inside flat-list configs
-    /// (assembly task durations, downtime MTBF/MTTR): <c>Type~p1~p2…</c>.
-    /// Rebuilt through <see cref="ElementBuildHelpers.BuildRandomProcess"/>, so every
-    /// decoded sampler gets a per-model random stream. Engine-pure.
+    /// The text form of a distribution, <c>Type~p1~p2…</c> (an input form — a study level, <c>simulean_set</c>, a
+    /// setup matrix's time cell, a fitted distribution —; a model stores <see cref="SamplerSettings"/>). <see cref="Parse"/>
+    /// reads it strictly, <see cref="Format"/> writes it, <see cref="Decode"/> builds its sampler through
+    /// <see cref="ElementBuildHelpers.BuildRandomProcess"/> (a per-model random stream). Engine-pure.
     /// </summary>
     public static class SamplerSpec
     {
@@ -22,6 +23,50 @@ namespace SimuLean.Serialization
         /// instead of silently substituting defaults.
         /// </summary>
         public static IRandomSampler Decode(string spec, SimClock clock, string owner = null, string purpose = null)
+            => ElementBuildHelpers.BuildRandomProcess(Parse(spec), "task", "", clock, owner ?? "", purpose ?? "sampler");
+
+        /// <summary>The fields of each distribution in the order of its text form (<c>Uniform~min~max</c>): the
+        /// <see cref="SamplerSettings"/> paths, also the catalog keys after the distribution's own path.</summary>
+        public static readonly Dictionary<string, string[]> Fields = new Dictionary<string, string[]>
+        {
+            ["Constant"] = new[] { "constantValue" }, ["Uniform"] = new[] { "uniformMin", "uniformMax" },
+            ["Normal"] = new[] { "normalMean", "normalStdDev" }, ["Exponential"] = new[] { "exponentialRate" },
+            ["ExponentialMean"] = new[] { "exponentialMean" },
+            ["Triangular"] = new[] { "triangularMin", "triangularMode", "triangularMax" },
+            ["Gamma"] = new[] { "gammaShape", "gammaScale" }, ["Weibull"] = new[] { "weibullShape", "weibullScale" },
+            ["LogNormal"] = new[] { "logNormalMu", "logNormalSigma" }, ["Beta"] = new[] { "betaAlpha", "betaBeta", "betaMin", "betaMax" },
+            ["ChiSquare"] = new[] { "chiSquareDf" }, ["StudentT"] = new[] { "studentTDf", "studentTClamp" },
+            ["FDistribution"] = new[] { "fDistD1", "fDistD2" }, ["Poisson"] = new[] { "poissonLambda" },
+            ["Binomial"] = new[] { "binomialN", "binomialP" }, ["DiscreteUniform"] = new[] { "discreteUniformMin", "discreteUniformMax" },
+        };
+
+        /// <summary>A distribution as text <c>Type~p1~p2…</c> (its fields in order, an absent one ends the list; numbers in
+        /// their round-trip form).</summary>
+        public static string Format(SamplerSettings s)
+        {
+            if (s == null) return "";
+            string type = string.IsNullOrEmpty(s.StrategyType) ? "Constant" : s.StrategyType;
+            if (type == "Expression") return "Expression~" + (s.Expression ?? "");
+            var sb = new System.Text.StringBuilder(type);
+            if (Fields.TryGetValue(type, out var fields))
+                foreach (string f in fields)
+                {
+                    object v = SettingsPaths.Find(typeof(SamplerSettings), f)?.Get(s);
+                    if (v == null) break;
+                    sb.Append('~').Append(v is double d ? d.ToString("R", CultureInfo.InvariantCulture)
+                                          : v is bool b ? (b ? "true" : "false") : System.Convert.ToString(v, CultureInfo.InvariantCulture));
+                }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Reads a distribution's text <c>Type~p1~p2…</c> (e.g. <c>Exponential~0.001</c>, <c>ExponentialMean~3600</c>,
+        /// <c>Weibull~1.5~3600</c>, <c>Constant~30</c>, <c>Expression~item.weight * 2</c>). Parameters follow the Inspector
+        /// conventions (Exponential takes a <b>rate</b>, ExponentialMean a mean). Throws <see cref="System.FormatException"/>
+        /// for a null/empty text, an unknown type or a missing / unparseable parameter (only StudentT's clamp and Beta's
+        /// min/max are optional), instead of silently substituting defaults.
+        /// </summary>
+        public static SamplerSettings Parse(string spec)
         {
             if (string.IsNullOrWhiteSpace(spec))
                 throw new System.FormatException("Sampler spec is empty (expected 'Type~p1~p2…', e.g. 'Exponential~0.2').");
@@ -31,69 +76,64 @@ namespace SimuLean.Serialization
             string rest = tilde < 0 ? "" : spec.Substring(tilde + 1);
             string[] p  = rest.Split('~');
 
-            // Rebuild through the shared codec (also assigns a per-model random
-            // stream) by translating into the standard unprefixed parameter keys.
-            var cfg = new ElementConfig("task", "task", "task");
-            cfg.Parameters["StrategyType"] = type;
+            var cfg = new SamplerSettings { StrategyType = type };
 
             Spec = spec;
             switch (type)
             {
                 case "Constant":
-                    cfg.Parameters["constantValue"] = D(p, 0); break;
+                    cfg.ConstantValue = D(p, 0); break;
                 case "Uniform":
-                    cfg.Parameters["uniformMin"] = D(p, 0);
-                    cfg.Parameters["uniformMax"] = D(p, 1); break;
+                    cfg.UniformMin = D(p, 0);
+                    cfg.UniformMax = D(p, 1); break;
                 case "Normal":
-                    cfg.Parameters["normalMean"]   = D(p, 0);
-                    cfg.Parameters["normalStdDev"] = D(p, 1); break;
+                    cfg.NormalMean = D(p, 0);
+                    cfg.NormalStdDev = D(p, 1); break;
                 case "Exponential":
-                    cfg.Parameters["exponentialRate"] = D(p, 0); break;
-                case "ExponentialMean":   // convenience for MTBF/MTTR data given as means
-                    cfg.Parameters["StrategyType"]    = "Exponential";
-                    cfg.Parameters["exponentialRate"] = 1.0 / System.Math.Max(1e-12, D(p, 0)); break;
+                    cfg.ExponentialRate = D(p, 0); break;
+                case "ExponentialMean":   // MTBF/MTTR data given as means
+                    cfg.ExponentialMean = D(p, 0); break;
                 case "Triangular":
-                    cfg.Parameters["triangularMin"]  = D(p, 0);
-                    cfg.Parameters["triangularMode"] = D(p, 1);
-                    cfg.Parameters["triangularMax"]  = D(p, 2); break;
+                    cfg.TriangularMin = D(p, 0);
+                    cfg.TriangularMode = D(p, 1);
+                    cfg.TriangularMax = D(p, 2); break;
                 case "Expression":
-                    cfg.Parameters["expression"] = rest; break;   // full remainder
+                    cfg.Expression = rest; break;   // full remainder
                 case "Gamma":
-                    cfg.Parameters["gammaShape"] = D(p, 0);
-                    cfg.Parameters["gammaScale"] = D(p, 1); break;
+                    cfg.GammaShape = D(p, 0);
+                    cfg.GammaScale = D(p, 1); break;
                 case "Weibull":
-                    cfg.Parameters["weibullShape"] = D(p, 0);
-                    cfg.Parameters["weibullScale"] = D(p, 1); break;
+                    cfg.WeibullShape = D(p, 0);
+                    cfg.WeibullScale = D(p, 1); break;
                 case "LogNormal":
-                    cfg.Parameters["logNormalMu"]    = D(p, 0);
-                    cfg.Parameters["logNormalSigma"] = D(p, 1); break;
+                    cfg.LogNormalMu = D(p, 0);
+                    cfg.LogNormalSigma = D(p, 1); break;
                 case "Beta":
-                    cfg.Parameters["betaAlpha"] = D(p, 0);
-                    cfg.Parameters["betaBeta"]  = D(p, 1);
-                    cfg.Parameters["betaMin"]   = DOpt(p, 2, 0.0);
-                    cfg.Parameters["betaMax"]   = DOpt(p, 3, 1.0); break;
+                    cfg.BetaAlpha = D(p, 0);
+                    cfg.BetaBeta = D(p, 1);
+                    cfg.BetaMin = DOpt(p, 2, 0.0);
+                    cfg.BetaMax = DOpt(p, 3, 1.0); break;
                 case "ChiSquare":
-                    cfg.Parameters["chiSquareDf"] = I(p, 0); break;
+                    cfg.ChiSquareDf = I(p, 0); break;
                 case "StudentT":
-                    cfg.Parameters["studentTDf"]    = I(p, 0);
-                    cfg.Parameters["studentTClamp"] = BOpt(p, 1, true); break;
+                    cfg.StudentTDf = I(p, 0);
+                    cfg.StudentTClamp = BOpt(p, 1, true); break;
                 case "FDistribution":
-                    cfg.Parameters["fDistD1"] = I(p, 0);
-                    cfg.Parameters["fDistD2"] = I(p, 1); break;
+                    cfg.FDistD1 = I(p, 0);
+                    cfg.FDistD2 = I(p, 1); break;
                 case "Poisson":
-                    cfg.Parameters["poissonLambda"] = D(p, 0); break;
+                    cfg.PoissonLambda = D(p, 0); break;
                 case "Binomial":
-                    cfg.Parameters["binomialN"] = I(p, 0);
-                    cfg.Parameters["binomialP"] = D(p, 1); break;
+                    cfg.BinomialN = I(p, 0);
+                    cfg.BinomialP = D(p, 1); break;
                 case "DiscreteUniform":
-                    cfg.Parameters["discreteUniformMin"] = I(p, 0);
-                    cfg.Parameters["discreteUniformMax"] = I(p, 1); break;
+                    cfg.DiscreteUniformMin = I(p, 0);
+                    cfg.DiscreteUniformMax = I(p, 1); break;
                 default:
                     throw new System.FormatException($"Sampler spec '{spec}': unknown type '{type}'.");
             }
 
-            return ElementBuildHelpers.BuildRandomProcess(cfg, prefix: "", clock: clock,
-                                                          owner: owner ?? "", purpose: purpose ?? "sampler");
+            return cfg;
         }
 
         // The spec being decoded, for error messages (Decode is not re-entrant per thread).

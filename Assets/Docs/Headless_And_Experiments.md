@@ -62,6 +62,6 @@ The same parameters (with a range for numbers) and metrics, plus:
 - **A new algorithm** (own or a library adapter): an `IOptimizationAlgorithm` in the engine (it gets the seeded
   random engine, cached parallel evaluation, budget and history from `OptimizationRun`) and an `AlgorithmSettings`
   subclass in `Assets/SimuLean.Optimization/Setup` — nothing to register.
-- **A new element type or config key**: numbers, bools and number arrays are parameters automatically; declare every
-  text or list key in the handler's `Schema` (`ParameterSchema`: option, sampler spec, numbers, user properties or
-  structural). The gate fails on an undecided key.
+- **A new element type or setting**: numbers, bools, options (enums), number arrays and distributions
+  (`SamplerSettings`) are parameters automatically; declare every text or list setting by its `[Setting(Role = …)]` in
+  the settings class (a choice, an expression, user properties, a file or structural). The gate fails on an undecided one.

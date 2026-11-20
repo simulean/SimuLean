@@ -11,7 +11,7 @@ namespace SimuLean.Unity
     /// </summary>
     public static class ItemLayout
     {
-        /// <summary>Seats layout: how far in front of its seat (along the element's +Z) an item stands (m).</summary>
+        /// <summary>Seats layout: how far in front of its seat (along the element's −Z, its front) an item stands (m).</summary>
         public const float SeatStandOff = 0.45f;
         /// <summary>Seats layout: where a sitting person's feet stand, in front of its seat's centre (m; the SitIdle clip
         /// moves the pelvis back over the seat).</summary>
@@ -47,24 +47,28 @@ namespace SimuLean.Unity
                     if (seatOf != null && seatOf.TryGetValue(it, out int seat))
                     {
                         // its own seat until it leaves (the others do not move up when the first one goes); a person sits
-                        // on it, any other item stands on the floor in front
+                        // on it, any other item stands on the floor in front — the seats face the queue's front, −Z (the
+                        // model frame)
                         Vector3 floor = seats[seat].position - t.up * Vector3.Dot(seats[seat].position - t.position, t.up);
-                        gItem.transform.SetPositionAndRotation(floor + t.forward * (person ? SeatSitOffset : SeatStandOff) + t.up * lift, t.rotation);
+                        gItem.transform.SetPositionAndRotation(floor - t.forward * (person ? SeatSitOffset : SeatStandOff) + t.up * lift,
+                                                               t.rotation * Quaternion.Euler(0f, 180f, 0f));
                         PersonAnimator.SetPose(gItem, person ? PersonAnimator.Pose.Sit : PersonAnimator.Pose.Stand);
                     }
                     else if (mode == QueueLayoutMode.Line)
                     {
                         PersonAnimator.SetPose(gItem, PersonAnimator.Pose.Stand);
+                        // in the model frame: the line runs along the flow, +X, its runs folding to the right of
+                        // it (−Z, the front)
                         Vector2 o = LineOffset(i, grid.Step, lineLength, out bool reversed);
-                        gItem.transform.position = grid.Origin + t.right * o.x + t.forward * o.y + t.up * lift;
-                        gItem.transform.rotation = reversed ? t.rotation * Quaternion.Euler(0f, 180f, 0f) : t.rotation;
+                        gItem.transform.position = grid.Origin - t.forward * o.x + t.right * o.y + t.up * lift;
+                        gItem.transform.rotation = t.rotation * ItemVisuals.AlongFlow * (reversed ? Quaternion.Euler(0f, 180f, 0f) : Quaternion.identity);
                     }
                     else
                     {
                         PersonAnimator.SetPose(gItem, PersonAnimator.Pose.Stand);
                         Vector3 at = grid.Position(seats != null ? standing++ : i);
                         gItem.transform.position = at + t.up * (lift - pivotHeight);
-                        gItem.transform.rotation = t.rotation;
+                        gItem.transform.rotation = t.rotation * ItemVisuals.AlongFlow;   // facing the flow, +X
                     }
                 }
                 i++;
@@ -98,10 +102,11 @@ namespace SimuLean.Unity
         }
 
         /// <summary>
-        /// Line layout: where item <paramref name="index"/> (0 = the head) stands, in the element's axes (x = right, y = forward
-        /// = towards the head), for items <paramref name="step"/> apart. Without a <paramref name="lineLength"/> the line runs
-        /// straight back along −Z; with one, a run holds the items that fit in that length and the next run folds back
-        /// beside it (1.5 steps to the right), walking the other way (<paramref name="reversed"/>: those items face −Z).
+        /// Line layout: where item <paramref name="index"/> (0 = the head) stands, in the line's axes (x = to the right of the
+        /// flow, the element's −Z; y = along the flow towards the head, the element's +X), for items <paramref name="step"/>
+        /// apart. Without a <paramref name="lineLength"/> the line runs straight back along −X; with one, a run holds the items
+        /// that fit in that length and the next run folds back beside it (1.5 steps to the right), walking the other way
+        /// (<paramref name="reversed"/>: those items face −X).
         /// </summary>
         public static Vector2 LineOffset(int index, float step, float lineLength, out bool reversed)
         {
@@ -150,11 +155,13 @@ namespace SimuLean.Unity
                 float fallback = Mathf.Max(0.05f, Mathf.Max(size.x, size.z) * 0.1f);
                 step = separation > 0f ? separation : itemSpan > 0f ? itemSpan * 1.15f : fallback;
                 layerStep = itemSize.y > 0f ? itemSize.y * 1.05f : step;
-                baseLift = pivotHeight;   // the bottom on the element, whatever the pivot (S4)
+                baseLift = pivotHeight;   // the bottom on the element, whatever the pivot
                 float width = gridArea.x > 0f ? gridArea.x : size.x;
                 float depth = gridArea.y > 0f ? gridArea.y : size.z;
-                cols = Mathf.Max(1, Mathf.FloorToInt(width / step));
-                rows = Mathf.Max(1, Mathf.FloorToInt(depth / step));
+                // the model frame: rows across the flow, the first at the exit (+X); a row's cells from the
+                // front (−Z)
+                cols = Mathf.Max(1, Mathf.FloorToInt(depth / step));
+                rows = Mathf.Max(1, Mathf.FloorToInt(width / step));
                 stack = mode == QueueLayoutMode.Stack;
                 bool explicitOrigin = itemPosition != null && itemPosition != owner.transform;
                 origin = explicitOrigin ? itemPosition.position : top;
@@ -169,8 +176,8 @@ namespace SimuLean.Unity
                 int perLayer = cols * rows;
                 int layer = index / perLayer, inLayer = index % perLayer;
                 int row = inLayer / cols, col = inLayer % cols;
-                float x = (col - (cols - 1) * 0.5f) * step;
-                float z = ((rows - 1) * 0.5f - row) * step;   // front row (+Z) first
+                float x = ((rows - 1) * 0.5f - row) * step;   // the row at the exit (+X) first
+                float z = (col - (cols - 1) * 0.5f) * step;   // from the front (−Z)
                 return origin + right * x + forward * z + up * (baseLift + layerStep * layer);
             }
         }

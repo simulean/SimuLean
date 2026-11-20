@@ -10,3 +10,4 @@ Driver # a child GameObject of the PalletTruckOperator member prefab
 ItemPoint # a child GameObject of Combiner.prefab
 .mcp.json # the MCP configuration each user writes for their own editor (README), not in the repository
 Temp/simulean_test_results.json # written by the EditMode test runner in the editor's Temp folder, not in the repository
+capture_game_view # a tool of the Unity MCP server (docs/agents/errors.md)

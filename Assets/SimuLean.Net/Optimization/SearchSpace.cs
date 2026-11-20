@@ -206,7 +206,7 @@ namespace SimuLean.Optimization
         public string Text(int i) => Text(i, "R");
 
         /// <summary>Variable <paramref name="i"/> rounded for display (6 significant digits). <see cref="Text(int)"/> is
-        /// exact: stored and exported values are re-run as they were (G6 stored 12.3457 for 12.3456789).</summary>
+        /// exact: stored and exported values are re-run as they were (a 6-digit text would store 12.3457 for 12.3456789).</summary>
         public string DisplayText(int i) => Text(i, "G6");
 
         private string Text(int i, string format)
@@ -226,8 +226,10 @@ namespace SimuLean.Optimization
             text = (text ?? "").Trim();
             if (v.Kind == VariableKind.Choice)
             {
+                // the option as written first (text options may differ only by case: 'A' and 'a' in an expression)
                 int o = -1;
-                for (int k = 0; k < v.Options.Count; k++) if (string.Equals(v.Options[k], text, StringComparison.OrdinalIgnoreCase)) o = k;
+                for (int k = 0; k < v.Options.Count && o < 0; k++) if (string.Equals(v.Options[k], text, StringComparison.Ordinal)) o = k;
+                if (o < 0) for (int k = 0; k < v.Options.Count; k++) if (string.Equals(v.Options[k], text, StringComparison.OrdinalIgnoreCase)) o = k;
                 if (o < 0 && !int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out o))
                     throw new FormatException($"Variable '{v.Name}': '{text}' is not one of {string.Join(", ", v.Options)}.");
                 return SetNumber(i, o);

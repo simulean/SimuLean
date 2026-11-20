@@ -9,8 +9,9 @@ namespace SimuLean
         /// <summary>Pre-empt: pending work is paused now and resumed later with its remaining time.</summary>
         Immediate,
 
-        /// <summary>Finish what is in progress; the element refuses new input and shows the
-        /// stop state once its pending work is done (typical for shift ends).</summary>
+        /// <summary>Finish what is in progress; the element refuses new input and the stop takes effect once its pending
+        /// work is done (<see cref="StopToken.EffectiveStart"/>; typical for shift ends). A downtime generator's stop of a
+        /// given length lasts that length from then on: it is delayed, not cut.</summary>
         AfterCurrent,
     }
 
@@ -62,9 +63,40 @@ namespace SimuLean
         public double EndTime { get; internal set; } = double.NaN;
         public bool IsActive { get; internal set; } = true;
 
+        /// <summary>When the stop took effect — the element stopped: its start for an <see cref="StopMode.Immediate"/> stop;
+        /// for an <see cref="StopMode.AfterCurrent"/> one the moment the element had no work in hand left (NaN until then;
+        /// a stop ended before that never took effect, the element never stood for it).</summary>
+        public double EffectiveStart { get; private set; } = double.NaN;
+
+        /// <summary>True once the stop has taken effect (<see cref="EffectiveStart"/>).</summary>
+        public bool IsEffective => !double.IsNaN(EffectiveStart);
+
+        private Action<StopToken> onEffective;
+
+        /// <summary>Runs <paramref name="action"/> when the stop takes effect — now if it already has (a generator times a
+        /// stop's length from then, so an AfterCurrent stop is delayed by the work in hand, not cut by it). Never runs for a
+        /// stop ended before it took effect.</summary>
+        public void WhenEffective(Action<StopToken> action)
+        {
+            if (action == null) return;
+            if (IsEffective) action(this);
+            else onEffective += action;
+        }
+
+        internal void MarkEffective(double now)
+        {
+            if (IsEffective || !IsActive) return;
+            EffectiveStart = now;
+            var act = onEffective;
+            onEffective = null;
+            act?.Invoke(this);
+        }
+
         // Snapshot of the request taken when the stop started: Resume and the state masking use
         // these, never the (mutable, reusable) request, so the element's block counters stay exact.
-        public ElementState State { get; }
+        /// <summary>The state accounted while the stop is effective (changed during a stop only by
+        /// <see cref="Element.SetStopState"/>: a repair crew's wait, then the repair).</summary>
+        public ElementState State { get; internal set; }
         public StopMode Mode { get; }
         public bool BlocksInput { get; }
         public bool BlocksOutput { get; }
@@ -76,10 +108,11 @@ namespace SimuLean
             Mode = request.Mode;
             BlocksInput = request.BlockInput;
             BlocksOutput = request.BlocksOutput;
+            if (Mode == StopMode.Immediate) EffectiveStart = startTime;
         }
 
         public override string ToString()
-            => $"Stop[{Target?.GetName()} {State.Name} {Request.Code} t={StartTime:F1}{(IsActive ? "" : $"..{EndTime:F1}")}]";
+            => $"Stop[{Target?.Name} {State.Name} {Request.Code} t={StartTime:F1}{(IsActive ? "" : $"..{EndTime:F1}")}]";
     }
 
     /// <summary>
@@ -107,8 +140,8 @@ namespace SimuLean
         /// <summary>The wrapped event.</summary>
         public IEvent Work => work;
 
-        // Its place in the owner's pending work: the handle is the list node (removed in O(1), no node allocated per job;
-        // review2 #20). InList: linked into the owner's list.
+        // Its place in the owner's pending work: the handle is the list node (removed in O(1), no node allocated per job).
+        // InList: linked into the owner's list.
         internal WorkHandle Prev, Next;
         internal bool InList;
 
@@ -117,9 +150,28 @@ namespace SimuLean
             this.owner = owner; this.work = work;
         }
 
+        /// <summary>Timed work of no element (a crew's repair of a stopped element — the element's stop must not pause
+        /// it): never paused by a stop, only held (<see cref="Hold"/>, a crew member taken away) or cancelled.</summary>
+        public static WorkHandle Detached(SimClock clock, IEvent work, double delay)
+        {
+            if (clock == null) throw new ArgumentNullException(nameof(clock));
+            var handle = new WorkHandle(null, work ?? throw new ArgumentNullException(nameof(work)));
+            handle.Start(clock, delay, paused: false);
+            return handle;
+        }
+
+        /// <summary>The work's whole duration (without pauses).</summary>
+        public double Duration { get; private set; }
+
+        /// <summary>When the work would have started without its pauses (<see cref="DueTime"/> − <see cref="Duration"/>):
+        /// a view's progress is (now − start) ÷ duration.</summary>
+        public double StartTime => DueTime - Duration;
+
         internal void Start(SimClock clock, double delay, bool paused)
         {
             if (delay < 0) delay = 0;
+            Duration = delay;
+            ownerPaused = paused;
             if (paused)
             {
                 IsPaused = true;
@@ -133,7 +185,24 @@ namespace SimuLean
             }
         }
 
+        // Paused by its owner's Immediate stop, and held by its own (a job that lost a resource to preemption): it runs
+        // only while neither holds it.
+        private bool ownerPaused;
+        private int holds;
+
         internal void Pause(double now)
+        {
+            ownerPaused = true;
+            Suspend(now);
+        }
+
+        internal void Resume(SimClock clock)
+        {
+            ownerPaused = false;
+            Continue(clock);
+        }
+
+        private void Suspend(double now)
         {
             if (IsPaused || IsDone || IsCancelled) return;
             handle?.Cancel();
@@ -142,12 +211,35 @@ namespace SimuLean
             IsPaused = true;
         }
 
-        internal void Resume(SimClock clock)
+        private void Continue(SimClock clock)
         {
-            if (!IsPaused || IsDone || IsCancelled) return;
+            if (!IsPaused || IsDone || IsCancelled || ownerPaused || holds > 0) return;
             IsPaused = false;
             DueTime = clock.GetSimulationTime() + RemainingWhenPaused;
             handle = clock.ScheduleEvent(this, RemainingWhenPaused);
+        }
+
+        /// <summary>True while the work itself is held (<see cref="Hold"/>), whatever its owner's stops.</summary>
+        public bool IsHeld => holds > 0;
+
+        /// <summary>Holds this work alone (not its owner's other work): paused now, its remaining time kept, until as many
+        /// <see cref="Release"/>s — a station's job that lost one of its resources (preemption). An owner's stop and a
+        /// hold add up: the work runs again when neither holds it.</summary>
+        public void Hold(SimClock clock)
+        {
+            if (IsDone || IsCancelled) return;
+            holds++;
+            Suspend(clock.GetSimulationTime());
+        }
+
+        /// <summary>Ends a <see cref="Hold"/>. <paramref name="restart"/>: the work starts again with its whole
+        /// <see cref="Duration"/> (else its remaining time).</summary>
+        public void Release(SimClock clock, bool restart = false)
+        {
+            if (holds == 0 || IsDone || IsCancelled) return;
+            holds--;
+            if (restart && IsPaused) RemainingWhenPaused = Duration;
+            Continue(clock);
         }
 
         /// <summary>Remaining duration of the work at <paramref name="now"/>.</summary>
@@ -160,8 +252,8 @@ namespace SimuLean
             IsCancelled = true;
             handle?.Cancel();
             handle = null;
-            owner.ForgetWork(this);
-            owner.AfterWorkCompleted();   // an AfterCurrent stop may now become visible
+            owner?.ForgetWork(this);
+            owner?.AfterWorkCompleted();   // an AfterCurrent stop may now become visible
             return true;
         }
 
@@ -170,9 +262,9 @@ namespace SimuLean
             if (IsDone || IsCancelled) return;
             IsDone = true;
             handle = null;
-            owner.ForgetWork(this);
+            owner?.ForgetWork(this);
             work.Execute();
-            owner.AfterWorkCompleted();
+            owner?.AfterWorkCompleted();
         }
     }
 
@@ -223,6 +315,18 @@ namespace SimuLean
         /// <summary>Number of pending work units (running or paused).</summary>
         public int PendingWorkCount => _workCount;
 
+        /// <summary>When the oldest running work unit started and is due (NaN, NaN when none runs): what a view times a
+        /// machine's cycle by (read-only).</summary>
+        public (double start, double due) CurrentWork
+        {
+            get
+            {
+                for (var w = _workFirst; w != null; w = w.Next)
+                    if (!w.IsPaused && !w.IsDone && !w.IsCancelled) return (w.StartTime, w.DueTime);
+                return (double.NaN, double.NaN);
+            }
+        }
+
         /// <summary>Raised after a stop starts on this element.</summary>
         public event Action<Element, StopToken> Stopped;
 
@@ -252,7 +356,35 @@ namespace SimuLean
         /// choosing instead of making the item wait.
         /// </summary>
         public bool CanAccept(Item theItem, Element origin = null)
-            => !IsInputBlocked && CheckAvailability(theItem) && ValidateInput(theItem, origin);
+            => !IsInputBlocked && CheckAvailability(theItem) && ValidateInput(theItem, origin) && !RoomReservedForOthers(theItem);
+
+        /// <summary>True when the element secures resources before it takes an item (a Multi-Server's
+        /// <c>processBy.acquireBeforeEntry</c>): a link that cannot hand it an item tells it (<see cref="PrepareForEntry"/>).</summary>
+        public virtual bool PreparesForEntry => false;
+
+        /// <summary>Step 1 of entry preparation: a link could not hand <paramref name="theItem"/> over to this element.
+        /// An element that prepares for entry and admits the item — its admission first — asks for its resources now and
+        /// returns true; the item is offered again when they are there. Never called from a state check: <see cref="CanAccept"/>,
+        /// <c>CheckAvailability</c> and <see cref="GeneralLink.CouldTake"/> have no side effects.</summary>
+        public virtual bool PrepareForEntry(Item theItem, Element origin) => false;
+
+        /// <summary>A link could not hand <paramref name="theItem"/> over to any of <paramref name="destinations"/>: the one its
+        /// routing rule names (a rule routing), else the first in order that prepares for entry and admits it, is told
+        /// (<see cref="PrepareForEntry"/>) — one station per attempt, so an item has resources secured at one station only.</summary>
+        internal static void OfferForEntry(List<Element> destinations, Item theItem, Element origin, IOutputStrategy routing)
+        {
+            bool any = false;
+            for (int i = 0; i < destinations.Count && !any; i++) any = destinations[i].PreparesForEntry;
+            if (!any) return;
+            if (routing is IRuleRouting rule)
+            {
+                int r = rule.Route(destinations, theItem, origin);
+                if (r >= 0 && r < destinations.Count) destinations[r].PrepareForEntry(theItem, origin);
+                return;
+            }
+            foreach (var d in destinations)
+                if (d.PreparesForEntry && d.PrepareForEntry(theItem, origin)) return;
+        }
 
         // ── stop / resume ─────────────────────────────────────────────────────
 
@@ -277,9 +409,12 @@ namespace SimuLean
             if (token.Mode == StopMode.Immediate && _immediateStops++ == 0)
                 PauseAllWork(now);
 
-            RefreshDownState();
+            RefreshDownState(effectNow: false);
             OnStopped(token);
             Stopped?.Invoke(this, token);
+            // an AfterCurrent stop of an element with no work in hand takes effect at once (after the stop's own
+            // notifications, as an Immediate one is effective when they run)
+            MarkEffectiveStops();
             return token;
         }
 
@@ -317,6 +452,18 @@ namespace SimuLean
 
         private const int MaxResumePulls = 100000;
 
+        /// <summary>Changes the state an active stop accounts (a downtime with a repair crew stops the element
+        /// WAITING_FOR_REPAIR, then shows its own state while the crew repairs it). The stop itself goes on (one stop,
+        /// counted once); false if the stop is not active.</summary>
+        public bool SetStopState(StopToken token, ElementState state)
+        {
+            if (token == null || !token.IsActive || _stops == null || !_stops.Contains(token)) return false;
+            if (token.State == state) return true;
+            token.State = state;
+            RefreshDownState();
+            return true;
+        }
+
         /// <summary>Hook for subclasses: a stop started (after work was paused and state updated).</summary>
         protected virtual void OnStopped(StopToken token) { }
 
@@ -353,6 +500,7 @@ namespace SimuLean
             _workLast = handle;
             _workCount++;
             handle.Start(simClock, delay, paused: IsWorkPaused);
+            if (_workHolds > 0) handle.Hold(simClock);
             return handle;
         }
 
@@ -383,8 +531,23 @@ namespace SimuLean
 
         internal protected void AfterWorkCompleted()
         {
-            // An AfterCurrent stop becomes visible once the element has no work left.
-            if (IsDown && !_downShown) RefreshDownState();
+            // An AfterCurrent stop becomes visible — takes effect — once the element has no work left (also under
+            // another stop already shown: its own time starts now).
+            if (IsDown && (!_downShown || HasStopNotEffective())) RefreshDownState();
+        }
+
+        private bool HasStopNotEffective()
+        {
+            if (_stops != null) foreach (var t in _stops) if (!t.IsEffective) return true;
+            return false;
+        }
+
+        // The AfterCurrent stops waiting for the work in hand take effect when the element has none left.
+        private void MarkEffectiveStops()
+        {
+            if (_stops == null || HasWorkInProgress || !HasStopNotEffective()) return;
+            double now = simClock.GetSimulationTime();
+            foreach (var t in _stops.ToArray()) t.MarkEffective(now);   // a copy: an action may stop or resume
         }
 
         private void PauseAllWork(double now)
@@ -399,14 +562,31 @@ namespace SimuLean
             foreach (var w in PendingWork()) w.Resume(simClock);
         }
 
+        // Holds every pending work unit and the work scheduled meanwhile, apart from any stop (a carrier whose joint move
+        // pauses because another carrier of the group stopped with the load on): not a stop (no state, no count).
+        private int _workHolds;
+
+        internal void HoldAllWork()
+        {
+            if (_workHolds++ > 0) return;
+            for (var w = _workFirst; w != null; w = w.Next) w.Hold(simClock);
+        }
+
+        internal void ReleaseAllWork()
+        {
+            if (_workHolds == 0 || --_workHolds > 0) return;
+            foreach (var w in PendingWork()) w.Release(simClock);
+        }
+
         // ── state masking ─────────────────────────────────────────────────────
 
         /// <summary>
         /// Picks the state to account: the most recent effective stop (Immediate stops
-        /// are effective at once, AfterCurrent ones when no work is pending), else the
-        /// element's own state.
+        /// are effective at once, AfterCurrent ones when no work is pending — and stay so), else the
+        /// element's own state. <paramref name="effectNow"/>: the AfterCurrent stops waiting for the work in hand take
+        /// effect now if none is left (<see cref="StopToken.EffectiveStart"/>).
         /// </summary>
-        private void RefreshDownState()
+        private void RefreshDownState(bool effectNow = true)
         {
             ElementState? shown = null;
             if (_stops != null)
@@ -415,7 +595,7 @@ namespace SimuLean
                 for (int i = _stops.Count - 1; i >= 0; i--)
                 {
                     var t = _stops[i];
-                    if (t.Mode == StopMode.Immediate || idle) { shown = t.State; break; }
+                    if (t.Mode == StopMode.Immediate || t.IsEffective || idle) { shown = t.State; break; }
                 }
             }
 
@@ -431,12 +611,13 @@ namespace SimuLean
                 ApplyTrackedState(_underlyingState);
                 OnStopShown(null);
             }
+            if (effectNow) MarkEffectiveStops();
         }
 
         /// <summary>Hook for stations with slots (<see cref="ServerProcess"/>): the stop state the element now accounts, or
         /// null when it runs again. They pass it to their slots (<see cref="ServerProcess.ShowStop"/>), so the per-slot
         /// statistics — and the utilisation, their PROCESSING share — leave out the time under a stop, as the element's
-        /// do (benchmark C2).</summary>
+        /// do.</summary>
         protected virtual void OnStopShown(ElementState? stop) { }
 
         private void ApplyTrackedState(ElementState state)

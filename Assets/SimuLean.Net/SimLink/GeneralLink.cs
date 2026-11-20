@@ -17,6 +17,10 @@ namespace SimuLean
         readonly Dictionary<Element, long> waitingTurn = new Dictionary<Element, long>();
         long nextTurn, sendAttempts;
 
+        /// <summary>The routing of this link (null = the origin's output strategy): a link of its own, e.g. to an element's
+        /// timeout target, routes by its own rule.</summary>
+        public IOutputStrategy Routing { get; set; }
+
         // Add origin element for NotifyAvailable tracking
         public void AddOrigin(Element origin)
         {
@@ -24,11 +28,24 @@ namespace SimuLean
                 origins.Add(origin);
         }
 
+        /// <summary>The destinations, in order (read-only).</summary>
+        public IReadOnlyList<Element> Outputs => outputs;
+
         // Add destination element
         public void AddOutput(Element output)
         {
             if (!outputs.Contains(output))
                 outputs.Add(output);
+        }
+
+        /// <summary>True if some destination could take <paramref name="item"/> from <paramref name="source"/> now (its
+        /// <see cref="Element.CanAccept"/>), without sending it or running the routing (no side effects): a queue shows
+        /// BLOCKED while none could.</summary>
+        public bool CouldTake(Item item, Element source)
+        {
+            if (source.IsOutputBlocked) return false;
+            foreach (var d in outputs) if (d.CanAccept(item, source)) return true;
+            return false;
         }
 
         /// <summary>
@@ -58,19 +75,22 @@ namespace SimuLean
                 return false;
 
             // Get output strategy from source element (who decides where to send)
-            IOutputStrategy strategy = source.GetOutputStrategy();
+            IOutputStrategy strategy = Routing ?? source.GetOutputStrategy();
 
             // Strategy selects the output. The context carries the per-model parameters (SimContext), so parallel
             // headless models never share routing state; it is only read here, before any nested send.
-            int index = strategy.SelectOutput(outputs, theItem, source, context.Set(source, outputs));
+            // A place reserved for the item downstream (its station's ReserveExit) decides: it goes there or waits.
+            Element reserved = Routing != null ? null : source.ReservedExitOf(theItem);
+            int index = reserved != null ? outputs.IndexOf(reserved) : strategy.SelectOutput(outputs, theItem, source, context.Set(source, outputs));
 
             if (index >= 0 && index < outputs.Count)
             {
                 Element target = outputs[index];
+                if (Routing == null && reserved == null) source.Counters.Chose(target, theItem);   // read-only counter (logic viewer)
 
                 // Re-check the chosen destination (custom strategies may not): a stopped
                 // destination refuses items, and the input strategy is evaluated with origin.
-                if (target.IsInputBlocked || !target.ValidateInput(theItem, source))
+                if (target.IsInputBlocked || !target.ValidateInput(theItem, source) || target.RoomReservedForOthers(theItem))
                     return false;
 
                 // Attempt to receive the item. While the destination's Receive runs, the
@@ -84,19 +104,22 @@ namespace SimuLean
                 if (received)
                 {
                     (strategy as IRoutingMemory)?.Forget(theItem);   // a per-item choice is spent
+                    if (Routing == null) source.Counters.Handed(outputs, index, theItem);
+                    if (reserved != null) { target.ReleaseRoom(theItem, source); source.ExitHandedOver(theItem); }   // it entered its place
                     // Statistics tracking
                     source.StatsCollector.OnExit(theItem);
                     target.StatsCollector.OnEntry(theItem);
                     return true;
                 }
             }
+            else if (reserved == null) Element.OfferForEntry(outputs, theItem, source, strategy);   // a station may prepare
 
             return false;
         }
 
         /// <summary>
         /// Notifies origins that there is available capacity at a destination: the origin that has waited longest first
-        /// (it always started at the first origin, which could starve the others), then the next while the
+        /// (so the first origin cannot starve the others), then the next while the
         /// destination refuses their items — its input strategy still decides, so it can give a line priority — then the
         /// origins not waiting, in connection order.
         /// </summary>

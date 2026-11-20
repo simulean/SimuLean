@@ -12,10 +12,20 @@ namespace SimuLean.Unity.Editor
 
         private UnityCombiner Combiner => (UnityCombiner)target;
 
+        protected override string[] DrawnFields => new[]
+        {
+            "requirements", "capacity", "delayStrategy", "batchMode", "updateRequirements", "updateLabels", "pullModeType",
+            "singleLabelName", "singleLabelValue", "multiLabelPairs", "reserveExit", "heightLabel", "partsPerLayer",
+            "inputOrder", "listInputs",
+            "visualMode", "combinedItemPrefab", "itemPosition", "outItemPosition", "separation", "assemblySpacing",
+            "componentLayout", "componentEntries", "animateAssembly", "serverAnimator",
+        };
+
         protected override void DrawParameters()
         {
             EditorGUILayout.PropertyField(Prop("requirements"),
                 new GUIContent("Components per input", "How many items each component input gives to one main item (one entry per component input)."), true);
+            EditorGUILayout.PropertyField(Prop("capacity"), new GUIContent("Assemblies", Prop("capacity").tooltip));
             EditorGUILayout.PropertyField(Prop("delayStrategy"), new GUIContent("Process time", "Time to assemble one main item."));
             EditorGUILayout.PropertyField(Prop("batchMode"),
                 new GUIContent("Keep components", "On: the components travel on inside the main item (batch). Off: they are consumed."));
@@ -41,6 +51,9 @@ namespace SimuLean.Unity.Editor
                     break;
             }
             EditorGUI.indentLevel--;
+            EditorGUILayout.PropertyField(Prop("reserveExit"), new GUIContent("Reserve Exit", Prop("reserveExit").tooltip));
+            EditorGUILayout.PropertyField(Prop("heightLabel"), new GUIContent("Height label", Prop("heightLabel").tooltip));
+            EditorGUILayout.PropertyField(Prop("partsPerLayer"), new GUIContent("Parts per layer", Prop("partsPerLayer").tooltip));
         }
 
         protected override void DrawFlowExtra()
@@ -69,6 +82,10 @@ namespace SimuLean.Unity.Editor
             EditorGUILayout.PropertyField(Prop("itemPosition"), new GUIContent("Item position", "Where the assembly happens. Empty = the top of the footprint."));
             EditorGUILayout.PropertyField(Prop("outItemPosition"), new GUIContent("Out position", "Optional: the assembled item moves here while processed."));
             SimuLeanGUI.Field(Prop("separation"), new GUIContent("Component spacing", "0 = automatic, from the size of the items."));
+            SimuLeanGUI.Field(Prop("assemblySpacing"), new GUIContent("Assembly spacing", Prop("assemblySpacing").tooltip));
+            EditorGUILayout.PropertyField(Prop("componentLayout"), new GUIContent("Component layout", Prop("componentLayout").tooltip));
+            EditorGUILayout.PropertyField(Prop("componentEntries"), new GUIContent("Component entries", Prop("componentEntries").tooltip), true);
+            EditorGUILayout.PropertyField(Prop("animateAssembly"), new GUIContent("Animate assembly", Prop("animateAssembly").tooltip));
             EditorGUILayout.PropertyField(Prop("serverAnimator"), new GUIContent("Animator", "Optional: WorkInProgress while assembling."));
         }
 

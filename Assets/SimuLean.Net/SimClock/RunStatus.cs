@@ -18,6 +18,10 @@ namespace SimuLean
         /// <summary>Nothing left to do with items still in the model: at rest in buffers without outputs (the finished
         /// product) or surplus no element will take (an unlimited source behind a full rack) — end condition "when empty".</summary>
         Finished,
+        /// <summary>Stopped because no item entered or left any element for the end condition's time while items waited
+        /// (<c>SimulationConfig.StopWhenNoProgressFor</c>): events were still scheduled (a periodic signal, a reaction),
+        /// so the run never became idle, but nothing moved.</summary>
+        NoProgress,
     }
 
     /// <summary>
@@ -46,5 +50,10 @@ namespace SimuLean
         /// <summary>Time nothing was left to do (NaN = never): empty, or every item left at rest in a buffer without outputs
         /// or surplus no element will take. Not a stall.</summary>
         public double FinishTime { get; internal set; } = double.NaN;
+        /// <summary>True when the end condition "stop when no progress for T" ended the run: no item moved for T while
+        /// items waited, and events kept the run from becoming idle. <see cref="Waiting"/> names the waiting elements.</summary>
+        public bool NoProgress { get; internal set; }
+        /// <summary>Time the run ended for lack of progress (the last item movement + T; NaN = never).</summary>
+        public double NoProgressTime { get; internal set; } = double.NaN;
     }
 }

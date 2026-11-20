@@ -66,6 +66,65 @@ static class Program
         return RunResults.Capture(model, "basic_line");
     }
 
+    // A sink's tis_* equal the tally 'tis = age' on it (each item's age as it enters), a queue's stay_p90 the 90th
+    // percentile of its stays (type 7, as a tally's p90), both restarted at the warm-up; other elements have neither.
+    static void TestSinkTimeInSystemAndQueueStayP90()
+    {
+        foreach (double warmup in new[] { 0.0, 300.0 })
+        {
+            var cfg = ReferenceModels.BasicLine();
+            cfg.WarmupTime = warmup;
+            cfg.Elements.Find(e => e.Name == "sink").Set("tallies", new List<string> { "tis = age" });
+            var clock = new SimClock(7);
+            var model = new HeadlessModelFactory(clock);
+            model.BuildModel(cfg);
+            model.GetAllElements()["q"].StatsCollector.RecordSamples();   // the raw stays, to check the percentile against
+            model.StartModel();
+            clock.AdvanceClock(1000);
+            var r = RunResults.Capture(model, "basic_line");
+            var sink = r.Find(ResultScope.Element, "sink");
+            var q = r.Find(ResultScope.Element, "q");
+            string at = $" (warm-up {warmup})";
+            Check(sink[ResultMetrics.Input] > 100, "the sink received items" + at);
+            foreach (var (tis, tally) in new[] { (ResultMetrics.TisAvg, "mean"), (ResultMetrics.TisStd, "std"), (ResultMetrics.TisMin, "min"),
+                                                 (ResultMetrics.TisMax, "max"), (ResultMetrics.TisP90, "p90") })
+                Check(Near(sink[tis], sink[ResultMetrics.Tally("tis", tally)], 1e-12),
+                      $"sink {tis} {sink[tis]:R} = tally:tis:{tally} {sink[ResultMetrics.Tally("tis", tally)]:R}" + at);
+            Check(sink[ResultMetrics.Tally("tis", "count")] == sink[ResultMetrics.Input], "one time in system per item received" + at);
+            Check(sink[ResultMetrics.TisMin] > 0 && sink[ResultMetrics.TisP90] <= sink[ResultMetrics.TisMax], "times in system are positive, p90 <= max" + at);
+
+            var stays = model.GetAllElements()["q"].StatsCollector.StaySamples.OrderBy(x => x).ToList();
+            double h = (stays.Count - 1) * 0.9;
+            int lo = (int)Math.Floor(h);
+            double p90 = stays[lo] + (h - lo) * (stays[Math.Min(stays.Count - 1, lo + 1)] - stays[lo]);
+            Check(stays.Count == q[ResultMetrics.StayCount] && Near(q[ResultMetrics.StayP90], p90, 1e-12),
+                  $"queue stay_p90 {q[ResultMetrics.StayP90]:R} = the 90th percentile of its {stays.Count} stays {p90:R}" + at);
+            Check(q[ResultMetrics.StayP90] >= q[ResultMetrics.StayMin] && q[ResultMetrics.StayP90] <= q[ResultMetrics.StayMax], "stay_min <= stay_p90 <= stay_max" + at);
+
+            var srv = r.Find(ResultScope.Element, "srv");
+            var src = r.Find(ResultScope.Element, "src");
+            Check(!srv.TryGet(ResultMetrics.StayP90, out _) && !srv.TryGet(ResultMetrics.TisAvg, out _) && !src.TryGet(ResultMetrics.TisAvg, out _)
+                  && !q.TryGet(ResultMetrics.TisAvg, out _) && !sink.TryGet(ResultMetrics.StayP90, out _),
+                  "only a queue has stay_p90, only a sink tis_*" + at);
+            // the study reads them as metrics; an element without them is refused with the reason
+            Check(Near(MetricCatalog.Read(new ModelMetric("t", MetricScope.Element, "sink", ResultMetrics.TisAvg), r), sink[ResultMetrics.TisAvg], 0)
+                  && Near(MetricCatalog.Read(new ModelMetric("w", MetricScope.Element, "q", ResultMetrics.StayP90), r), q[ResultMetrics.StayP90], 0),
+                  "tis_avg and stay_p90 are metrics" + at);
+        }
+
+        // before any item: 0, as stay_*
+        var empty = new HeadlessModelFactory(new SimClock(1));
+        empty.BuildModel(ReferenceModels.BasicLine());
+        empty.StartModel();
+        var e0 = RunResults.Capture(empty);
+        Check(e0.Find(ResultScope.Element, "sink")[ResultMetrics.TisAvg] == 0 && e0.Find(ResultScope.Element, "sink")[ResultMetrics.TisP90] == 0
+              && e0.Find(ResultScope.Element, "q")[ResultMetrics.StayP90] == 0, "no item yet: tis_* and stay_p90 read 0");
+        string problem = MetricCatalog.Problem(new ModelMetric("w", MetricScope.Element, "srv", ResultMetrics.StayP90), e0, empty);
+        Check(problem != null && problem.Contains("stay_p90") && problem.Contains("Queue"), "stay_p90 of a server is refused, saying it is a queue's: " + problem);
+        problem = MetricCatalog.Problem(new ModelMetric("t", MetricScope.Element, "q", ResultMetrics.TisAvg), e0, empty);
+        Check(problem != null && problem.Contains("Sink") && problem.Contains("tis = age"), "tis_avg of a queue is refused, saying it is a sink's: " + problem);
+    }
+
     static int Main()
     {
         // ── StatSummary against scipy (stats.t.ppf, numpy std ddof=1) ──────
@@ -117,6 +176,8 @@ static class Program
         Check(wide.RowCount == r.Of(ResultScope.Element).Count() && wide.Columns.Take(3).SequenceEqual(new[] { "name", "type", "group" })
               && wide.Columns.Skip(3).Take(ResultMetrics.Element.Count).SequenceEqual(ResultMetrics.Element), "wide table: the scope's statistics first, in catalog order");
         Console.WriteLine("- RunResults: run info, element statistics, the long and wide tables");
+        TestSinkTimeInSystemAndQueueStayP90();
+        Console.WriteLine("- A sink's time in system (tis_*) and a queue's stay_p90: as the tally 'tis = age' and the queue's stays, warm-up reset");
 
         // ── ResultSummary across replications ───────────────────────────────
         var runs = Enumerable.Range(1, 6).Select(seed => RunBasicLine(seed)).ToList();
@@ -153,7 +214,7 @@ static class Program
         Check(replicated.Select(x => x.Info.Seed).SequenceEqual(Enumerable.Range(objective.BaseSeed, 4)), "replication seeds base, +1, +2, +3");
         Console.WriteLine("- SimulationObjective: per-replication metric values; Replicate gives each run's statistics");
 
-        // ── time series (E3): recorded without changing the run ─────────────
+        // ── time series: recorded without changing the run ─────────────
         {
             var plain = RunBasicLine(9, 600);
             var clock = new SimClock(9);
@@ -173,7 +234,7 @@ static class Program
             Check(input != null && input.Times.Count == 12 && input.Times[0] == 50 && input.Times.Last() == 600, "an interval every 50 up to the end (12 points)");
             Check(Near(input.Values.Sum(), withSeries.Find(ResultScope.Element, "srv")[ResultMetrics.Input]), "the items per interval add up to the run's input");
             var avg = Ser("srv", ResultMetrics.ContentAvg);
-            var srvElement = model.GetAllElements().Values.First(x => x.GetName() == "srv");
+            var srvElement = model.GetAllElements().Values.First(x => x.Name == "srv");
             double integral = srvElement.StatsCollector.VarContent.GetIntegral(600);
             Check(Near(avg.Values.Sum() * 50, integral, 1e-9), $"the intervals' average content × length adds up to the content integral ({avg.Values.Sum() * 50:R} vs {integral:R})");
             var stateSums = Enumerable.Range(0, input.Times.Count)
@@ -204,7 +265,7 @@ static class Program
                 sameSeries = rec3.Series[i].Times.SequenceEqual(recorder.Series[i].Times)
                              && rec3.Series[i].Values.Zip(recorder.Series[i].Values, (x, y) => Near(x, y, 1e-9)).All(b => b);
             Check(sameSeries, "run in progress slices: the same whole intervals and values as one call");
-            // a Play run (G2b): the clock advances frame by frame (uneven steps) through the recorder, then closes it at the end
+            // a Play run: the clock advances frame by frame (uneven steps) through the recorder, then closes it at the end
             var c4 = new SimClock(9); var m4 = new HeadlessModelFactory(c4); m4.BuildModel(ReferenceModels.BasicLine()); m4.StartModel();
             var rec4 = new SeriesRecorder(m4, 50);
             for (double t = 0, step = 0.37; t < 600; step = step * 1.7 % 3.1 + 0.05) { t = Math.Min(600, t + step); rec4.RunTo(t, final: false); }
@@ -235,7 +296,42 @@ static class Program
         }
         Console.WriteLine("- SeriesRecorder: per-interval series that add up to the run; warm-up; the run unchanged");
 
-        // ── ResultSet and its exports (E3) ──────────────────────────────────
+        // ── A team's share of time per state: the mean over its members, in the results and the series ──
+        {
+            var pool = ReferenceModels.All().First(kv => kv.Key == "resource_count_two").Value;
+            var clock = new SimClock(pool.Seed);
+            var model = new HeadlessModelFactory(clock);
+            model.BuildModel(pool);
+            model.StartModel();
+            var recorder = new SeriesRecorder(model, 100);
+            recorder.RunTo(pool.MaxSimulationTime);
+            var rr = RunResults.Capture(model, "resource_count_two");
+            recorder.AddTo(rr);
+            var team = rr.Of(ResultScope.Team).First();
+            var members = rr.Of(ResultScope.Resource).Where(m => m.Group == team.Id || m.Group == team.Name).ToList();
+            var states = team.Metrics.Where(m => ResultMetrics.IsState(m.Key)).ToList();
+            Check(members.Count > 1 && states.Count > 0, $"the team has state shares ({members.Count} members, {states.Count} states)");
+            Check(states.All(st => Near(st.Value, members.Sum(m => m.TryGet(st.Key, out double v) ? v : 0) / members.Count)),
+                  "a team's state:X is the mean of its members'");
+            Check(Near(states.Sum(st => st.Value), 1, 1e-9), "a team's state shares add up to 1");
+            var util = rr.Series.FirstOrDefault(x => x.Scope == ResultScope.Team && x.Metric == ResultMetrics.Utilization);
+            var stSeries = rr.Series.Where(x => x.Scope == ResultScope.Team && ResultMetrics.IsState(x.Metric)).ToList();
+            Check(util != null && stSeries.Count > 0, "series of the team: utilization and state:X");
+            Check(Enumerable.Range(0, util.Times.Count).All(i => Near(stSeries.Sum(x => x.Values[i]), 1, 1e-9)),
+                  "a team's state shares add up to 1 in every interval");
+            Check(Near(util.Values.Zip(util.Times.Select((t, i) => t - (i == 0 ? 0 : util.Times[i - 1])), (v, dt) => v * dt).Sum() / util.Times.Last(),
+                       team[ResultMetrics.Utilization], 1e-6), "the team's utilization series averages to the run's");
+            var obj = new SimulationObjective(pool, new ModelParameter[0],
+                new[] { new ModelMetric("idle", MetricScope.Team, team.Id, ResultMetrics.State("IDLE")),
+                        new ModelMetric("never", MetricScope.Team, team.Id, ResultMetrics.State("NEVER_ENTERED")) }, "idle")
+                { Replications = 1, RunTime = pool.MaxSimulationTime };
+            var ev = obj.Evaluate(new Candidate(obj.BuildSpace()));
+            Check(Near(ev.Metrics["idle"], team[ResultMetrics.State("IDLE")], 1e-9) && ev.Metrics["never"] == 0,
+                  "a study reads team:T.state:X (a state never entered is 0)");
+        }
+        Console.WriteLine("- Team state shares: the members' mean, in the results, the series and the study metrics");
+
+        // ── ResultSet and its exports ──────────────────────────────────
         {
             var set = new ResultSet { Name = "Test set", Source = "experiment", Model = "basic_line", Created = new DateTime(2026, 10, 7, 12, 0, 0) };
             set.MetricNames.Add("done");
@@ -288,9 +384,9 @@ static class Program
                     Check(new[] { "Summary", "Scenarios", "Elements", "Runs", "Statistics", "Run statistics", "history", "Metadata" }.All(n => wb.Contains($"name=\"{n}\"")),
                           "Excel: readable sheets + the long tables");
                 }
-                long count = Convert.ToInt64(db.Query("SELECT COUNT(*) AS n FROM results WHERE \"set\" = ?", "Test set")[0]["n"]);
+                long count = Convert.ToInt64(db.Query("SELECT COUNT(*) AS n FROM results WHERE result_set = ?", "Test set")[0]["n"]);
                 ResultExport.WriteSqlite(set, db);   // again: replaces the set's rows
-                long again = Convert.ToInt64(db.Query("SELECT COUNT(*) AS n FROM results WHERE \"set\" = ?", "Test set")[0]["n"]);
+                long again = Convert.ToInt64(db.Query("SELECT COUNT(*) AS n FROM results WHERE result_set = ?", "Test set")[0]["n"]);
                 Check(count == set.ResultsTable().RowCount && again == count, "SQLite: the set's rows, replaced (not duplicated) on re-export");
                 Check(db.TableExists("experiment_history"), "SQLite: extra tables named by source");
                 db.Dispose();
@@ -321,10 +417,10 @@ static class Program
                 Check(error == null, "a second optimisation with other parameters exports into the same table (" + error?.Message + ")");
                 if (error == null)
                 {
-                    var rows = db.Query("SELECT * FROM optimization_candidates ORDER BY \"set\"");
+                    var rows = db.Query("SELECT * FROM optimization_candidates ORDER BY result_set");
                     Check(rows.Count == 2, $"both sets' rows ({rows.Count})");
-                    var second = rows.First(r => (string)r["set"] == "second");
-                    var first = rows.First(r => (string)r["set"] == "first");
+                    var second = rows.First(r => (string)r["result_set"] == "second");
+                    var first = rows.First(r => (string)r["result_set"] == "first");
                     Check(Convert.ToDouble(second["y"]) == 2 && Convert.ToDouble(second["z"]) == 3 && Convert.ToDouble(second["fitness"]) == 7
                           && Convert.ToDouble(first["x"]) == 1 && Convert.ToDouble(first["fitness"]) == 5,
                           "each value under its own column (not by position)");
@@ -433,7 +529,7 @@ static class Program
                 Check(metricRows.RowCount == 8 && (string)metricRows.Rows[0][2] == "A", "Metric across sets");
                 Check(first.StoreId == id1 && loaded.StoreId == id1 && new ResultSet().StoreId == 0, "StoreId: set by Save and Load");
 
-                // comparing sets (G1b): one set whose scenarios are every set's
+                // comparing sets: one set whose scenarios are every set's
                 var cmp = ResultSet.Compare(new[] { first, second });
                 Check(cmp.Source == "comparison" && cmp.Scenarios.Count == 4 && cmp.Runs.Count == 10 && cmp.Scenarios[0].Name == "study one · A"
                       && cmp.Scenarios[2].Parameters.Count == 2 && cmp.Runs[9].Scenario == "study two · B", "Compare: every set's scenarios and runs, by set");
@@ -457,7 +553,7 @@ static class Program
                 Check(newer, "a newer schema is refused");
                 db.Execute("UPDATE rs_meta SET value = ? WHERE key = 'schema_version'", ResultStore.SchemaVersion.ToString());
 
-                // Sets saved from several threads keep their own rows (the insert and its id were read
+                // sets saved from several threads keep their own rows (the insert and its id were read
                 // under separate locks: a set could take another's id)
                 var parallelStore = new ResultStore(db);
                 var savedIds = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
@@ -537,6 +633,29 @@ static class Program
             var noStat = ChartBuilder.Build(new ChartQuery { Y = new ChartValue(ChartSource.Statistic, "nope", "element", "ms") }, set);
             Check(noStat.IsEmpty && noStat.Message.Contains(ResultMetrics.Input), "an unknown statistic: the message lists the statistics");
 
+            // the chart values are written as a study writes them (one grammar)
+            {
+                ChartValue P(string text) => ChartValue.Parse(text, set);
+                bool Is(ChartValue v, ChartSource src, string name, string scope = "element", string objects = "")
+                    => v.Source == src && v.Name == name && (src != ChartSource.Statistic || (v.Scope == scope && v.Objects == objects));
+                Check(Is(P("out"), ChartSource.Metric, "out"), "a named metric of the set");
+                Check(Is(P("ms.capacity"), ChartSource.Parameter, "ms.capacity"), "a factor of the set, by its path");
+                Check(Is(P("ms.input"), ChartSource.Statistic, "input", "element", "ms"), "a statistic path: one object");
+                Check(Is(P("q;ms.input"), ChartSource.Statistic, "input", "element", "q;ms"), "several objects");
+                Check(Is(P("*.utilization"), ChartSource.Statistic, "utilization", "element", ""), "every object");
+                Check(Is(P("team:*.utilization"), ChartSource.Statistic, "utilization", "team", ""), "a scope");
+                Check(Is(P("Exit.tally:time_in_system:p90"), ChartSource.Statistic, "tally:time_in_system:p90", "element", "Exit"), "a scope only before the first dot");
+                Check(Is(P("model.makespan"), ChartSource.Statistic, "makespan", "model", ""), "a model statistic");
+                foreach (string bad in new[] { "nope", "metric:out", "stat:element:ms:input", "param:ms.capacity", "wrong:ms.input", "" })
+                {
+                    Exception ex = null;
+                    try { P(bad); } catch (ArgumentException parseError) { ex = parseError; }
+                    Check(ex != null && (bad.Length == 0 || ex.Message.Contains("out")), $"'{bad}' is refused, listing what there is");
+                }
+                var byPath = ChartBuilder.Build(new ChartQuery { Kind = ChartKind.Bar, GroupBy = ChartGroup.Object, Y = P("q;ms;sink.input") }, set);
+                Check(!byPath.IsEmpty && byPath.Categories.Count == 3, "a chart from a parsed path: one bar per object");
+            }
+
             // the same chart from the tables of a .json export (cells as parsed JSON)
             var tables = new Dictionary<string, SimuLean.Data.ResultTable>();
             var json = (Dictionary<string, object>)SimuLean.Data.MiniJson.Parse(ResultExport.ToJson(set));
@@ -563,9 +682,18 @@ static class Program
                   "PNG: signature, size, the same pixels (CRC and zlib checked)");
             var empty = ChartRenderer.Render(missing, 300, 200);
             Check(empty.Width == 300, "an empty chart renders its message");
+            // kept buffers (the dashboard's refresh): the same pixels, the same images drawn into again
+            var kept = new ChartBuffers();
+            var first = ChartRenderer.Render(missing, 640, 400, null, 0, kept);
+            var again = ChartRenderer.Render(bar, 640, 400, null, 0, kept);
+            var large = kept.Large;
+            ChartRenderer.Render(bar, 640, 400, null, 0, kept);
+            Check(ReferenceEquals(first, again) && ReferenceEquals(again, kept.Small) && ReferenceEquals(large, kept.Large) && again.Rgba.SequenceEqual(img.Rgba),
+                  "kept buffers: drawn into again, the same pixels as a new image");
+            Check(ChartRenderer.Render(bar, 320, 200, null, 0, kept).Width == 320 && kept.Small.Width == 320, "kept buffers: a new size gets new images");
 
             // live kinds (the element inspector, dashboards): stacked columns to 100 %, area + line; the plot alone
-            var stacked = new ChartData { Kind = ChartKind.Stacked, Normalise = true, Title = "State split per day (%)", Unit = "%", XStart = "01/01", XCenter = "3 days", XEnd = "03/01" };
+            var stacked = new ChartData { Kind = ChartKind.Stacked, Normalize = true, Title = "State split per day (%)", Unit = "%", XStart = "01/01", XCenter = "3 days", XEnd = "03/01" };
             stacked.Series.Add(new ChartSeries { Name = "Processing", Color = ChartPalette.StateColor("PROCESSING"), Values = new[] { 3.0, 6, 0 } });
             stacked.Series.Add(new ChartSeries { Name = "Idle", Color = ChartPalette.StateColor("IDLE"), Values = new[] { 1.0, 6, 5 } });
             var plot = ChartRenderer.RenderPlot(stacked, 90, 40, ChartTheme.Panel, out double top);
@@ -584,7 +712,7 @@ static class Program
             Check(labelled.ValueLabels && !ChartRenderer.Render(labelled, 640, 400).Rgba.SequenceEqual(img.Rgba), "values written above the bars");
             Check(ChartBuilder.Build(new ChartQuery { Kind = ChartKind.Area, Y = new ChartValue(ChartSource.Metric, "out") }, set).IsEmpty, "a live kind is not built from results");
 
-            // the chart font (G3a): Inter read and rasterised by the engine
+            // the chart font: Inter read and rasterised by the engine
             var font = ChartFonts.Regular;
             Check(font.UnitsPerEm > 0 && font.GlyphIndex('A') > 0 && font.GlyphIndex('é') > 0 && font.GlyphIndex('±') > 0 && font.GlyphIndex('…') > 0
                   && font.GlyphIndex(0x10FFFF) == 0, "font: Unicode lookup (letters, accents, ±, …; missing → 0)");
@@ -604,7 +732,7 @@ static class Program
             for (int yy = 0; yy < 30; yy++) for (int xx = 0; xx < 60; xx++) if (ink.Pixel(xx, yy) != 0xFFFFFF) dark++;
             Check(dark > 30, "font: an accented (composite) glyph draws");
 
-            // SVG (G3b): the same layout as vector shapes and real text
+            // SVG: the same layout as vector shapes and real text
             string svg = ChartRenderer.ToSvg(labelled, 640, 400);
             var xml = System.Xml.Linq.XDocument.Parse(svg);
             System.Xml.Linq.XNamespace ns = "http://www.w3.org/2000/svg";
@@ -661,7 +789,7 @@ static class Program
             Check(table.RowCount == set.Runs.Sum(r => r.Results.Timeline.Count) && table.Columns.SequenceEqual(new[] { "run", "scenario", "replication", "scope", "name", "state", "start", "end" }),
                   "timeline table: every interval of every run");
 
-            // the job timeline (G3d): every stay of an item in an element, from the link layer's entries / exits
+            // the job timeline: every stay of an item in an element, from the link layer's entries / exits
             var jobsMs = run.Jobs.Where(j => j.Element == "ms").ToList();
             Check(run.Jobs.Count > 0 && jobsMs.Count == (int)run.Find(ResultScope.Element, "ms")[ResultMetrics.Input] && run.Jobs.All(j => j.Element != "sink"),
                   $"jobs: one stay per entry into ms ({jobsMs.Count}), none in the sink");
@@ -795,7 +923,7 @@ static class Program
             Check(rs.Runs.All(r => r.Results != null && r.Metrics["makespan"] <= 500), "every run's statistics and its makespan");
             // the same run done by hand gives the same numbers (the study is the objective's run)
             var cfg = ReferenceModels.MultiServer3();
-            cfg.Elements.Find(e => e.Id == "ms").Parameters["capacity"] = 3;
+            cfg.Elements.Find(e => e.Id == "ms").Set("capacity", 3);
             var clock = new SimClock(12); var m = new HeadlessModelFactory(clock); m.BuildModel(cfg); m.StartModel(); clock.AdvanceClock(500);
             Check(rs.RunsOf("ms.capacity=3")[1].Metrics["out"] == RunResults.Capture(m).Find(ResultScope.Element, "sink")[ResultMetrics.Input],
                   "a study run = the model with the scenario's values and seed");
@@ -824,21 +952,21 @@ static class Program
                 Check(trs.Scenarios.Select(x => x.Name).SequenceEqual(new[] { "orders.table=few", "orders.table=many" }), "scenarios named by the file");
                 Check(trs.Runs[0].Metrics["orders"] == 5 && trs.Runs[1].Metrics["orders"] == 12, $"each scenario runs its own table ({trs.Runs[0].Metrics["orders"]}, {trs.Runs[1].Metrics["orders"]})");
 
-                // the table file is a catalog key (follow-up #29): Owner.fileName varies it the same way, and a config
-                // with the file only (no copied table) reads it at build
+                // the table file is a declared config key, varied by the factor Owner.table (the one name,
+                // ), and a config with the file only (no copied table) reads it at build
                 var withFile = ReferenceModels.PickingModel();
-                withFile.Elements.Find(x => x.Name == "orders").Parameters["fileName"] = few;
+                withFile.Elements.Find(x => x.Name == "orders").Set("fileName", few);
                 var catalog = ModelParameterCatalog.ForElement(withFile.Elements.Find(x => x.Name == "orders"));
                 Check(!catalog.Any(p => p.Key == "fileName") && !ModelParameterCatalog.Undecided(withFile).Contains("orders.fileName")
                       && ModelParameterCatalog.Undecided(withFile).Count == 0,
                       "fileName is declared (File): decided, not a numeric catalog parameter");
-                var byFile = new Study(withFile).Factor("orders.fileName", few, many).Metric("orders", "orders.output").WithRunTime(1000).Run();
+                var byFile = new Study(withFile).Factor("orders.table", few, many).Metric("orders", "orders.output").WithRunTime(1000).Run();
                 Check(byFile.Runs[0].Metrics["orders"] == 5 && byFile.Runs[1].Metrics["orders"] == 12,
-                      $"orders.fileName=few|many: each scenario reads its file ({byFile.Runs[0].Metrics["orders"]}, {byFile.Runs[1].Metrics["orders"]})");
+                      $"orders.table=few|many on a file-only source: each scenario reads its file ({byFile.Runs[0].Metrics["orders"]}, {byFile.Runs[1].Metrics["orders"]})");
                 var fileOnly = ReferenceModels.PickingModel();
                 var src = fileOnly.Elements.Find(x => x.Name == "orders");
-                src.Parameters.Remove("arrivalsTable");
-                src.Parameters["fileName"] = many;
+                src.Remove("arrivalsTable");
+                src.Set("fileName", many);
                 var only = new Study(fileOnly).Metric("orders", "orders.output").WithRunTime(1000).Run();
                 Check(only.Runs[0].Metrics["orders"] == 12, $"a config with the table file only reads it at build ({only.Runs[0].Metrics["orders"]})");
             }
