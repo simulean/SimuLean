@@ -21,9 +21,11 @@ namespace SimuLean.Unity
     /// <list type="bullet">
     /// <item><b>Where:</b> first the runner shipped with the package, <c>SimuLeanRunner/&lt;rid&gt;/simulean[.exe]</c> at the
     /// project root (built by the release for its engine: no wait); else <c>Library/SimuLeanRunner/&lt;engine fingerprint&gt;/simulean[.exe]</c> — one build per engine
-    /// version. When it is missing and the project has the runner's sources and a .NET 10 SDK, it is built there in the
-    /// background (<c>dotnet publish</c>, self-contained); meanwhile, and whenever it cannot be used, the work runs in the
-    /// editor (<see cref="Executor.Note"/> says why).</item>
+    /// version. When it is missing and the project's engine is the release's own (<see cref="RunnerRelease"/>), the release's
+    /// prebuilt runner for this machine is downloaded into <c>SimuLeanRunner/&lt;rid&gt;/</c> (switch
+    /// <see cref="SimuLeanProjectSettings.downloadRunner"/>); otherwise, or when that fails, a project with the runner's
+    /// sources and a .NET 10 SDK builds it in the background (<c>dotnet publish</c>, self-contained); meanwhile, and whenever
+    /// it cannot be used, the work runs in the editor (<see cref="Executor.Note"/> says why).</item>
     /// <item><b>Never stale:</b> the runner's <c>engine</c> fingerprint must be the editor's
     /// (<see cref="EngineFingerprint.OfSources"/> of <c>Assets/SimuLean.Net</c>), checked once per editor session.</item>
     /// <item><b>What:</b> a <see cref="StudyBatch"/> (the scenarios applied in the editor), written as JSON; the whole
@@ -36,7 +38,7 @@ namespace SimuLean.Unity
     public static class ExternalRunner
     {
         private static readonly object gate = new object();
-        private static string fingerprint, verifiedPath, unavailable, shippedRejected;
+        private static string fingerprint, verifiedPath, unavailable, shippedRejected, downloadFailed;
         private static Task building;
 
         /// <summary>
@@ -217,6 +219,16 @@ namespace SimuLean.Unity
                 try { Directory.Delete(Folder(root), true); } catch { /* rebuilt below */ }
             }
             string project = Path.Combine(root, "Tools", "Runner", "simulean.csproj");
+            // the release's own engine: its prebuilt runner is downloaded (no SDK needed); a changed engine is built here
+            bool download;
+            lock (gate) download = downloadFailed == null;
+            if (download && fp == RunnerRelease.EngineFingerprint && Array.IndexOf(RunnerRelease.Rids, Rid) >= 0
+                && SimuLeanProjectSettings.Load().downloadRunner)
+            {
+                StartDownload(root, shipped, fp, project);
+                reason = "the runner is being downloaded for this release (first use)";
+                return null;
+            }
             if (!File.Exists(project))
             {
                 lock (gate) unavailable = "no runner for this engine version (and no runner sources to build it in this project)";
@@ -233,29 +245,93 @@ namespace SimuLean.Unity
             lock (gate)
             {
                 if (building != null && !building.IsCompleted) return;
+                building = Task.Run(() => Build(project, folder, fp));
+            }
+        }
+
+        // the release's runner for this machine, downloaded into SimuLeanRunner/<rid>/ and checked as a shipped one is; when
+        // it cannot be had, built here (a .NET 10 SDK) or the work stays in the editor
+        private static void StartDownload(string root, string shipped, string fp, string project)
+        {
+            lock (gate)
+            {
+                if (building != null && !building.IsCompleted) return;
                 building = Task.Run(() =>
                 {
-                    string output;
-                    int code = Execute("dotnet", $"publish \"{project}\" -c Release -r {Rid} --self-contained true -p:PublishSingleFile=true " +
-                                                 $"-p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:PublishReadyToRun=true -o \"{folder}\" --nologo -v quiet",
-                                       300000, out output);
-                    string exe = Path.Combine(folder, ExeName);
-                    if (code == 0 && VersionOf(exe, out _) == fp)
+                    string error = Download(RunnerRelease.Url(Rid), root, shipped);
+                    if (error == null)
                     {
-                        // the builds of earlier versions (≈ 40 MB each) go
-                        foreach (string old in Directory.GetDirectories(Path.GetDirectoryName(folder)))
-                            if (old != folder && Path.GetFileName(old) != "jobs")
-                                try { Directory.Delete(old, true); } catch { /* in use: next time */ }
-                        SimLog.Info("[SimuLean] Runner built for this engine version: studies run outside the editor.");
-                        return;
+                        string engine = VersionOf(shipped, out string answer);
+                        if (engine == fp)
+                        {
+                            lock (gate) { verifiedPath = shipped; shippedRejected = null; }
+                            SimLog.Info($"[SimuLean] Runner {RunnerRelease.Version} downloaded: studies run outside the editor.");
+                            return;
+                        }
+                        error = engine == null ? "it does not answer (" + answer + ")" : $"it was built from another engine ({engine})";
+                        try { File.Delete(shipped); } catch { /* left for the next attempt to replace */ }
                     }
-                    lock (gate)
-                        unavailable = code == int.MinValue
-                            ? "no .NET 10 SDK to build the runner (dotnet not found)"
-                            : "the runner could not be built (" + Tail(output) + ")";
-                    SimLog.Warning("[SimuLean] Runner: " + unavailable + "; studies run in the editor.");
+                    lock (gate) downloadFailed = error;
+                    bool canBuild = File.Exists(project);
+                    SimLog.Warning("[SimuLean] Runner: the download failed (" + error + ")" +
+                                   (canBuild ? "; building it with the .NET SDK instead." : "; studies run in the editor."));
+                    if (canBuild) Build(project, Folder(root), fp);
+                    else lock (gate) unavailable = "no runner: its download failed (" + error + ")";
                 });
             }
+        }
+
+        /// <summary>Downloads <paramref name="url"/> and extracts this machine's runner to <paramref name="exe"/>; null when
+        /// done, else why not.</summary>
+        private static string Download(string url, string root, string exe)
+        {
+            string archive = Path.Combine(root, "Library", "SimuLeanRunner", "download.zip");
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(archive));
+                using (var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMinutes(10) })
+                using (var response = http.GetAsync(url).GetAwaiter().GetResult())
+                {
+                    if (!response.IsSuccessStatusCode) return $"HTTP {(int)response.StatusCode} for {url}";
+                    using (var file = File.Create(archive))
+                        response.Content.CopyToAsync(file).GetAwaiter().GetResult();
+                }
+                string entry = $"SimuLeanRunner/{Rid}/{ExeName}";
+                using (var zip = System.IO.Compression.ZipFile.OpenRead(archive))
+                {
+                    var item = zip.GetEntry(entry);
+                    if (item == null) return "the archive has no " + entry;
+                    Directory.CreateDirectory(Path.GetDirectoryName(exe));
+                    System.IO.Compression.ZipFileExtensions.ExtractToFile(item, exe, true);
+                }
+                if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) Execute("chmod", $"+x \"{exe}\"", 10000, out _);
+                return null;
+            }
+            catch (Exception e) { return e.GetBaseException().Message; }
+            finally { try { File.Delete(archive); } catch { /* a leftover in Library */ } }
+        }
+
+        private static void Build(string project, string folder, string fp)
+        {
+            string output;
+            int code = Execute("dotnet", $"publish \"{project}\" -c Release -r {Rid} --self-contained true -p:PublishSingleFile=true " +
+                                         $"-p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:PublishReadyToRun=true -o \"{folder}\" --nologo -v quiet",
+                               300000, out output);
+            string exe = Path.Combine(folder, ExeName);
+            if (code == 0 && VersionOf(exe, out _) == fp)
+            {
+                // the builds of earlier versions (≈ 40 MB each) go
+                foreach (string old in Directory.GetDirectories(Path.GetDirectoryName(folder)))
+                    if (old != folder && Path.GetFileName(old) != "jobs")
+                        try { Directory.Delete(old, true); } catch { /* in use: next time */ }
+                SimLog.Info("[SimuLean] Runner built for this engine version: studies run outside the editor.");
+                return;
+            }
+            lock (gate)
+                unavailable = code == int.MinValue
+                    ? "no .NET 10 SDK to build the runner (dotnet not found)"
+                    : "the runner could not be built (" + Tail(output) + ")";
+            SimLog.Warning("[SimuLean] Runner: " + unavailable + "; studies run in the editor.");
         }
 
         /// <summary>The engine fingerprint the runner reports (null when it does not answer).</summary>

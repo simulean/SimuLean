@@ -28,7 +28,7 @@ namespace SimuLean.Unity
     }
 
     /// <summary>
-    /// A resource team in the scene its members and the dispatcher ("ordenador") that hands
+    /// A resource team in the scene its members and the dispatcher that hands
     /// them to the elements asking for them — for their process or to carry their items (each element's
     /// <c>Resources</c> section). Priority rule = the request order and the resource order (list orders; empty = FIFO
     /// if available). Driven by <see cref="UnitySimClock"/>: built before the elements initialise, started after them.

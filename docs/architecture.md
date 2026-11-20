@@ -3792,8 +3792,12 @@ set comes back (`ResultSetJson`); progress and the
 engine's log arrive on its standard error (the log into the editor's, so the answers report it); cancelling creates the
 runner's cancel file (the runs done come back). The runner is first looked for as shipped with the package
 (`SimuLeanRunner/<rid>/simulean[.exe]` at the project root, built by the release: no wait), else in
-`Library/SimuLeanRunner/<engine fingerprint>/`; when
-it is missing and the project has its sources (`Tools/Runner`) and a .NET 10 SDK it is built there in the background on
+`Library/SimuLeanRunner/<engine fingerprint>/`. When it is missing and the project's engine is the release's own
+(**`RunnerRelease`**: the release's version and engine fingerprint, which the export checks against the exported tree), the
+release's prebuilt runner for this machine (win-x64, osx-arm64, linux-x64) is **downloaded** in the background from the
+GitHub release (`SimuLeanRunner-<version>-<rid>.zip`, built by `Tools/Runner/publish.ps1 -Version`) into
+`SimuLeanRunner/<rid>/` (switch `SimuLeanProjectSettings.downloadRunner`, *Download the runner*, on by default); otherwise,
+or when the download fails, a project with its sources (`Tools/Runner`) and a .NET 10 SDK builds it in the background on
 first use (`dotnet publish`, self-contained); its fingerprint must be the editor's (`EngineFingerprint.OfSources` of
 `Assets/SimuLean.Net`, checked once per session — a stale runner is deleted and rebuilt). Until then, when switched off
 (`SimuLeanProjectSettings.runOutsideEditor`, *Run outside the editor*, on by default), in batch mode, during the EditMode
@@ -4448,7 +4452,9 @@ or *Add Component*.
   IPE roof beam (`Beam_Segment`/`Beam_End`) and crane runways
   (`Runway_Segment`/`Runway_EndStop`).
 - **`UnityOverheadCrane`** — a double-runway bridge crane: optional two runways
-  (±span/2, at `railHeight`, along +Z), a `Bridge` transform holding two fixed-shape
+  (±span/2, at `railHeight`, along +Z) standing on the building kit's steel columns (`buildColumns`, on by default: the
+  `UnitySteelColumn` pieces, the bracket under each rail, the axis 0.5 m outside it, at most `MaxColumnSpacing` = 8 m
+  apart; off when a hall's own columns carry the runways), a `Bridge` transform holding two fixed-shape
   **end trucks** and the **extensible box girder** (segments + centred logo panel + end
   plates, combined), and the fixed-shape **trolley** (hoist, drum, ropes, hook block,
   pendant). Pose: `bridgePosition`, `trolleyPosition`, `hookDrop`. `SetPose` jumps,
@@ -4741,7 +4747,7 @@ script drives them. They are used by the library presets (`StationModel`, §4.7)
   `export_external.py --asset <Name>` writes files for other tools.
 - **`SimuLeanModelPostprocessor`** (`Editor/Tools/`, an `AssetPostprocessor` scoped
   to library folders of `Assets/SimuLean.Unity/Art/Models/` — those with their own
-  `<Folder>_Albedo.png`): sets texture import types; creates `<Name>.mat` (Standard,
+  `<Folder>_Albedo.png`): sets texture import types; creates `<Name>.mat` (URP Lit, metallic workflow,
   **GPU instancing on**; *Cutout* when the albedo has an alpha channel) in `OnPostprocessAllAssets` and reimports the model once if
   the material did not exist yet; imports models with `materialImportMode = None`
   and assigns the shared material in `OnPostprocessModel`; kit pieces (FBX not named
@@ -4816,8 +4822,9 @@ and IMGUI.
   so their arrangement — clock top-left, help top-right, inspector docked right below it — is the same
   at every size and they never overlap (before, fixed pixel sizes made them overlap in a small Game view).
   **Connections over the Game view** (opt-in): `showConnections` (off by default; key C or the
-  *Connections* button) draws `SceneConnections.All()` as camera-facing GL bands with arrows in `OnRenderObject`
-  (game cameras only, on top of the geometry), filtered by group (`showFlow` / `showLists` on, the others off);
+  *Connections* button) draws `SceneConnections.All()` as camera-facing GL bands with arrows when a camera has
+  rendered (`RenderPipelineManager.endCameraRendering` in the Universal pipeline, `OnRenderObject` in the built-in one;
+  game cameras only, on top of the geometry), filtered by group (`showFlow` / `showLists` on, the others off);
   read-only, rescanned once a second. The drawing is `ConnectionOverlay` (`Core/Hud/ConnectionOverlay.cs`, 2026-11-10:
   the bands, arrow heads and the discs of objects without a mesh), which `simulean_capture` draws its pictures with too.
 - **`ElementInspectorPanel`** (`Inspector/`) —
@@ -5200,6 +5207,14 @@ returns as an `IOptimizationAlgorithm` adapter (§5.1).
   Test Framework 1.8 (EditMode tests), the Terrain modules, the Unity Pipeline package `com.unity.pipeline` (editor MCP
   bridge; the `unity mcp` server of `.mcp.json`, §4.11) (`Packages/manifest.json`): every package comes from Unity's
   registry, so opening the project needs no git.
+- **Universal Render Pipeline 17.6** (`com.unity.render-pipelines.universal`): one pipeline asset for every quality
+  level, `Assets/SimuLean.Unity/Rendering/SimuLean_URP.asset` (+ its renderer, the global settings and the default
+  volume profile), shadows to 150 m in 4 cascades, MSAA 4×, HDR. Every material is URP Lit (the library's, made by
+  `SimuLeanModelPostprocessor`; the run-time ones of signs and conveyors); the two own shaders (`SimuLean/FloorPlanUnderlay`,
+  `SimuLean/Sign Text`) are unlit with no light mode, so they draw in either pipeline.
+- **Input System 1.20** (`com.unity.inputsystem`), the project's active input handling: the run-time tools read the
+  keyboard and mouse only through **`SimInput`** (`Core/SimInput.cs`, the one place, as `UnityCompat` is for object
+  lookup; their keys stay `KeyCode` fields, mapped there).
 - No optimisation library: the algorithms are in the engine (§3.19); GeneticSharp was removed (§5.3).
 - No numerics library: `Stochastics/Probability/Probability.cs` — ln Γ / Γ (Lanczos), regularized
   incomplete gamma (series / Lentz continued fraction) and beta (Lentz), erf / erfc, the normal quantile (Acklam +

@@ -33,7 +33,7 @@ namespace SimuLean.Unity
         bool simStopped = false;
         bool simRestarted = false;
 
-        public SimClock clock = new SimClock();
+        [System.NonSerialized] public SimClock clock = new SimClock();
 
         // SimEvents is created automatically — no ScriptableObject asset required.
         private readonly SimEvents simEvents = new SimEvents();
@@ -409,7 +409,7 @@ namespace SimuLean.Unity
             // the items walking by themselves, where they are now (a view of the engine's walks)
             if (simStarted && Model != null) ItemWalkView.Draw(Model, clock.GetSimulationTime());
 
-            if (escapeQuits && Input.GetKeyDown(KeyCode.Escape) && escapeConsumedFrame != Time.frameCount)
+            if (escapeQuits && SimInput.GetKeyDown(KeyCode.Escape) && escapeConsumedFrame != Time.frameCount)
                 this.Quit();
         }
 

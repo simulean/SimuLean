@@ -232,6 +232,7 @@ namespace SimuLean.Unity
             stateIndicator.GetPropertyBlock(block);
             block.SetColor("_BaseColor", c);
             block.SetColor("_Color", c);
+            block.SetColor("_BaseColor", c);
             stateIndicator.SetPropertyBlock(block);
         }
 

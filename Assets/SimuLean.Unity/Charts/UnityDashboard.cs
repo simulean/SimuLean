@@ -54,7 +54,7 @@ namespace SimuLean.Unity
 
         private void Update()
         {
-            if (toggleKey != KeyCode.None && Input.GetKeyDown(toggleKey)) expanded = !expanded;
+            if (toggleKey != KeyCode.None && SimInput.GetKeyDown(toggleKey)) expanded = !expanded;
             if (job != null)
             {
                 if (!job.IsCompleted) return;   // one refresh at a time

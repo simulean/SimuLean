@@ -82,7 +82,7 @@ namespace SimuLean.Unity
             return false;
         }
 
-        /// <summary>True when the screen point (Input.mousePosition, bottom-left origin) is over a HUD panel.</summary>
+        /// <summary>True when the screen point (SimInput.MousePosition, bottom-left origin) is over a HUD panel.</summary>
         public static bool IsPointerOverHud(Vector3 mousePos)
         {
             if (hudRects.Count == 0 || Time.frameCount - hudRectsFrame > 2) return false;
@@ -146,17 +146,17 @@ namespace SimuLean.Unity
             // Typing in the seed field: no shortcuts; a click outside the HUD ends the typing.
             if (GUIUtility.keyboardControl != 0)
             {
-                if (Input.GetMouseButtonDown(0) && !IsPointerOverHud(Input.mousePosition)) GUIUtility.keyboardControl = 0;
+                if (SimInput.GetMouseButtonDown(0) && !IsPointerOverHud(SimInput.MousePosition)) GUIUtility.keyboardControl = 0;
                 return;
             }
-            if (Input.GetKeyDown(KeyCode.Space)) TogglePause();
-            if (Input.GetKeyDown(KeyCode.KeypadPlus) || Input.GetKeyDown(KeyCode.Equals) || Input.GetKeyDown(KeyCode.RightBracket))
+            if (SimInput.GetKeyDown(KeyCode.Space)) TogglePause();
+            if (SimInput.GetKeyDown(KeyCode.KeypadPlus) || SimInput.GetKeyDown(KeyCode.Equals) || SimInput.GetKeyDown(KeyCode.RightBracket))
                 simClock.TimeScale = simClock.TimeScale * 2;
-            if (Input.GetKeyDown(KeyCode.KeypadMinus) || Input.GetKeyDown(KeyCode.Minus) || Input.GetKeyDown(KeyCode.LeftBracket))
+            if (SimInput.GetKeyDown(KeyCode.KeypadMinus) || SimInput.GetKeyDown(KeyCode.Minus) || SimInput.GetKeyDown(KeyCode.LeftBracket))
                 simClock.TimeScale = simClock.TimeScale * 0.5;
-            if (Input.GetKeyDown(KeyCode.H)) showHelp = !showHelp;
-            if (Input.GetKeyDown(KeyCode.C)) showConnections = !showConnections;
-            if (Input.GetKeyDown(KeyCode.N)) showNames = !showNames;
+            if (SimInput.GetKeyDown(KeyCode.H)) showHelp = !showHelp;
+            if (SimInput.GetKeyDown(KeyCode.C)) showConnections = !showConnections;
+            if (SimInput.GetKeyDown(KeyCode.N)) showNames = !showNames;
         }
 
         private void TogglePause()
@@ -367,10 +367,22 @@ namespace SimuLean.Unity
             }
         }
 
+        // the connection ribbons: a scriptable pipeline (the project's Universal one) draws them when a camera has rendered,
+        // the built-in pipeline from OnRenderObject
+        private void OnEnable() => UnityEngine.Rendering.RenderPipelineManager.endCameraRendering += OnEndCameraRendering;
+
+        private void OnDisable() => UnityEngine.Rendering.RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
+
+        private void OnEndCameraRendering(UnityEngine.Rendering.ScriptableRenderContext context, Camera cam) => DrawConnections(cam, true);
+
         private void OnRenderObject()
         {
+            if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline == null) DrawConnections(Camera.current, false);
+        }
+
+        private void DrawConnections(Camera cam, bool setMatrices)
+        {
             if (!showConnections) return;
-            var cam = Camera.current;
             if (cam == null || cam.cameraType != CameraType.Game) return;
             if (Time.unscaledTime >= nextConnectionScan)   // the wiring does not change during a run; rescan now and then
             {
@@ -380,6 +392,11 @@ namespace SimuLean.Unity
             }
             ConnectionOverlay.Material.SetPass(0);
             GL.PushMatrix();
+            if (setMatrices)
+            {
+                GL.LoadProjectionMatrix(cam.projectionMatrix);
+                GL.modelview = cam.worldToCameraMatrix;
+            }
             GL.Begin(GL.QUADS);
             foreach (var c in connections)
             {

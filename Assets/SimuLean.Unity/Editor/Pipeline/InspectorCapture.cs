@@ -14,7 +14,7 @@ namespace SimuLean.Unity.Editor
     public sealed class InspectorCapture : EditorWindow
     {
         private UnityEditor.Editor[] editors = new UnityEditor.Editor[0];
-        private string title;
+        private string caption;
 
         /// <summary>Saves the inspectors of <paramref name="go"/> to <paramref name="path"/> (PNG); returns its size.</summary>
         public static string Capture(GameObject go, string path, float width = 460, float height = 1600)
@@ -26,7 +26,7 @@ namespace SimuLean.Unity.Editor
                     .Where(c => c != null && !(c is Transform) && (c.hideFlags & HideFlags.HideInInspector) == 0
                                 && c.GetType().Namespace != null && c.GetType().Namespace.StartsWith("SimuLean"))
                     .ToArray();
-                w.title = go.name;
+                w.caption = go.name;
                 w.editors = components.Select(c => UnityEditor.Editor.CreateEditor(c)).ToArray();
                 w.ShowUtility();
                 w.position = new Rect(40, 40, width, height);
@@ -42,7 +42,7 @@ namespace SimuLean.Unity.Editor
         private void OnGUI()
         {
             EditorGUIUtility.wideMode = true;
-            EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(caption, EditorStyles.boldLabel);
             foreach (var e in editors)
             {
                 if (e == null) continue;

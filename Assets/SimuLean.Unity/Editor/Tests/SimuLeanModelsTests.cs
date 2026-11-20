@@ -209,7 +209,7 @@ namespace SimuLean.Unity.Editor.Tests
             // an example with an asset of its own folder (Ex_Data/Mat.mat) used by its scene
             string exFolder = Temp + "/Examples";
             SimuLeanModels.EnsureFolder(exFolder + "/Ex_Data");
-            var mat = new Material(Shader.Find("Standard") ?? Shader.Find("Hidden/InternalErrorShader"));
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Hidden/InternalErrorShader"));
             AssetDatabase.CreateAsset(mat, exFolder + "/Ex_Data/Mat.mat");
             string exPath = exFolder + "/Ex.unity";
             var ex = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);

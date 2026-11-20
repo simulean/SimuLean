@@ -37,6 +37,7 @@ namespace SimuLean.Unity
             r.GetPropertyBlock(block);
             block.SetColor("_BaseColor", c);
             block.SetColor("_Color", c);
+            block.SetColor("_BaseColor", c);
             r.SetPropertyBlock(block);
         }
 

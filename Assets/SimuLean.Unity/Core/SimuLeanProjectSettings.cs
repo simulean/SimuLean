@@ -46,6 +46,11 @@ namespace SimuLean.Unity
                  "about 10x faster per run). Off, or when there is no runner, they run in the editor as before.")]
         public bool runOutsideEditor = true;
 
+        [Tooltip("When there is no runner, download the release's prebuilt one (once, about 35 MB, from the SimuLean " +
+                 "repository on GitHub) into SimuLeanRunner/ — only while the project's engine is the release's own. Off: a .NET 10 " +
+                 "SDK builds it, or the work runs in the editor.")]
+        public bool downloadRunner = true;
+
         /// <summary>The library packs shown in the SimuLean window (<see cref="SimuLeanPacks.Optional"/>; core is always shown).</summary>
         public List<string> shownPacks = new List<string>(SimuLeanPacks.DefaultShown);
 

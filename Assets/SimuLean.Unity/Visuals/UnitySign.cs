@@ -230,15 +230,18 @@ namespace SimuLean.Unity
             g.GetComponent<Renderer>().sharedMaterial = mat;
         }
 
+        // the project renders with the Universal Render Pipeline; a project without it keeps the built-in Standard
+        private static Shader LitShader() => Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+
         private static Material DefaultBoard(Color c)
         {
-            if (defaultBoard == null) defaultBoard = new Material(Shader.Find("Standard")) { color = c, enableInstancing = true, name = "SignBoard" };
+            if (defaultBoard == null) defaultBoard = new Material(LitShader()) { color = c, enableInstancing = true, name = "SignBoard" };
             return defaultBoard;
         }
 
         private static Material DefaultMount()
         {
-            if (defaultMount == null) defaultMount = new Material(Shader.Find("Standard")) { color = new Color(0.3f, 0.31f, 0.33f), enableInstancing = true, name = "SignMount" };
+            if (defaultMount == null) defaultMount = new Material(LitShader()) { color = new Color(0.3f, 0.31f, 0.33f), enableInstancing = true, name = "SignMount" };
             return defaultMount;
         }
     }

@@ -456,7 +456,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 10303, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -855,7 +855,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 10303, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -1363,6 +1363,7 @@ MonoBehaviour:
   stopAt: []
   stopAtCount: 0
   stopWhenEmpty: 0
+  stopWhenNoProgressFor: 0
   exportOnFinish: 0
   seriesInterval: 0
   recordTimeline: 0
@@ -1431,6 +1432,9 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  namedOrders: []
+  requestOrderName: 
+  ruleParameters: []
   resourceOrder:
     conditions: []
     orderBy: distance
@@ -1447,6 +1451,7 @@ MonoBehaviour:
   axesSequential: 0
   homeNode: {fileID: 1045646893}
   returnHome: 0
+  jobOnMemberStop: 0
   speed: 1.4
   units: 0
   memberPrefab: {fileID: 7883501797594688940, guid: e6f99eb3bcbef2141a273d394e443cb6, type: 3}

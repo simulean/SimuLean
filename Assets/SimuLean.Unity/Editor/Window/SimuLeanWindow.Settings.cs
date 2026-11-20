@@ -111,6 +111,11 @@ namespace SimuLean.Unity.Editor
                 s.runOutsideEditor = EditorGUILayout.Toggle(new GUIContent("Run outside the editor",
                     "Experiments, studies and optimisations run on .NET in a separate process (the runner, built once per engine version " +
                     "in Library/SimuLeanRunner; about 10x faster per run). Off, or while there is no runner, they run in the editor."), s.runOutsideEditor);
+                using (new EditorGUI.DisabledScope(!s.runOutsideEditor))
+                    s.downloadRunner = EditorGUILayout.Toggle(new GUIContent("Download the runner",
+                        "When there is no runner, download the release's prebuilt one (once, about 35 MB, from the SimuLean repository " +
+                        "on GitHub) into SimuLeanRunner/ — only while the project's engine is the release's own. Off: a .NET 10 SDK " +
+                        "builds it, or the work runs in the editor."), s.downloadRunner);
                 if (EditorGUI.EndChangeCheck()) { s.confidence = System.Math.Round(s.confidence, 3); s.Save(); }
             }
 

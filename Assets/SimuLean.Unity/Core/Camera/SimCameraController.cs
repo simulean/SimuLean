@@ -161,58 +161,58 @@ namespace SimuLean.Unity
         {
             EnsureInit();
             float dt = Mathf.Min(Time.unscaledDeltaTime, maxFrameTime);
-            Vector3 mouse = Input.mousePosition;
+            Vector3 mouse = SimInput.MousePosition;
             bool overHud = SimRuntimeHud.IsPointerOverHud(mouse);
             bool guiHasMouse = GUIUtility.hotControl != 0;
-            bool fast = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            bool fast = SimInput.GetKey(KeyCode.LeftShift) || SimInput.GetKey(KeyCode.RightShift);
             Vector3 mDelta = mouse - lastMouse;
             lastMouse = mouse;
 
             // Orbit (right drag); a drag that starts over a panel is ignored.
-            if (Input.GetMouseButtonDown(1)) orbiting = !overHud;
-            if (!Input.GetMouseButton(1)) orbiting = false;
-            if (orbiting && !Input.GetMouseButtonDown(1) && mDelta.sqrMagnitude > 0 && !guiHasMouse) Orbit(mDelta);
+            if (SimInput.GetMouseButtonDown(1)) orbiting = !overHud;
+            if (!SimInput.GetMouseButton(1)) orbiting = false;
+            if (orbiting && !SimInput.GetMouseButtonDown(1) && mDelta.sqrMagnitude > 0 && !guiHasMouse) Orbit(mDelta);
 
             // Pan (middle drag).
-            if (Input.GetMouseButtonDown(2) && !overHud && !panning && BeginPan(mouse)) panButton = 2;
+            if (SimInput.GetMouseButtonDown(2) && !overHud && !panning && BeginPan(mouse)) panButton = 2;
 
             // Left: click = select, drag = pan.
-            if (Input.GetMouseButtonDown(0)) { leftDownPos = mouse; leftCandidate = !overHud; leftDragged = false; }
-            if (Input.GetMouseButton(0) && leftCandidate && !leftDragged
+            if (SimInput.GetMouseButtonDown(0)) { leftDownPos = mouse; leftCandidate = !overHud; leftDragged = false; }
+            if (SimInput.GetMouseButton(0) && leftCandidate && !leftDragged
                 && (mouse - leftDownPos).sqrMagnitude > dragThreshold * dragThreshold)
             {
                 leftDragged = true;   // a drag never selects
                 if (leftDragPans && !guiHasMouse && !panning && BeginPan(leftDownPos)) panButton = 0;
             }
-            if (Input.GetMouseButtonUp(0))
+            if (SimInput.GetMouseButtonUp(0))
             {
                 if (leftCandidate && !leftDragged && !overHud && !guiHasMouse) Select(Pick(mouse));
                 leftCandidate = false;
             }
-            if (panning && panButton >= 0 && !Input.GetMouseButton(panButton)) EndPan();
+            if (panning && panButton >= 0 && !SimInput.GetMouseButton(panButton)) EndPan();
 
             // Zoom towards the cursor.
-            float wheel = Input.mouseScrollDelta.y;
+            float wheel = SimInput.MouseScrollDelta.y;
             if (!overHud && Mathf.Abs(wheel) > 0.01f) ZoomAt(mouse, wheel, fast);
 
             // Keys
             {
                 Vector2 planar = Vector2.zero;
-                if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) planar.y += 1;
-                if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow)) planar.y -= 1;
-                if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow)) planar.x += 1;
-                if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow)) planar.x -= 1;
-                float vertical = (Input.GetKey(KeyCode.E) ? 1 : 0) - (Input.GetKey(KeyCode.Q) ? 1 : 0);
+                if (SimInput.GetKey(KeyCode.W) || SimInput.GetKey(KeyCode.UpArrow)) planar.y += 1;
+                if (SimInput.GetKey(KeyCode.S) || SimInput.GetKey(KeyCode.DownArrow)) planar.y -= 1;
+                if (SimInput.GetKey(KeyCode.D) || SimInput.GetKey(KeyCode.RightArrow)) planar.x += 1;
+                if (SimInput.GetKey(KeyCode.A) || SimInput.GetKey(KeyCode.LeftArrow)) planar.x -= 1;
+                float vertical = (SimInput.GetKey(KeyCode.E) ? 1 : 0) - (SimInput.GetKey(KeyCode.Q) ? 1 : 0);
                 if (planar != Vector2.zero || vertical != 0) MoveKeys(planar, vertical, fast, dt);
 
-                if (Input.GetKeyDown(KeyCode.F))
+                if (SimInput.GetKeyDown(KeyCode.F))
                 {
                     var target = Selected != null ? Selected : Pick(mouse);
                     if (target != null) Frame(target);
                 }
-                if (resetKey != KeyCode.None && Input.GetKeyDown(resetKey)) GoTo(initial);
+                if (resetKey != KeyCode.None && SimInput.GetKeyDown(resetKey)) GoTo(initial);
                 for (int i = 0; presetKeys && i < 9 && i < presets.Count; i++)
-                    if (Input.GetKeyDown(KeyCode.Alpha1 + i) || Input.GetKeyDown(KeyCode.Keypad1 + i)) GoTo(presets[i]);
+                    if (SimInput.GetKeyDown(KeyCode.Alpha1 + i) || SimInput.GetKeyDown(KeyCode.Keypad1 + i)) GoTo(presets[i]);
             }
 
             Step(dt);

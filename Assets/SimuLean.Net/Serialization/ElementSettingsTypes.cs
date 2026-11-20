@@ -513,7 +513,7 @@ namespace SimuLean.Serialization
         /// table / file / table source, columns Start, Rate, optional Name, the others labels).</summary>
         public List<RatePeriodSettings> RatePeriods;
         /// <summary>The schedule (column → cells), as loaded.</summary>
-        [Setting(Role = R.Structural)] public Dictionary<string, List<string>> ArrivalsTable;
+        [Setting(Role = R.Structural), System.NonSerialized] public Dictionary<string, List<string>> ArrivalsTable;
         /// <summary>The table's file / a table read at build time: a study varies them (<c>Owner.table=A.csv|B.csv</c>).</summary>
         [Setting(Role = R.File)] public string FileName, TableSource;
         /// <summary>Schedule arrivals: the Excel sheet, the database and the data table they are read from.</summary>

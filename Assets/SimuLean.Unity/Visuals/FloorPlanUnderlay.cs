@@ -72,7 +72,7 @@ namespace SimuLean.Unity
 
         private void Update()
         {
-            if (Available && toggleKey != KeyCode.None && Input.GetKeyDown(toggleKey)) Visible = !visible;
+            if (Available && toggleKey != KeyCode.None && SimInput.GetKeyDown(toggleKey)) Visible = !visible;
         }
 
         private void OnDestroy()

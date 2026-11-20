@@ -496,6 +496,9 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  namedOrders: []
+  requestOrderName: 
+  ruleParameters: []
   resourceOrder:
     conditions: []
     orderBy: distance
@@ -512,6 +515,7 @@ MonoBehaviour:
   axesSequential: 0
   homeNode: {fileID: 1253066651}
   returnHome: 0
+  jobOnMemberStop: 0
   speed: 50
   units: 0
   memberPrefab: {fileID: 7883501797594688940, guid: e6f99eb3bcbef2141a273d394e443cb6, type: 3}
@@ -986,6 +990,9 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  namedOrders: []
+  requestOrderName: 
+  ruleParameters: []
   resourceOrder:
     conditions: []
     orderBy: 
@@ -1002,6 +1009,7 @@ MonoBehaviour:
   axesSequential: 0
   homeNode: {fileID: 1067083905}
   returnHome: 0
+  jobOnMemberStop: 0
   speed: 80
   units: 0
   memberPrefab: {fileID: 4689424794630009350, guid: 9ce3bc21c649438428d9796345304edb, type: 3}
@@ -1207,6 +1215,9 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  namedOrders: []
+  requestOrderName: 
+  ruleParameters: []
   resourceOrder:
     conditions: []
     orderBy: distance
@@ -1223,6 +1234,7 @@ MonoBehaviour:
   axesSequential: 0
   homeNode: {fileID: 193889729}
   returnHome: 0
+  jobOnMemberStop: 0
   speed: 60
   units: 0
   memberPrefab: {fileID: 7281210716554916370, guid: a69fcdf7796b8a6449a061cd3ddf1f8b, type: 3}
@@ -1772,6 +1784,7 @@ MonoBehaviour:
   stopAt: []
   stopAtCount: 0
   stopWhenEmpty: 0
+  stopWhenNoProgressFor: 0
   exportOnFinish: 0
   seriesInterval: 0
   recordTimeline: 0
@@ -2442,6 +2455,9 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  namedOrders: []
+  requestOrderName: 
+  ruleParameters: []
   resourceOrder:
     conditions: []
     orderBy: 
@@ -2458,6 +2474,7 @@ MonoBehaviour:
   axesSequential: 0
   homeNode: {fileID: 1190834397}
   returnHome: 0
+  jobOnMemberStop: 0
   speed: 1
   units: 0
   memberPrefab: {fileID: 7580268224750932410, guid: d2d61b72fd4e4384ea66f31f31bfc636, type: 3}
@@ -2523,7 +2540,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 10303, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -2681,7 +2698,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 10303, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -3550,6 +3567,9 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  namedOrders: []
+  requestOrderName: 
+  ruleParameters: []
   resourceOrder:
     conditions: []
     orderBy: 
@@ -3566,6 +3586,7 @@ MonoBehaviour:
   axesSequential: 0
   homeNode: {fileID: 754270611}
   returnHome: 0
+  jobOnMemberStop: 0
   speed: 1
   units: 0
   memberPrefab: {fileID: 7580268224750932410, guid: d2d61b72fd4e4384ea66f31f31bfc636, type: 3}

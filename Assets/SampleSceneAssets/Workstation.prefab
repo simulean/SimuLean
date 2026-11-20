@@ -70,7 +70,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 10303, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -133,6 +133,10 @@ MonoBehaviour:
     parameterKey: routing_mode
     routingExpression: 
     weights: []
+    scoreExpression: 
+    whenBestFull: 0
+    rule: 
+    ruleParameters: []
   inputStrategy:
     strategyType: 0
     singleLabelName: 
@@ -151,10 +155,16 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  pullMaxWait: 
   processBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
+    acquire: 0
+    maxWait: 
+    onTimeout: 0
     release: 0
     releaseAt: {fileID: 0}
     holdForOwnTime: 0
@@ -190,12 +200,16 @@ MonoBehaviour:
       binomialP: 0.5
       discreteUniformMin: 3
       discreteUniformMax: 7
+    acquireBeforeEntry: 0
+    timeoutTarget: {fileID: 0}
   location: {fileID: 0}
   workNodes: []
   transportBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
     travelTime:
       strategyType: 0
       constantValue: 0
@@ -299,6 +313,53 @@ MonoBehaviour:
     grid: {fileID: 0}
     matrix: {fileID: 0}
     waitAtDoor: 0
+  setup:
+    when: 0
+    label: type
+    setupFirst: 1
+    time:
+      strategyType: 0
+      constantValue: 1
+      uniformMin: 3
+      uniformMax: 7
+      normalMean: 5
+      normalStdDev: 1
+      exponentialRate: 0.2
+      triangularMin: 3
+      triangularMode: 5
+      triangularMax: 8
+      expression: 
+      gammaShape: 2
+      gammaScale: 2.5
+      weibullShape: 1.5
+      weibullScale: 5
+      logNormalMu: 1.5
+      logNormalSigma: 0.5
+      betaAlpha: 2
+      betaBeta: 5
+      betaMin: 0
+      betaMax: 1
+      chiSquareDf: 5
+      studentTDf: 10
+      studentTClamp: 1
+      fDistD1: 5
+      fDistD2: 10
+      poissonLambda: 3
+      binomialN: 10
+      binomialP: 0.5
+      discreteUniformMin: 3
+      discreteUniformMax: 7
+    matrix: {fileID: 0}
+    setupBy:
+      team: {fileID: 0}
+      requirements: []
+      priority: 1
+      preemption: 0
+      preemptable: 1
+      acquire: 0
+      maxWait: 
+      onTimeout: 0
+    keepForProcess: 0
   inItemPosition: {fileID: 0}
   outItemPosition: {fileID: 0}
   separation: 1
@@ -338,6 +399,7 @@ MonoBehaviour:
   outputItemPrefab: {fileID: 0}
   offerOrder: 0
   offerScan: 0
+  reserveExit: 0
   serverAnimator: {fileID: 0}
 --- !u!1 &6813174212650935032
 GameObject:

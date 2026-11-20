@@ -1,6 +1,6 @@
 // Text of 3D signs (UnitySign, TextMesh; docs/architecture.md §4.7.4): the font texture's alpha in the vertex colour,
 // depth-tested and back-face culled, so a sign's text is hidden by what stands in front of it and its back-face text
-// only shows from behind (the built-in text shader draws over everything). Built-in render pipeline.
+// only shows from behind (the built-in text shader draws over everything). Unlit, with no light mode: any pipeline.
 Shader "SimuLean/Sign Text"
 {
     Properties

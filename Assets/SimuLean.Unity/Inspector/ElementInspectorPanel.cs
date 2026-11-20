@@ -212,14 +212,14 @@ namespace SimuLean.Unity
 
         private void Update()
         {
-            if (open && closeKey != KeyCode.None && Input.GetKeyDown(closeKey))
+            if (open && closeKey != KeyCode.None && SimInput.GetKeyDown(closeKey))
             {
                 if (closeKey == KeyCode.Escape) UnitySimClock.ConsumeEscape();
                 Close();
             }
-            if (cameraController == null && Input.GetMouseButtonDown(0) && !SimRuntimeHud.IsPointerOverHud(Input.mousePosition))
+            if (cameraController == null && SimInput.GetMouseButtonDown(0) && !SimRuntimeHud.IsPointerOverHud(SimInput.MousePosition))
             {
-                var picked = SimCameraController.PickObject(Camera.main, Input.mousePosition);
+                var picked = SimCameraController.PickObject(Camera.main, SimInput.MousePosition);
                 if (picked != null) OnSelection(picked);
             }
         }

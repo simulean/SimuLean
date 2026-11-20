@@ -40,7 +40,7 @@ editor compares it with its own and never uses a runner built from other sources
 study), 1 for any other failure. What the engine logs while it runs goes to the standard error and into the answer.
 
 Models that need Unity's physics (a team moved by physics without a travel calibration) cannot run here: they run only
-in the scene, and the extraction's message says how to calibrate the travel. **Self-contained builds**: `powershell -File Tools/Runner/publish.ps1` → `Tools/Runner/dist/<rid>/simulean[.exe]`
+in the scene, and the extraction's message says how to calibrate the travel. **Self-contained builds**: `powershell -File Tools/Runner/publish.ps1` (with `-Version <x.y.z>` it also writes the release's archives `dist/SimuLeanRunner-<x.y.z>-<rid>.zip`, which the editor downloads when its engine is the release's — `RunnerRelease`) → `Tools/Runner/dist/<rid>/simulean[.exe]`
 (win-x64, osx-arm64, linux-x64; the .NET 10 runtime bundled, one compressed file of ≈ 37–40 MB, start ≈ 0.1 s; not
 trimmed nor AOT, as the codec and the engine build by reflection; ready-to-run, so less is compiled at start). The runner
 uses the server garbage collector (`simulean.csproj`): a run allocates ≈ 140 MB and the workstation collector made

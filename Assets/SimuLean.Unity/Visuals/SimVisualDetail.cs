@@ -122,7 +122,7 @@ namespace SimuLean.Unity
 
         private void Update()
         {
-            if (cycleKey != KeyCode.None && Input.GetKeyDown(cycleKey)) Cycle();
+            if (cycleKey != KeyCode.None && SimInput.GetKeyDown(cycleKey)) Cycle();
 
             bool detailed;
             switch (mode)

@@ -55,7 +55,10 @@ namespace SimuLean.Rules
                     var list = new List<Type>();
                     var engine = typeof(IChoiceRule).Assembly;
                     string engineName = engine.GetName().Name;
+                    // the engine has no Unity reference (no TypeCache): it scans the loaded assemblies itself
+#pragma warning disable UAC0005
                     foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+#pragma warning restore UAC0005
                     {
                         if (a.IsDynamic) continue;
                         if (a != engine)

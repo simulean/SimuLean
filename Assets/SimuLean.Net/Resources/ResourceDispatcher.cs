@@ -5,7 +5,7 @@ using SimuLean.Collections;
 namespace SimuLean.Resources
 {
     /// <summary>
-    /// The element that hands resources out ("elemento ordenador"): its members — any
+    /// The element that hands resources out: its members — any
     /// <see cref="TaskExecutor"/>s, operators, tools, vehicles — wait in a <see cref="Resources"/> list while free,
     /// and <see cref="ResourceRequest"/>s wait in a <see cref="Requests"/> list. Both are ordinary
     /// <see cref="SimList"/>s, so the priority rule is a pair of list orders (and user fields / formulas):

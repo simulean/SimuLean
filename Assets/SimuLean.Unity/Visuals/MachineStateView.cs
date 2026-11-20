@@ -183,7 +183,7 @@ namespace SimuLean.Unity
                     r.GetPropertyBlock(block);
                     // the lamp's own colour: a white emission washed the green out to a pale yellow
                     block.SetColor("_EmissionColor", LampColors[i] * (on ? litIntensity : offIntensity));
-                    block.SetColor("_Color", on ? Color.white : new Color(0.35f, 0.35f, 0.35f));
+                    block.SetColor("_BaseColor", on ? Color.white : new Color(0.35f, 0.35f, 0.35f));
                     r.SetPropertyBlock(block);
                 }
             }

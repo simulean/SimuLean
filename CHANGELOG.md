@@ -40,8 +40,14 @@ The agent interface after evaluation rounds with AI agents building models from 
 **Project**
 - Opening the project needs no git: the unused *MCP for Unity* package (a git dependency) was removed; every
   package comes from Unity's registry.
-- Prebuilt runners for Windows, macOS (Apple silicon) and Linux attached to the release: unzipped at the project
-  root, studies run outside the editor without installing .NET.
+- Prebuilt runners for Windows, macOS (Apple silicon) and Linux attached to the release: the editor downloads the one of
+  its machine on first use, so studies run outside the editor without installing .NET (SimuLean window ▸ Settings ▸
+  *Download the runner*).
+- A clean first open: physics settings upgraded, the deprecated VS Code package removed, no serialization warnings.
+- The Universal Render Pipeline (URP 17.6) replaces the deprecated built-in one: every material converted to URP Lit,
+  the model importer makes URP materials, the connection overlay draws after each camera.
+- The Input System package replaces the deprecated Input Manager for the camera, HUD and run-time panels.
+- The hall crane's runways stand on steel columns of the building kit.
 
 **Code and tests**
 - The engine's model build in named passes, namespace cycles removed, duplicated helpers merged; the Unity commands edit
