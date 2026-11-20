@@ -31,29 +31,59 @@ namespace SimuLean
     }
 
     /// <summary>
-    /// Admits items whose numeric label equals a value — fixed, or (without a value) taken from the last main item
+    /// Admits items whose label equals a value — fixed, or (without a value) taken from the last main item
     /// (<see cref="UpdateStrategy"/>, Combiner pull mode "auto-update"; nothing is admitted until then).
+    /// A number matches a numeric label and a text a text label (<c>sku = 'Garments'</c>). A fixed value written as text that reads as a number
+    /// (<c>"2"</c>, <c>"2,5"</c>) matches the numeric label of that value or the text label spelled the same.
     /// </summary>
     public class SingleLabelStrategy : InputStrategy
     {
         private readonly string requiredLabelName;
-        private double? requiredLabelValue;
+        private double? requiredNumber;
+        private string requiredText;
+        private bool warnedMissing;
 
+        /// <summary>A numeric value (or none: taken from the main item).</summary>
         public SingleLabelStrategy(string requiredLabelName, double? requiredLabelValue = null)
         {
             this.requiredLabelName = requiredLabelName;
-            this.requiredLabelValue = requiredLabelValue;
+            requiredNumber = requiredLabelValue;
         }
+
+        /// <summary>A value given as text: a text that reads as a number matches that numeric label too.</summary>
+        public SingleLabelStrategy(string requiredLabelName, string requiredLabelValue)
+        {
+            this.requiredLabelName = requiredLabelName;
+            if (string.IsNullOrEmpty(requiredLabelValue)) return;
+            requiredText = requiredLabelValue;
+            if (SimuLean.Data.ModelTable.TryNumber(requiredLabelValue, out double v)) requiredNumber = v;
+        }
+
+        public string LabelName => requiredLabelName;
 
         public override void UpdateStrategy(Item item)
         {
-            requiredLabelValue = item.GetLabelValue(requiredLabelName);
+            requiredNumber = null;
+            requiredText = null;
+            if (item != null && item.HasProperties)
+            {
+                if (item.Properties.TryGetDouble(requiredLabelName, out double d)) { requiredNumber = d; return; }
+                if (item.Properties.TryGetString(requiredLabelName, out string s)) { requiredText = s; return; }
+            }
+            if (!warnedMissing)
+            {
+                warnedMissing = true;
+                SimLog.Warning($"[SingleLabel] main item {item?.GetId()} has no label '{requiredLabelName}': its assembly admits no component.");
+            }
         }
 
         public override bool Admits(Element target, Item item, Element origin)
         {
-            double? value = item.GetLabelValue(requiredLabelName);
-            return value.HasValue && requiredLabelValue.HasValue && value.Value == requiredLabelValue.Value;
+            if (item == null || !item.HasProperties) return false;
+            if (requiredNumber.HasValue && item.Properties.TryGetDouble(requiredLabelName, out double v) && v == requiredNumber.Value)
+                return true;
+            return requiredText != null && item.Properties.TryGetString(requiredLabelName, out string t)
+                && string.Equals(t, requiredText, StringComparison.Ordinal);
         }
     }
 
@@ -107,7 +137,7 @@ namespace SimuLean
         }
 
         public override bool Admits(Element target, Item item, Element origin)
-            => origin == null || allowedOriginNames.Contains(origin.GetName());
+            => origin == null || allowedOriginNames.Contains(origin.Name);
     }
 
     /// <summary>Admits items while the receiving element holds fewer than <c>maxQueue</c> items.</summary>
@@ -131,10 +161,15 @@ namespace SimuLean
     {
         private readonly SimuLean.Expressions.EntityScope scope = new SimuLean.Expressions.EntityScope();
 
-        public ConditionStrategy(string condition) { Condition = SimuLean.Expressions.Expression.Parse(condition); }
+        public ConditionStrategy(string condition, string owner = null)
+        { Condition = SimuLean.Expressions.Expression.ParseCondition(condition, SimuLean.Expressions.ExpressionContext.Admission, owner, "condition"); }
 
         public SimuLean.Expressions.Expression Condition { get; }
 
-        public override bool Admits(Element target, Item item, Element origin) => Condition.Condition(scope.Set(item, target));
+        public override bool Admits(Element target, Item item, Element origin)
+        {
+            scope.RandomStream = target?.RandomStreamFor("admission");
+            return Condition.Condition(scope.Set(item, target, origin));
+        }
     }
 }

@@ -169,27 +169,27 @@ static class Program
     static void Connect(SimulationConfig c, string a, string b) => c.Connections.Add(new ConnectionConfig(a, b, "General"));
     static ElementConfig Source(string id, double meanGap)
     {
-        var e = El(id, "UnitySource");
-        e.Parameters["sourceMode"] = "InterArrival";
-        e.Parameters["interArrivalStrategyType"] = "Exponential";
-        e.Parameters["exponentialRate"] = 1.0 / meanGap;
+        var e = El(id, "Source");
+        e.Set("mode", "InterArrival");
+        e.Set("interArrivalDistribution.strategyType", "Exponential");
+        e.Set("interArrivalDistribution.exponentialRate", 1.0 / meanGap);
         return e;
     }
-    static ElementConfig Queue(string id, int cap) { var e = El(id, "UnityQueue"); e.Parameters["capacity"] = cap; return e; }
+    static ElementConfig Queue(string id, int cap) { var e = El(id, "Queue"); e.Set("capacity", cap); return e; }
     static ElementConfig Server(string id, int cap, double mean)
     {
-        var e = El(id, "UnityMultiServer");
-        e.Parameters["capacity"] = cap;
-        e.Parameters["delayStrategyType"] = "Exponential";
-        e.Parameters["exponentialRate"] = 1.0 / mean;
+        var e = El(id, "MultiServer");
+        e.Set("capacity", cap);
+        e.Set("delayStrategy.strategyType", "Exponential");
+        e.Set("delayStrategy.exponentialRate", 1.0 / mean);
         return e;
     }
     static ElementConfig ConstServer(string id, int cap, double t)
     {
-        var e = El(id, "UnityMultiServer");
-        e.Parameters["capacity"] = cap;
-        e.Parameters["delayStrategyType"] = "Constant";
-        e.Parameters["constantValue"] = t;
+        var e = El(id, "MultiServer");
+        e.Set("capacity", cap);
+        e.Set("delayStrategy.strategyType", "Constant");
+        e.Set("delayStrategy.constantValue", t);
         return e;
     }
 
@@ -204,7 +204,7 @@ static class Program
             c.Elements.Add(Queue("q" + i, 50)); c.Elements.Add(Server("ms" + i, 1, 0.8));
             Connect(c, prev, "q" + i); Connect(c, "q" + i, "ms" + i); prev = "ms" + i;
         }
-        c.Elements.Add(El("sink", "UnitySink")); Connect(c, prev, "sink");
+        c.Elements.Add(El("sink", "Sink")); Connect(c, prev, "sink");
         return c;
     }
 
@@ -214,7 +214,7 @@ static class Program
         var c = New(8, 100000.0 / rate * 10);
         c.Elements.Add(Source("src", 1.0 / rate));
         c.Elements.Add(Queue("q", 100000)); c.Elements.Add(Server("ms", rate, 0.8));
-        c.Elements.Add(El("sink", "UnitySink"));
+        c.Elements.Add(El("sink", "Sink"));
         Connect(c, "src", "q"); Connect(c, "q", "ms"); Connect(c, "ms", "sink");
         return c;
     }
@@ -225,7 +225,7 @@ static class Program
         var c = New(9, horizon);
         c.Elements.Add(Source("src", 1.0));
         c.Elements.Add(Queue("q", 10000000)); c.Elements.Add(ConstServer("ms", 1, 2.0));
-        c.Elements.Add(El("sink", "UnitySink"));
+        c.Elements.Add(El("sink", "Sink"));
         Connect(c, "src", "q"); Connect(c, "q", "ms"); Connect(c, "ms", "sink");
         return c;
     }
@@ -242,27 +242,27 @@ static class Program
             c.Network = new NetworkConfig();
             for (int i = 0; i < n; i++)
             {
-                c.Network.Nodes.Add(TransportStorageConfigCodec.FormatNode("n" + i, i * 5.0, 0, 0));
-                if (i > 0) c.Network.Tracks.Add(TransportStorageConfigCodec.FormatTrack("n" + (i - 1), "n" + i, 5.0, true, SimuLean.Transport.TrackType.TravelPath));
+                c.Network.Nodes.Add(NetworkNodeConfig.Of("n" + i, i * 5.0, 0, 0));
+                if (i > 0) c.Network.Tracks.Add(NetworkTrackConfig.Of("n" + (i - 1), "n" + i, 5.0, true, SimuLean.Transport.TrackType.TravelPath));
             }
         }
-        c.Elements.Add(El("sink", "UnitySink"));
+        c.Elements.Add(El("sink", "Sink"));
         for (int i = 0; i < n; i++)
         {
             var src = Source("src" + i, 2.0);
-            src.Parameters["assignLabels"] = new List<string> { "prio=" + (i % 5) };
+            src.Set("createLabels", new List<string> { "prio=" + (i % 5) });
             c.Elements.Add(src);
             c.Elements.Add(Queue("q" + i, 1000));
             var st = Server("st" + i, 1, 0.8);
-            if (spatial) st.Parameters["location"] = "n" + i;
-            st.Parameters[ResourceUseKeys.ProcessTeam] = "team";
-            st.Parameters[ResourceUseKeys.ProcessRelease] = "EndOfProcess";
-            if (requestOrder.Contains("priority")) st.Parameters[ResourceUseKeys.ProcessPriority] = "prio";
+            if (spatial) st.Set("location", "n" + i);
+            st.Set("processBy.team", "team");
+            st.Set("processBy.release", "EndOfProcess");
+            if (requestOrder.Contains("priority")) st.Set("processBy.priority", "prio");
             c.Elements.Add(st);
             Connect(c, "src" + i, "q" + i); Connect(c, "q" + i, "st" + i); Connect(c, "st" + i, "sink");
         }
         var t = new ResourceTeamConfig { Id = "team", Name = "team", RequestOrder = requestOrder, ResourceOrder = resourceOrder };
-        if (spatial) { t.Travel = "Network"; t.Speed = 500; t.HomeNode = "n0"; }
+        if (spatial) { t.Travel = TravelKind.Network; t.Speed = 500; t.HomeNode = "n0"; }
         for (int i = 0; i < members; i++) t.Members.Add(new ResourceMemberConfig { Name = "op" + i });
         c.ResourceTeams.Add(t);
         return c;
@@ -274,17 +274,17 @@ static class Program
     {
         var c = New(12, horizon);
         c.Elements.Add(Queue("q", 10000000));
-        c.Elements.Add(El("sink", "UnitySink"));
+        c.Elements.Add(El("sink", "Sink"));
         c.Lists.Add(new ListConfig { Id = "work", Name = "work" });
         for (int k = 1; k <= 4; k++)
         {
             var s = Source("src" + k, 1.0);
-            s.Parameters["assignLabels"] = new List<string> { "kind=" + k };
+            s.Set("createLabels", new List<string> { "kind=" + k });
             c.Elements.Add(s); Connect(c, "src" + k, "q");
             c.Elements.Add(ConstServer("srv" + k, 1, 1.25));
             Connect(c, "srv" + k, "sink");
             var pull = new ConnectionConfig("work", "srv" + k, "PullFromList");
-            pull.Parameters["query"] = "kind == " + k + "|age desc";
+            pull.Query = "kind == " + k + "|age desc";
             c.Connections.Add(pull);
         }
         c.Connections.Add(new ConnectionConfig("q", "work", "PushToList"));
@@ -303,23 +303,23 @@ static class Program
         for (int i = 0; i < nodes; i++)
         {
             double a = 2 * Math.PI * i / nodes;
-            c.Network.Nodes.Add(TransportStorageConfigCodec.FormatNode("n" + i, r * Math.Cos(a), 0, r * Math.Sin(a)));
-            c.Network.Tracks.Add(TransportStorageConfigCodec.FormatTrack("n" + i, "n" + ((i + 1) % nodes), 10.0, true, SimuLean.Transport.TrackType.TravelPath));
+            c.Network.Nodes.Add(NetworkNodeConfig.Of("n" + i, r * Math.Cos(a), 0, r * Math.Sin(a)));
+            c.Network.Tracks.Add(NetworkTrackConfig.Of("n" + i, "n" + ((i + 1) % nodes), 10.0, true, SimuLean.Transport.TrackType.TravelPath));
         }
-        var dock = Queue("dock", 100000); dock.Parameters["location"] = "n0";
-        c.Elements.Add(dock); c.Elements.Add(El("sink", "UnitySink")); Connect(c, "dock", "sink");
+        var dock = Queue("dock", 100000); dock.Set("location", "n0");
+        c.Elements.Add(dock); c.Elements.Add(El("sink", "Sink")); Connect(c, "dock", "sink");
         for (int i = 1; i <= v; i++)
         {
             string node = "n" + ((2 * i - 1) % nodes);
             c.Elements.Add(Source("src" + i, 4.0 * v));   // each vehicle ~ one move every 4·v/v… keep total rate ∝ v
-            var q = Queue("o" + i, 100000); q.Parameters["location"] = node;
-            q.Parameters[ResourceUseKeys.TransportTeam] = "fleet";
+            var q = Queue("o" + i, 100000); q.Set("location", node);
+            q.Set("transportBy.team", "fleet");
             c.Elements.Add(q);
             Connect(c, "src" + i, "o" + i); Connect(c, "o" + i, "dock");
         }
         // total arrival rate = v / (4v) per unit... scale it: one arrival per 40/v time units per origin
-        foreach (var e in c.Elements.Where(e => e.Id.StartsWith("src"))) e.Parameters["exponentialRate"] = 1.0 / (6.0 * v);
-        var t = new ResourceTeamConfig { Id = "fleet", Name = "fleet", ResourceOrder = "|distance", Travel = "Network", Speed = 2.0, HomeNode = "n0", Traffic = traffic };
+        foreach (var e in c.Elements.Where(e => e.Id.StartsWith("src"))) e.Set("delayStrategy.exponentialRate", 1.0 / (6.0 * v));
+        var t = new ResourceTeamConfig { Id = "fleet", Name = "fleet", ResourceOrder = "|distance", Travel = TravelKind.Network, Speed = 2.0, HomeNode = "n0", Traffic = traffic };
         for (int i = 1; i <= v; i++) t.Members.Add(new ResourceMemberConfig { Name = "agv" + i, LoadTime = 1, UnloadTime = 1 });
         c.ResourceTeams.Add(t);
         return c;
@@ -406,10 +406,9 @@ static class Program
     sealed class AllocListener : EventListener
     {
         public readonly Dictionary<string, long> Counts = new Dictionary<string, long>();
-        private bool on;
         protected override void OnEventSourceCreated(EventSource source)
         {
-            if (source.Name == "Microsoft-Windows-DotNETRuntime") { EnableEvents(source, EventLevel.Verbose, (EventKeywords)0x1); on = true; }
+            if (source.Name == "Microsoft-Windows-DotNETRuntime") EnableEvents(source, EventLevel.Verbose, (EventKeywords)0x1);
         }
         protected override void OnEventWritten(EventWrittenEventArgs e)
         {

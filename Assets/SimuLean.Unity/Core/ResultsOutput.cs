@@ -9,7 +9,8 @@ namespace SimuLean.Unity
 {
     /// <summary>
     /// Where the project's results go: the exports of the Experimenter, the Optimizer and single runs
-    /// (<see cref="ResultExport"/>) into the results folder of the project settings (<see cref="SimuLeanProjectSettings"/>,
+    /// (<see cref="ResultExport"/>) into the results folder of the project settings — a model's in its own subfolder,
+    /// <see cref="Folder(string, string)"/> — (<see cref="SimuLeanProjectSettings"/>,
     /// default <c>SimuLeanResults/</c>, git-ignored) and, for SQLite, the project database; the confidence level of the
     /// settings. Keeps the last result set (<see cref="Last"/>) for the SimuLean window's Results tab.
     /// </summary>
@@ -34,8 +35,23 @@ namespace SimuLean.Unity
             return Path.IsPathRooted(folder) ? folder : Path.Combine(projectRoot, folder);
         }
 
+        /// <summary>
+        /// The results folder of <paramref name="model"/> (a result set's <c>Model</c>: the scene's name): its own subfolder
+        /// <c>&lt;resultsFolder&gt;/&lt;model&gt;/</c> when it is one of the project's models (a folder
+        /// <c>&lt;modelsFolder&gt;/&lt;model&gt;/</c> holding <c>&lt;model&gt;.unity</c>), else the results folder.
+        /// Thread-safe given <paramref name="projectRoot"/>.
+        /// </summary>
+        public static string Folder(string projectRoot, string model)
+        {
+            string root = Folder(projectRoot);
+            if (string.IsNullOrWhiteSpace(model) || model.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return root;
+            string models = SimuLeanProjectSettings.Load(projectRoot).modelsFolder;
+            string scene = Path.Combine(Path.IsPathRooted(models) ? models : Path.Combine(projectRoot, models), model, model + ".unity");
+            return File.Exists(scene) ? Path.Combine(root, model) : root;
+        }
+
         /// <summary>The project database (the project settings' <c>databasePath</c>, default <c>SimuLeanData/simulean.db</c>;
-        /// The one place every data table, timetable, pick list and export resolves it).</summary>
+        /// the one place every data table, timetable, pick list and export resolves it).</summary>
         public static string DatabasePath(string projectRoot)
         {
             string path = SimuLeanProjectSettings.Load(projectRoot).databasePath;

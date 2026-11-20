@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace SimuLean.Unity.Editor.Tests
 {
-    /// <summary>A periodic stop set on a <see cref="UnityDowntime"/>: extracted as a <c>Periodic</c>
+    /// <summary>A periodic stop set on a <see cref="UnityDowntime"/> extracted as a <c>Periodic</c>
     /// <see cref="DowntimeConfig"/> and built by the engine like the other kinds (one build path).</summary>
     public class PeriodicDowntimeSceneTests
     {
@@ -33,8 +33,8 @@ namespace SimuLean.Unity.Editor.Tests
                 var config = SceneExtractor.Extract(root).Config;
                 var dc = config.Downtimes.Single();
                 Assert.AreEqual("Periodic", dc.Kind);
-                Assert.AreEqual(100.0, dc.GetParameter<double>("period"), 1e-12);
-                Assert.AreEqual(350.0, dc.GetParameter<double>("until"), 1e-12);
+                Assert.AreEqual(100.0, dc.Get<double>("periodicPeriod"), 1e-12);
+                Assert.AreEqual(350.0, dc.Get<double>("periodicUntil"), 1e-12);
                 Assert.IsEmpty(SimuLean.Optimization.ModelParameterCatalog.Undecided(config), "every key is decided");
 
                 var clock = new SimClock(1);
@@ -49,7 +49,7 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.AreEqual(0.08, model.Find("Press").GetStateRatio(ElementState.SCHEDULED_DOWN), 1e-9);
 
                 pm.useUntil = false;
-                Assert.IsFalse(SceneExtractor.Extract(root).Config.Downtimes.Single().Parameters.ContainsKey("until"), "no end: no 'until'");
+                Assert.IsFalse(SceneExtractor.Extract(root).Config.Downtimes.Single().Has("until"), "no end: no 'until'");
             }
             finally { Object.DestroyImmediate(root); }
         }

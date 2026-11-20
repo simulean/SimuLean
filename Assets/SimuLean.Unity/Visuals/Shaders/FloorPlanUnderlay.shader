@@ -1,6 +1,7 @@
 // Floor-plan underlay (FloorPlanUnderlay component, docs/architecture.md §4.7.2): one unlit, alpha-blended quad on the
 // floor. The texture is single-channel (R = line coverage x group intensity, mipmapped); lines are drawn in _Color with
-// alpha = R x _Opacity, so the plan stays faint under the model. Built-in render pipeline.
+// alpha = R x _Opacity, so the plan stays faint under the model. Unlit, with no light mode: it renders in the Universal
+// and the built-in pipelines.
 Shader "SimuLean/FloorPlanUnderlay"
 {
     Properties

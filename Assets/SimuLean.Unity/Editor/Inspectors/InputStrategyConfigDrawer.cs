@@ -4,7 +4,7 @@ using UnityEngine;
 namespace SimuLean.Unity.Editor
 {
     /// <summary>
-    /// Admission of an element: the rule on one line (its description as the tooltip),
+    /// Admission of an element the rule on one line (its description as the tooltip),
     /// then only the fields the rule needs; a condition shows its error when it has one.
     /// </summary>
     [CustomPropertyDrawer(typeof(InputStrategyConfig))]
@@ -43,10 +43,9 @@ namespace SimuLean.Unity.Editor
                 {
                     var cond = property.FindPropertyRelative("condition");
                     r.y += Line + Gap;
-                    EditorGUI.PropertyField(r, cond, new GUIContent("Condition",
-                        "Admits the item when it holds, e.g. item.color == 'red' && item.weight <= element.maxWeight"));
-                    string err = Error(cond.stringValue);
-                    if (err != null) { r.y += Line + Gap; r.height = Line * 2; EditorGUI.HelpBox(r, err, MessageType.Error); }
+                    var content = new GUIContent("Condition", "Admits the item when it holds, e.g. item.color == 'red' && item.weight <= element.maxWeight");
+                    r.height = EditorGUI.GetPropertyHeight(cond, content);
+                    EditorGUI.PropertyField(r, cond, content);
                     break;
                 }
             }
@@ -62,12 +61,11 @@ namespace SimuLean.Unity.Editor
                 case InputStrategyType.SingleLabel: return Line * 3 + Gap * 2;
                 case InputStrategyType.MultiLabel: return Line + Gap + EditorGUI.GetPropertyHeight(property.FindPropertyRelative("multiLabelPairs"), true);
                 case InputStrategyType.Condition:
-                    return Line * 2 + Gap + (Error(property.FindPropertyRelative("condition").stringValue) != null ? Line * 2 + Gap : 0);
+                    return Line + Gap + EditorGUI.GetPropertyHeight(property.FindPropertyRelative("condition"), new GUIContent("Condition"));
                 default: return Line;
             }
         }
 
-        private static string Error(string expr) => string.IsNullOrWhiteSpace(expr) ? null : SimuLean.Expressions.Expression.Check(expr);
 
         public static string Description(InputStrategyType type)
         {

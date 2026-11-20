@@ -106,7 +106,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   nextElements: []
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -279,8 +278,8 @@ MonoBehaviour:
     matrix: {fileID: 0}
     waitAtDoor: 0
   capacity: 100
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerScan: 0
   layoutMode: 1
   separation: 0
   gridArea: {x: 0, y: 0}

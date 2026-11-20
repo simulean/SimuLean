@@ -46,14 +46,16 @@ namespace SimuLean.Unity
         }
 
         [SimuLeanPresetIcon("Assets/SimuLean.Unity/Art/Models/GantryStacker/GantryStacker.fbx")]
-        [MenuItem("GameObject/SimuLean/Stacking/Gantry Stacker", false, 41)]
+        // an automatic stacker with its own gantry (the stacker of a cutting line): the same Stacker, its cycle shown by the
+        // gantry; a hall crane that stacks and also serves other stations is the Stacker's Crane mode with a crane team
+        [SimuLeanVariantOf(typeof(UnityStacker))]
+        [MenuItem("GameObject/SimuLean/Stacking/Stacker with Gantry", false, 41)]
         private static void CreateGantryStacker(MenuCommand cmd) => Create(cmd, withGantry: true);
 
         private static void Create(MenuCommand cmd, bool withGantry)
         {
             var go = new GameObject(withGantry ? "GantryStacker" : "Stacker");
             GameObjectUtility.SetParentAndAlign(go, cmd.context as GameObject);
-            Undo.RegisterCreatedObjectUndo(go, "Create Stacker");
             go.AddComponent<UnityStacker>();
 
             if (withGantry)
@@ -64,12 +66,14 @@ namespace SimuLean.Unity
                 {
                     var inst = (GameObject)PrefabUtility.InstantiatePrefab(model, go.transform);
                     inst.transform.localPosition = Vector3.zero;
-                    inst.transform.localRotation = Quaternion.identity;
+                    // the gantry's runway (its Bridge travels along the model's Z) along the stacker's row (its X)
+                    inst.transform.localRotation = Quaternion.Euler(0f, -90f, 0f);
                     view.gantryRoot = inst.transform;
                 }
                 else
                     Debug.LogWarning($"[SimuLean] {GantryModelPath} not found: the stacker animates the items without a gantry.");
             }
+            Undo.RegisterCreatedObjectUndo(go, "Create Stacker");   // complete: one undo step, nothing dangling
             Selection.activeObject = go;
         }
     }

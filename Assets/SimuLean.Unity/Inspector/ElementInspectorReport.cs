@@ -22,8 +22,8 @@ namespace SimuLean.Unity
             string state = e.CurrentState.Name;
             var v = new InspectorView
             {
-                Title = e.GetName(),
-                Subtitle = ((object)e).GetType().Name + (c.Owner != null && c.Owner.name != e.GetName() ? " · " + c.Owner.name : ""),
+                Title = e.Name,
+                Subtitle = ((object)e).GetType().Name + (c.Owner != null && c.Owner.name != e.Name ? " · " + c.Owner.name : ""),
                 StateText = InspectorPalette.StateText(state),
                 StateColor = InspectorPalette.StateColor(state),
             };
@@ -118,7 +118,7 @@ namespace SimuLean.Unity
                 if (r.Skipped > 0) fired += " · " + ElementInspectorContext.N(r.Skipped) + " not met";
                 string last = double.IsNaN(r.LastFired) ? (listens ? "listens: " : "acts on it: ") + Signal(r.Signal)
                             : "last " + c.Instant(r.LastFired) + (r.LastItem != null ? " · " + r.LastItem : "")
-                              + (r.LastSource != null && r.LastSource != e ? " · at " + r.LastSource.GetName() : "");
+                              + (r.LastSource != null && r.LastSource != e ? " · at " + r.LastSource.Name : "");
                 k.Add(new InspectorRow(r.Name, fired, last));
             }
         }
@@ -131,6 +131,8 @@ namespace SimuLean.Unity
                 case SimuLean.Signals.SignalKind.ItemExited: return "an item leaves";
                 case SimuLean.Signals.SignalKind.StateChanged: return "the state changes";
                 case SimuLean.Signals.SignalKind.Stopped: return "a stop starts";
+                case SimuLean.Signals.SignalKind.ProcessEnded: return "a process ends";
+                case SimuLean.Signals.SignalKind.WaitTimedOut: return "a wait reaches its max wait";
                 default: return "a stop ends";
             }
         }
@@ -147,7 +149,7 @@ namespace SimuLean.Unity
         private static void Detail(Element e, ElementInspectorContext c, List<InspectorRow> d)
         {
             d.Add(InspectorRow.H("Element"));
-            d.Add(new InspectorRow("Name", e.GetName()));
+            d.Add(new InspectorRow("Name", e.Name));
             d.Add(new InspectorRow("Engine type", ((object)e).GetType().Name));
             if (c.Owner != null)
             {
@@ -200,7 +202,7 @@ namespace SimuLean.Unity
             if (cache != null) cache[e] = ps;
             var byPeriod = ElementLiveHistory.WithOpen(ps, c.Now);
 
-            var spec = new ChartData { Kind = ChartKind.Stacked, Normalise = true, Title = $"State split per {c.PeriodLabel} (%)", Unit = "%" };
+            var spec = new ChartData { Kind = ChartKind.Stacked, Normalize = true, Title = $"State split per {c.PeriodLabel} (%)", Unit = "%" };
             var bars = new ChartData { Kind = ChartKind.Bar, Title = "Cumulative state split" };
             var snap = e.GetStateSnapshot();
             foreach (string s in Ordered(byPeriod.Keys))

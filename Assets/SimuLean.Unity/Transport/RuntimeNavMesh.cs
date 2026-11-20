@@ -9,7 +9,7 @@ namespace SimuLean.Unity
     /// teams moving with <i>Unity Physics</i> (<see cref="NavMeshMover"/>) in scenes without a baked NavMesh Surface
     /// (core navigation API, no package needed). Optional: a NavMesh Surface baked in the editor does the same.
     /// </summary>
-    [SimuLeanTool(SimuLeanToolCategories.Transport, "Runtime NavMesh",
+    [SimuLeanTool(SimuLeanToolCategories.Transport, "Runtime NavMesh", Order = 4,
         Description = "Bakes a NavMesh on start from the colliders in an area, for resources moved by Unity physics")]
     [AddComponentMenu("SimuLean/Runtime NavMesh")]
     [DefaultExecutionOrder(-1000)]

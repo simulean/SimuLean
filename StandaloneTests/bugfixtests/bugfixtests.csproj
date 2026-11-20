@@ -5,8 +5,8 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
-  <Import Project="..\Engine.props" />
+  <Import Project="..\Tests.props" />
   <ItemGroup>
-    <Compile Include="Program.cs" />
+    <Compile Include="*.cs" />
   </ItemGroup>
 </Project>

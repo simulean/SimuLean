@@ -23,13 +23,35 @@ namespace SimuLean.Resources
 
         public TaskType Type { get; }
 
+        /// <summary>Its job gave up waiting (a max wait's GiveUp): its remaining steps pass, and it ends as not done
+        /// — no <see cref="TaskExecutor.TasksDone"/> (its usage up to now is recorded).</summary>
+        internal bool Withdrawn { get; set; }
+
         /// <summary>The element the task works for (usage statistics, dispatching fields); may be null.</summary>
         public Element Requester { get; }
 
         public string Name { get; }
 
-        /// <summary>Dispatching priority (higher first when a rule orders by it).</summary>
-        public double Priority { get; set; }
+        /// <summary>Priority of the work (default 1; larger = more important): a request with a preemption mode takes a
+        /// member only from a task of strictly lower priority. The stations and carriers give their tasks their
+        /// request's priority.</summary>
+        public double Priority { get; set; } = 1;
+
+        /// <summary>False: never interrupted by a request of higher priority. True by default; whether a task can be
+        /// interrupted at all also depends on its owner (a station's job, a carrier's empty travel) and its step.</summary>
+        public bool Preemptable { get; set; } = true;
+
+        /// <summary>Raised when the task was cancelled by a request with <see cref="PreemptMode.Abort"/> (a task without an
+        /// item and without an owner: its executor is free for the other work at once).</summary>
+        public event Action<TaskSequence> Aborted;
+        internal void RaiseAborted() => Aborted?.Invoke(this);
+
+        /// <summary>True once the task was interrupted (taken by a request of higher priority, or by its executor's stop)
+        /// — it never completes then; its owner, if any, carries the work on with another task.</summary>
+        public bool WasInterrupted { get; internal set; }
+
+        // Its owner, when the task may be interrupted and put back (a station's job, a carrier's move).
+        internal ITaskInterruption Interruption;
 
         public IReadOnlyList<TaskStep> Steps => steps;
 
@@ -67,7 +89,7 @@ namespace SimuLean.Resources
         public TaskSequence Travel(string node) => Add(new TaskStep(StepKind.Travel, null) { Node = node });
 
         /// <summary>Travels for a given time (abstract transport between stations: no network, just the time);
-        /// TRAVELLING_LOADED / EMPTY by what it carries. <paramref name="node"/> optional (spatial location).</summary>
+        /// TRAVELING_LOADED / EMPTY by what it carries. <paramref name="node"/> optional (spatial location).</summary>
         public TaskSequence Travel(Func<double> duration, string node = null) => Add(new TaskStep(StepKind.Travel, duration) { Node = node });
 
         /// <summary>Picks up <paramref name="item"/> (state LOADING for <paramref name="duration"/>, then
@@ -93,8 +115,26 @@ namespace SimuLean.Resources
         public TaskSequence HoldUntil(Func<bool> done, ElementState? state = null)
             => Add(new TaskStep(StepKind.Hold, null) { HoldState = state, Ready = done });
 
+        /// <summary>A step that adds steps while the task runs (milk runs): when it is reached,
+        /// <paramref name="addSteps"/> is called and every step it adds (fluently, on the task it receives) is inserted
+        /// right after it — e.g. "load the next ready carrier, then look again", decided at that moment. No time, no
+        /// state change of its own.</summary>
+        public TaskSequence Expand(Action<TaskSequence> addSteps)
+            => Add(new TaskStep(StepKind.Callback, null) { Expansion = addSteps ?? throw new ArgumentNullException(nameof(addSteps)) });
+
+        private int insertAt = -1;
+
+        // Runs an expansion: the steps it adds go right after the running step, in the order added.
+        internal void ExpandCurrent(Action<TaskSequence> addSteps)
+        {
+            insertAt = CurrentStep + 1;
+            try { addSteps(this); }
+            finally { insertAt = -1; }
+        }
+
         private TaskSequence Add(TaskStep step)
         {
+            if (insertAt >= 0) { steps.Insert(insertAt++, step); return this; }
             if (CurrentStep >= 0) throw new InvalidOperationException($"Task '{Name}' already started: no more steps.");
             steps.Add(step);
             return this;
@@ -118,6 +158,8 @@ namespace SimuLean.Resources
         public Action Action { get; internal set; }
         public ElementState? HoldState { get; internal set; }
         public Func<bool> Ready { get; internal set; }
+        /// <summary>Adds steps after this one when it is reached (<see cref="TaskSequence.Expand"/>).</summary>
+        public Action<TaskSequence> Expansion { get; internal set; }
 
         public override string ToString() => Kind + (Node != null ? " → " + Node : "") + (Item != null ? " " + Item.GetId() : "");
     }

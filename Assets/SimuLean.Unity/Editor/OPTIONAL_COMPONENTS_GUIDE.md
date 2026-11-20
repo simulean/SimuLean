@@ -5,7 +5,7 @@
 All SElement editors now include quick-access buttons to add optional components for enhanced functionality:
 
 - **Stats Display**: Shows live statistics during Play mode
-- **Element Labels**: Adds configurable key-value pairs for expressions
+- **Element Properties**: Adds the element's properties (numbers, texts, references) that expressions read
 
 ## Features
 
@@ -30,7 +30,7 @@ The optional components section appears at the bottom of any SElement custom edi
 1. Select the GameObject with an SElement component
 2. Scroll to the bottom of the Inspector
 3. See the **Optional Components** section
-4. Click `+ Add Stats Display` or `+ Add Element Labels` as needed
+4. Click `+ Add Stats Display` or `+ Add properties` as needed
 
 ### Stats Display Component
 
@@ -40,9 +40,9 @@ Shows during Play mode:
 - **Content**: Current and Peak
 - **Stay Time**: Average, Min, Max per item
 
-### Element Labels Component
+### Element Properties Component
 
-Allows you to define key-value pairs that can be used in:
+Defines the element's properties (name and a number, a text or a reference; an item has labels, an element properties), read in:
 - Expression-based delays
 - Custom strategies
 - Conditional logic
@@ -50,7 +50,7 @@ Allows you to define key-value pairs that can be used in:
 
 Example labels:
 - `efficiency`: 0.95
-- `setupTime`: 10.0
+- `setup.time`: 10.0
 - `capacity`: 100.0
 
 ## Implementation Details
@@ -103,9 +103,9 @@ public class YourSElementEditor : UnityEditor.Editor
 ## Related Components
 
 - `SElementStatsDisplay.cs` - Statistics display component
-- `SElementLabels.cs` - Labels management component
+- `SElementProperties.cs` - Labels management component
 - `SElementStatsDisplayEditor.cs` - Custom editor for stats
-- `SElementLabelsEditor.cs` - Custom editor for labels
+- `SElementPropertiesEditor.cs` - Custom editor for labels
 
 ---
 

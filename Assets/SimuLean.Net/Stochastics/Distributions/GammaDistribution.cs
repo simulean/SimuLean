@@ -72,8 +72,7 @@ namespace SimuLean.Stochastics.Distributions
             else
             {
                 // For alpha < 1 (Marsaglia & Tsang's boost): Gamma(alpha) = Gamma(alpha + 1) * U^(1/alpha). The draw must be
-                // of Gamma(alpha + 1): with Gamma(alpha) itself the mean was alpha^2/(alpha+1) and alpha < 1/3 gave NaN
-                //.
+                // of Gamma(alpha + 1): with Gamma(alpha) itself the mean was alpha^2/(alpha+1) and alpha < 1/3 gave NaN.
                 double u = randomEngine.NextDouble();
                 return SampleMarsagliaTsang(shape + 1.0) * Math.Pow(u, 1.0 / shape) * scale;
             }

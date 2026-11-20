@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using NUnit.Framework;
 using SimuLean.Results;
@@ -18,19 +17,10 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void SceneRunsHeadlessOnWorkerAndReportsElements()
         {
-            var active = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root, scene);
-                T Make<T>(string n) where T : Component
-                {
-                    var go = new GameObject(n);
-                    go.transform.SetParent(root.transform);
-                    return go.AddComponent<T>();
-                }
+                var root = test.Root;
+                T Make<T>(string n) where T : Component => test.Make<T>(n);
 
                 var src = Make<UnitySource>("Src");
                 src.mode = SourceMode.InterArrival;
@@ -48,8 +38,7 @@ namespace SimuLean.Unity.Editor.Tests
                 cfg.Seed = 7;
 
                 var run = HeadlessSceneRun.Start(cfg, seriesInterval: 100);
-                var wait = Stopwatch.StartNew();
-                while (run.IsRunning && wait.Elapsed.TotalSeconds < 30) System.Threading.Thread.Sleep(10);
+                Assert.IsTrue(run.Completion.Wait(System.TimeSpan.FromSeconds(30)), "the run ends within 30 s");
 
                 Assert.AreEqual(HeadlessSceneRun.RunState.Finished, run.State, run.Error?.ToString());
                 Assert.AreEqual(1000, run.SimTime, 1e-9, "clock left at max time");
@@ -68,11 +57,6 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.AreEqual(10, sinkIn.Times.Count, "a point every 100 over the progress slices");
                 Assert.AreEqual(sinkStats[ResultMetrics.Input], sinkIn.Values.Sum(), 1e-9, "the series add up to the run");
                 Assert.AreSame(run.ResultSet, ResultsOutput.Last, "the run is the last results (Results tab)");
-            }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
             }
         }
     }

@@ -8,7 +8,7 @@ using Object = UnityEngine.Object;
 namespace SimuLean.Unity.Editor.Tests
 {
     /// <summary>
-    /// A <see cref="UnityReaction"/> is extracted (its elements by id, a plain number as a catalog
+    /// Reactions in the scene: a <see cref="UnityReaction"/> is extracted (its elements by id, a plain number as a catalog
     /// number, an expression as an expression), built and bound by a scene run, shown in the Play inspector panel, listed
     /// by the element inspector's section, which also creates new ones; its sentence reads as what it does.
     /// </summary>
@@ -49,14 +49,42 @@ namespace SimuLean.Unity.Editor.Tests
                 var rc = x.Config.Reactions.Single();
                 Assert.AreEqual("Count entries", rc.Id);
                 Assert.AreEqual(x.ElementIds[queue], rc.Sources.Single(), "the source by its element id");
-                Assert.AreEqual("element.seen + 1", rc.Parameters["a1.expression"], "an expression stays an expression");
-                Assert.AreEqual(x.ElementIds[src], rc.Parameters["a2.target"], "an action's element by its id");
-                Assert.AreEqual(0.5, rc.Parameters["a2.duration"]);
-                Assert.AreEqual(true, rc.Parameters["enabled"]);
+                Assert.AreEqual("element.seen + 1", rc.Settings.Actions[0].Value, "an expression stays an expression");
+                Assert.AreEqual(x.ElementIds[src], rc.Settings.Actions[1].Target, "an action's element by its id");
+                Assert.AreEqual(0.5, rc.Settings.Actions[1].Duration);
+                Assert.AreEqual(true, rc.Settings.ReactionEnabled);
                 r.actions[0].value = "3";
-                Assert.AreEqual(3.0, SceneExtractor.Extract(root).Config.Reactions[0].Parameters["a1.number"], "a plain number is a number (a catalog parameter)");
-                CollectionAssert.AreEquivalent(new[] { "enabled", "a1.number", "a2.duration" },
+                Assert.AreEqual("3", SceneExtractor.Extract(root).Config.Reactions[0].Get<string>("actions[0].value"), "a plain number (a catalog parameter)");
+                CollectionAssert.AreEquivalent(new[] { "reactionEnabled", "actions[0].value", "actions[1].duration" },
                     SimuLean.Optimization.ModelParameterCatalog.ForReaction(SceneExtractor.Extract(root).Config.Reactions[0]).Select(p => p.Key).ToArray());
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        [Test]
+        public void ALookActionIsExtractedAsItsColourAndScaleAndIsNoParameter()
+        {
+            var root = new GameObject("Model") { hideFlags = HideFlags.HideAndDontSave };
+            try
+            {
+                var (r, _, _) = Build(root);
+                r.actions.Add(new UnityReaction.ActionSpec { kind = ReactionActionKind.SetItemLook, color = new Color(1f, 128f / 255f, 0f), scale = 2, name = "left over", value = "7" });
+                r.actions.Add(new UnityReaction.ActionSpec { kind = ReactionActionKind.SetItemLook, scale = 0.5f });
+                var rc = SceneExtractor.Extract(root).Config.Reactions.Single();
+                var look = rc.Settings.Actions[2];
+                Assert.AreEqual("#FF8000", look.Color);
+                Assert.AreEqual(2.0, look.Scale);
+                Assert.IsNull(look.Value, "a look has no value (a leftover is not exported)");
+                Assert.IsNull(rc.Settings.Actions[3].Color, "colour off: kept");
+                Assert.AreEqual("#FF8000", rc.Get<string>("actions[2].color"), "its path");
+                CollectionAssert.AreEquivalent(new[] { "reactionEnabled", "actions[1].duration" },
+                    SimuLean.Optimization.ModelParameterCatalog.ForReaction(rc).Select(p => p.Key).ToArray(), "a look is view only: no parameter");
+                StringAssert.EndsWith("item look #FF8000 ×2; item look ×0.5", UnityReactionEditor.Sentence(r));
+
+                var clock = new SimClock(1);
+                var factory = SceneModelBuilder.Build(clock, new List<SElement>(), root);
+                Assert.AreEqual(SimuLean.Signals.ReactionActionKind.SetItemLook, r.Bound.Actions[2].Kind, "built");
+                Assert.AreEqual("#FF8000 ×2", r.Bound.Actions[2].Look.ToString());
             }
             finally { Object.DestroyImmediate(root); }
         }
@@ -106,10 +134,10 @@ namespace SimuLean.Unity.Editor.Tests
                 var x = SceneExtractor.Extract(root);
                 var rc = x.Config.Reactions.Single(c => c.Id == "Night shift");
                 Assert.IsEmpty(rc.Sources, "a clock signal exports no element");
-                Assert.AreEqual(3600.0, rc.Parameters["period"]);
-                Assert.IsFalse(rc.Parameters.ContainsKey("first"), "no first time: one period after the start");
-                Assert.AreEqual(x.TeamIds[team], rc.Parameters["a1.team"], "the team by its id");
-                Assert.AreEqual(2.0, rc.Parameters["a1.count"]);
+                Assert.AreEqual(3600.0, rc.Settings.Period);
+                Assert.IsFalse(rc.Has("firstTime"), "no first time: one period after the start");
+                Assert.AreEqual(x.TeamIds[team], rc.Settings.Actions[0].Team, "the team by its id");
+                Assert.AreEqual(2, rc.Settings.Actions[0].Count);
                 StringAssert.StartsWith("Every 3600 → stop 2 of Operators", UnityReactionEditor.Sentence(shift));
                 CollectionAssert.Contains(ReactionsSection.Of(team), shift, "the team lists it");
                 CollectionAssert.DoesNotContain(ReactionsSection.Of(queue), shift, "a clock reaction's leftover element does not count");

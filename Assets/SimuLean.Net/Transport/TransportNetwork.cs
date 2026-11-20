@@ -28,7 +28,7 @@ namespace SimuLean.Transport
         private readonly Dictionary<string, List<Adjacency>> adjacency
             = new Dictionary<string, List<Adjacency>>();
 
-        // routes by (from, to, allowed track types): a tuple key, no string built per lookup (review2 #16)
+        // routes by (from, to, allowed track types): a tuple key, no string built per lookup
         private readonly Dictionary<(string, string, string), RouteResult> routeCache
             = new Dictionary<(string, string, string), RouteResult>();
 
@@ -206,7 +206,7 @@ namespace SimuLean.Transport
             // Networks are editor-authored (tens to low hundreds of nodes);
             // a simple O(V^2) scan with deterministic tie-breaks is plenty and
             // avoids priority-queue nondeterminism.
-            var sortedIds = SortedNodeIds();   // once per search, not once per settled node (review2 #16)
+            var sortedIds = SortedNodeIds();   // once per search, not once per settled node
             var dist = new Dictionary<string, double>();
             var prev = new Dictionary<string, string>();
             var visited = new HashSet<string>();

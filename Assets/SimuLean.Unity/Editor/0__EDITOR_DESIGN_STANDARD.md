@@ -113,7 +113,7 @@ Queue Length:     3
 Quick access to add optional components.
 
 ```
-+ Add Stats Display    + Add Element Labels
++ Add Stats Display    + Add properties
 Stats Display shows live statistics during Play mode
 ```
 

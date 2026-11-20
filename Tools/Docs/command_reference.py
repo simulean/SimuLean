@@ -18,9 +18,9 @@ OUT = os.path.join(ROOT, 'docs', 'agents', 'commands.md')
 
 # the order of the reference: by area, then as listed
 AREAS = [
-    ('Describing the model', ['simulean_types', 'simulean_params', 'simulean_model', 'simulean_validate']),
+    ('Describing the model', ['simulean_types', 'simulean_params', 'simulean_model', 'simulean_validate', 'simulean_vocabulary']),
     ('Building', ['simulean_add_element', 'simulean_set', 'simulean_connect', 'simulean_disconnect', 'simulean_add_team',
-                  'simulean_load_table', 'simulean_place_model', 'simulean_remove', 'simulean_rename']),
+                  'simulean_load_table', 'simulean_place_model', 'simulean_remove', 'simulean_rename', 'simulean_move']),
     ('Building in bulk', ['simulean_apply', 'simulean_repeat', 'simulean_invoke']),
     ('Running and studying', ['simulean_run_headless', 'simulean_run_start', 'simulean_run_status', 'simulean_diagnose']),
     ('Optimising', ['simulean_optimize_start', 'simulean_optimize_status']),
@@ -112,8 +112,26 @@ def balanced(text, start):
     raise ValueError('unbalanced')
 
 
+def constants():
+    """The string constants of the command sources (an argument's text may name one: DetailHelp)."""
+    found = {}
+    for name in sorted(os.listdir(SOURCES)):
+        if not name.endswith('.cs'): continue
+        text = io.open(os.path.join(SOURCES, name), encoding='utf-8-sig').read()
+        for m in re.finditer(r'\bconst\s+string\s+(\w+)\s*=\s*((?:"(?:\\.|[^"\\])*"\s*\+?\s*)+);', text):
+            found[m.group(1)] = strings(m.group(2))
+    return found
+
+
+def text_of(expr, consts):
+    """A description expression: literals and named string constants joined by +."""
+    return ''.join(consts.get(part.strip(), '') if re.fullmatch(r'\s*\w+\s*', part) else strings(part)
+                   for part in split_top(expr, '+'))
+
+
 def commands():
     found = {}
+    consts = constants()
     for name in sorted(os.listdir(SOURCES)):
         if not name.endswith('.cs'): continue
         text = io.open(os.path.join(SOURCES, name), encoding='utf-8-sig').read()
@@ -137,7 +155,7 @@ def commands():
                     a_end = balanced(p, len('[CliArg'))
                     inner = split_top(p[len('[CliArg('):a_end - 1])
                     a_name = strings(inner[0])
-                    a_desc = strings(inner[1]) if len(inner) > 1 else ''
+                    a_desc = text_of(inner[1], consts) if len(inner) > 1 else ''
                     required = any(re.match(r'\s*Required\s*=\s*true', x) for x in inner[2:])
                     rest = p[a_end + 1:].strip()
                 decl = re.match(r'([\w<>\.\[\]]+)\s+@?(\w+)(?:\s*=\s*(.+))?$', rest, re.S)
@@ -146,8 +164,10 @@ def commands():
                 if default is not None:
                     default = default.strip()
                     if default.startswith('"'): default = '"' + strings(default) + '"'
+                # a default named NoValue marks an argument the command requires itself (simulean_set's value: the MCP
+                # server refuses an empty required argument, and "" is a value there)
                 params.append({'name': a_name or cname, 'type': ctype.split('.')[-1], 'default': default,
-                               'required': required or default is None, 'desc': a_desc})
+                               'required': required or default is None or default == 'NoValue', 'desc': a_desc})
             found[cmd] = {'desc': desc, 'params': params, 'file': name}
     return found
 

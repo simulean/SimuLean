@@ -11,6 +11,11 @@ namespace SimuLean.Resources
     public interface IDrivenTravel
     {
         void Begin(TaskExecutor executor, TravelLeg leg);
+
+        /// <summary>The executor's empty move was interrupted (preemption): it ends at the next node of its route — the end
+        /// of the segment it is on (then <see cref="TaskExecutor.Arrive"/>), or, when it waits at a node for the next
+        /// segment, there and now (returns true; the leg's <see cref="TravelLeg.To"/> is that node).</summary>
+        bool EndAtNextNode(TaskExecutor executor, TravelLeg leg);
     }
 
     /// <summary>
@@ -59,6 +64,18 @@ namespace SimuLean.Resources
         public int Occupancy(string a, string b) => segments.TryGetValue(Key(a, b), out var s) ? s.Holders.Count : 0;
 
         internal void Register(TrafficMover m) => movers.Add(m);
+
+        internal TrafficMover MoverOf(TaskExecutor executor, TravelLeg leg)
+        {
+            foreach (var m in movers) if (m.Moves(executor, leg)) return m;
+            return null;
+        }
+
+        // m stops waiting for the segment `key` (its move ends at the node where it waits).
+        internal void StopWaiting(string key, TrafficMover m)
+        {
+            if (key != null && segments.TryGetValue(key, out var s)) s.Waiting.Remove(m);
+        }
         internal void Unregister(TrafficMover m) => movers.Remove(m);
 
         /// <summary>Moves in progress under this control.</summary>
@@ -143,6 +160,12 @@ namespace SimuLean.Resources
             Traffic.Register(m);
             m.Next();
         }
+
+        public bool EndAtNextNode(TaskExecutor executor, TravelLeg leg)
+        {
+            var m = Traffic.MoverOf(executor, leg);
+            return m != null && m.EndAtNextNode();
+        }
     }
 
     /// <summary>One vehicle's move under traffic control (segment by segment).</summary>
@@ -152,6 +175,7 @@ namespace SimuLean.Resources
         private readonly TaskExecutor executor;
         private readonly TravelLeg leg;
         private int index;              // segment being travelled / waited for: route[index] → route[index + 1]
+        private int endIndex = -1;      // ≥ 0: the move ends at route[endIndex] (an interrupted move, at its next node)
         private string holding;         // the segment it is on (or last left, at a node)
         private WorkHandle work;
         private double waitSince = double.NaN;
@@ -164,11 +188,34 @@ namespace SimuLean.Resources
             this.model = model; this.executor = executor; this.leg = leg;
         }
 
+        internal bool Moves(TaskExecutor ex, TravelLeg l) => !cancelled && executor == ex && leg == l;
+
+        // The move ends at the next node: the end of the segment it travels, or the node where it waits now (true).
+        internal bool EndAtNextNode()
+        {
+            var route = leg.Route;
+            if (route == null) return false;
+            if (WaitingFor != null)
+            {
+                model.Traffic.StopWaiting(WaitingFor, this);
+                WaitingFor = null;
+                model.Traffic.Leave(holding, this);
+                holding = null;
+                model.Traffic.Unregister(this);
+                cancelled = true;
+                leg.To = route[index];
+                return true;
+            }
+            endIndex = Math.Min(index + 1, route.Count - 1);
+            leg.To = route[endIndex];
+            return false;
+        }
+
         internal void Next()
         {
             if (cancelled) return;
             var route = leg.Route;
-            if (route == null || index >= route.Count - 1)
+            if (route == null || index >= route.Count - 1 || (endIndex >= 0 && index >= endIndex))
             {
                 model.Traffic.Leave(holding, this);
                 holding = null;

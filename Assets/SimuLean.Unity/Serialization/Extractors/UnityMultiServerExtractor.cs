@@ -6,24 +6,24 @@ using UnityEngine;
 namespace SimuLean.Serialization
 {
     /// <summary>Extraction (Unity scene → <see cref="ElementConfig"/>) for <c>UnityMultiServer</c>; the headless build side is
-    /// <c>UnityMultiServerHandler</c> in the engine.</summary>
+    /// <c>MultiServerHandler</c> in the engine.</summary>
     internal sealed class UnityMultiServerExtractor : ElementExtractorBase
     {
-        public override string TypeName => "UnityMultiServer";
+        public override string TypeName => "MultiServer";
 
         public override void ExtractParameters(SElement element, ElementConfig config)
         {
             if (!(element is UnityMultiServer multiServer)) return;
 
-            config.SetCapacity(multiServer.capacity);
-            if (multiServer.releaseMode != SimuLean.ReleaseMode.FIFO)   // FIFO = the default: configs unchanged
-            {
-                config.Parameters["releaseMode"] = multiServer.releaseMode.ToString();
-                config.Parameters["releaseScan"] = multiServer.releaseScan;
-            }
+            config.Set("capacity", multiServer.capacity);
+            // every option also at its default: a study can vary it from there
+            config.Set("offerOrder", multiServer.offerOrder.ToString());
+            config.Set("offerScan", multiServer.offerScan);
 
             if (multiServer.delayStrategy != null)
-                ExtractorHelpers.ExtractRandomProcessConfig(multiServer.delayStrategy, config, prefix: "delay");
+                ExtractorHelpers.ExtractRandomProcessConfig(multiServer.delayStrategy, config, "delayStrategy");
+            multiServer.setup?.Export(config);   // its setup (also the rule None); the crew's team in SceneExtractor
+            config.Set("reserveExit", multiServer.reserveExit);
 
         }
     }

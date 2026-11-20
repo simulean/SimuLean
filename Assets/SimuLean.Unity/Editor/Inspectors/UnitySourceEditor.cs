@@ -16,23 +16,42 @@ namespace SimuLean.Unity.Editor
 
         private SourceMode Mode => (SourceMode)Prop("mode").enumValueIndex;
 
+        protected override string[] DrawnFields => new[]
+        {
+            "mode", "interArrivalDistribution", "ratePeriods", "dataTable", "tableSource", "tableDatabase", "demandFactor", "arrivalsOnStop", "createLabels",
+            "itemPrefab", "sizeFromModel", "itemPosition", "separation",
+        };
+
+        // the loaded copy of the schedule table (set by its Load button)
+        protected override string[] HiddenFields => new[] { "serializedData" };
+
         protected override void DrawParameters()
         {
             EditorGUILayout.PropertyField(Prop("mode"), new GUIContent("Mode",
-                "InterArrival: items arrive with a time between arrivals.\nSchedule: items arrive as listed in a table."));
+                "InterArrival: items arrive with a time between arrivals.\nSchedule: items arrive as listed in a table.\n" +
+                "RateTable: random arrivals (Poisson) at a rate that changes by period; rate 0 = none."));
             if (Mode == SourceMode.InterArrival)
                 EditorGUILayout.PropertyField(Prop("interArrivalDistribution"),
                     new GUIContent("Time between arrivals", "Constant 0 = items as fast as the next element takes them."));
+            else if (Mode == SourceMode.RateTable)
+            {
+                var source = (UnitySource)target;
+                if (source.dataTable == null && !source.ReadsTableSource)
+                    EditorGUILayout.PropertyField(Prop("ratePeriods"), new GUIContent("Rate periods", Prop("ratePeriods").tooltip), true);
+                if (source.ratePeriods == null || source.ratePeriods.Count == 0) DrawSchedule();
+            }
             else DrawSchedule();
             EditorGUILayout.PropertyField(Prop("demandFactor"), new GUIContent("Demand factor",
                 "1 = as given; 1.2 = 20 % more arrivals. A study parameter (demand scenarios)."));
-            EditorGUILayout.PropertyField(Prop("assignLabels"),
-                new GUIContent("Item labels", "Labels every created item gets (e.g. prio = 5)."), true);
+            EditorGUILayout.PropertyField(Prop("arrivalsOnStop"), new GUIContent("On stop", Prop("arrivalsOnStop").tooltip));
+            EditorGUILayout.PropertyField(Prop("createLabels"),
+                new GUIContent("Item labels", "Labels every created item gets, 'name = expression' (e.g. prio = 5, sku = 'A-07'; text in quotes)."), true);
         }
 
         protected override void DrawVisual()
         {
             EditorGUILayout.PropertyField(Prop("itemPrefab"), new GUIContent("Item prefab", "The visual of each created item."));
+            EditorGUILayout.PropertyField(Prop("sizeFromModel"), new GUIContent("Size from model", Prop("sizeFromModel").tooltip));
             EditorGUILayout.PropertyField(Prop("itemPosition"), new GUIContent("Item position", "Where items appear."));
             SimuLeanGUI.Field(Prop("separation"), new GUIContent("Item spacing", "Spacing of the items waiting to leave."));
         }
@@ -46,6 +65,9 @@ namespace SimuLean.Unity.Editor
                     issues.Add(new InspectorIssue(MessageType.Info, "The table is read from its table source when a run starts; load a preview copy to see it.",
                         "Load data", source.LoadDataInEditor));
             }
+            else if (Mode == SourceMode.RateTable && !source.ReadsDataTable && (source.ratePeriods == null || source.ratePeriods.Count == 0))
+                issues.Add(new InspectorIssue(MessageType.Warning, "RateTable mode: add the rate periods (start, rate), or choose a data table " +
+                    "with the columns Start and Rate (Parameters)."));
             else if (Mode == SourceMode.Schedule && !source.ReadsDataTable)
                 issues.Add(new InspectorIssue(MessageType.Warning, "Schedule mode: choose the data table with the arrivals (Parameters).",
                     "New data table", () => NewDataTable(source)));
@@ -62,7 +84,7 @@ namespace SimuLean.Unity.Editor
                 EditorGUILayout.PropertyField(Prop("tableDatabase"), new GUIContent("Database", "Empty = the project database (the Data tab)"));
             if (!source.ReadsTableSource)
             {
-                // The arrivals are a data table of the model
+                // the arrivals are a data table of the model
                 EditorGUILayout.BeginHorizontal();
                 EditorGUILayout.PropertyField(Prop("dataTable"), new GUIContent("Data table",
                     "The model's data table with the arrivals: one row per arrival (Time, Name, Q and label columns). Read when each run starts."));

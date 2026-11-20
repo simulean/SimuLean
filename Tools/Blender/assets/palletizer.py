@@ -14,7 +14,9 @@ Real-world reference: compact column (slewing-arm) palletizers for cases up to ~
 high, a lifting carriage with a horizontal arm, a case gripper; roller infeed, one pallet place on the floor.
 Library palette: graphite base and frames, orange column and arm, yellow floor marking.
 
-Frame as the other assets: authored front = -Y (Unity +Z: the operator's side, with the cabinet), +Z up (Unity
+Frame as the other stations: authored front = -Y (the operator's side, with the cabinet), exported turned 180 deg (station_parts.STATION_TURN) to
+the library's model frame -- front on Unity -Z, flow along Unity +X; the Unity coordinates quoted below are
+the authored ones (x and z change sign in the export) --, +Z up (Unity
 +Y), flow along +X (cases in from -X, pallet place at +X), origin on the floor at the column axis.
 
 Animation hierarchy (Unity names; every name is a bare Transform with <name>_LOD0/1/2 meshes under it):
@@ -202,4 +204,4 @@ def build_preview():
 
 
 if __name__ == '__main__':
-    SP.station_main('Palletizer', build_palletizer, LOD_PLAN, NODES, TEXEL_WEIGHTS)
+    SP.station_main('Palletizer', build_palletizer, LOD_PLAN, NODES, TEXEL_WEIGHTS, turn=SP.STATION_TURN)

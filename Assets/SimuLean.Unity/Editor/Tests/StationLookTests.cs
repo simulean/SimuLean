@@ -9,7 +9,7 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void TheOwnModelFollowsTheLookAfterAReloadAndAQueueKeepsItsPadSetting()
         {
-            // review2 #14 / #34: the "hidden by the look" flag was not saved (after a reload, back to Model left the element
+            // the "hidden by the look" flag was not saved (after a reload, back to Model left the element
             // invisible), and a queue's showFootprint and the look both set the same renderers
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             try
@@ -87,6 +87,30 @@ namespace SimuLean.Unity.Editor.Tests
                 var sm = go.AddComponent<StationModel>();
                 sm.ApplyLook();
                 Assert.IsFalse(own.enabled);
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        [Test]
+        public void ThePickingStationModelGivesTheToteSPlaceAndTheBins()
+        {
+            // the Picking Station's own model (a pick-to-light workstation) instead of a work table
+            var go = new GameObject("Pick");
+            try
+            {
+                var ps = go.AddComponent<UnityPickingStation>();
+                LibraryPresets.AddModel(go, ("PickingStation", "PickingStation/PickingStation.fbx"));
+                Assert.IsNotNull(ps.itemPosition, "the container's place is bound to the model's WorkSocket");
+                Assert.AreEqual("WorkSocket", ps.itemPosition.name);
+                Assert.Less(ps.WorkPoint().z, 0f, "the tote's place is on the worktop, in front (-Z) of the bins");
+                var bins = ps.Bins();
+                Assert.AreEqual(12, bins.Count, "3 levels x 4 bins");
+                foreach (var b in bins)
+                {
+                    Assert.Greater(b.position.z, 0f, "the bins are behind the worktop (+Z)");
+                    Assert.Greater(b.position.y, ps.WorkPoint().y, "and above it");
+                }
+                Assert.Less(bins[0].position.x, bins[3].position.x, "left to right as seen from the front");
             }
             finally { Object.DestroyImmediate(go); }
         }

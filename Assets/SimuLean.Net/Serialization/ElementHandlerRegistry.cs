@@ -26,29 +26,35 @@ namespace SimuLean.Serialization
         {
             var r = new ElementHandlerRegistry();
 
-            r.Register(new UnitySourceHandler());
+            r.Register(new SourceHandler());
 
-            r.Register(new UnityQueueHandler());
-            r.Register(new UnityLengthLimitedQueueHandler());
-            r.Register(new UnityStackerHandler());
-            r.Register(new UnityGateQueueHandler());
-            r.Register(new UnityMultiServerHandler());
-            r.Register(new UnityDelayHandler());
-            r.Register(new UnityAgendaHandler());
-            r.Register(new UnityCombinerHandler());
-            r.Register(new UnitySinkHandler());
+            r.Register(new QueueHandler());
+            r.Register(new LengthLimitedQueueHandler());
+            r.Register(new StackerHandler());
+            r.Register(new MultiServerHandler());
+            r.Register(new DelayHandler());
+            r.Register(new AgendaHandler());
+            r.Register(new CombinerHandler());
+            r.Register(new SinkHandler());
+            r.Register(new SeparatorHandler());
+            r.Register(new LineSideUnpackerHandler());
+            r.Register(new PickFaceHandler());   // Warehousing pack
+            r.Register(new BaseStockReplenisherHandler());
+            r.Register(new MilkRunHandler());
+            r.Register(new CallOffPointHandler());   // line supply (Manufacturing pack)
+            r.Register(new PacedLineHandler());
+            r.Register(new SequencingStationHandler());
 
-            // Transport & storage subsystems (P4/S5)
-            var storage = new UnityStorageSystemHandler();
+            // Transport & storage subsystems
+            var storage = new StorageSystemHandler();
             r.Register(storage);
-            r.RegisterAlias("UnityStorageRack", storage);   // parametric rack/floor subclass
 
-            // Kitting / assembly stations (Task 0-D)
-            r.Register(new UnityPickingStationHandler());
-            r.Register(new UnityAssemblyStationHandler());
+            // Kitting / assembly stations
+            r.Register(new PickingStationHandler());
+            r.Register(new AssemblyStationHandler());
 
-            // Naval library (N2)
-            r.Register(new UnityErectionDockHandler());
+            // Naval library
+            r.Register(new ErectionDockHandler());
 
             return r;
         }

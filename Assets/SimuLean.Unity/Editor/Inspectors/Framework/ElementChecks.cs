@@ -21,8 +21,24 @@ namespace SimuLean.Unity.Editor
                 issues.Add(new InspectorIssue(MessageType.Error, "Receive From is a list, but no list is chosen (Flow)."));
             if (checkFed && el.HasInput && el.receiveFrom == SElement.ReceiveMode.Connections && !Fed(el))
                 issues.Add(new InspectorIssue(MessageType.Info, "Nothing sends items to it yet.", "Connect…", connect));
-            if (el.transportBy != null && el.transportBy.team != null && el.location == null)
+            if (el.transportBy != null && el.transportBy.IsUsed && el.location == null)
                 issues.Add(new InspectorIssue(MessageType.Error, "Its items are carried by a team, so it needs a Location node (Resources)."));
+            // Reroute only for a Multi-Server's process; Before The Part only on the Multi-Server (the build refuses them elsewhere):
+            // flagged with a fix rather than hidden, so a value set through the MCP is seen
+            bool multiServer = el is UnityMultiServer;
+            if (el is IProcessResourceUser && el.processBy != null && el.processBy.IsUsed)
+            {
+                var use = el.processBy;
+                if (!multiServer && use.onTimeout == SimuLean.TimeoutAction.Reroute)
+                    issues.Add(new InspectorIssue(MessageType.Error, "On Timeout = Reroute is for a Multi-Server's process only.", "Give Up",
+                        () => { UnityEditor.Undo.RecordObject(el, "On Timeout"); use.onTimeout = SimuLean.TimeoutAction.GiveUp; EditorUtility.SetDirty(el); }));
+                if (!multiServer && use.acquireBeforeEntry)
+                    issues.Add(new InspectorIssue(MessageType.Error, "Before The Part is for the Multi-Server only.", "Switch off",
+                        () => { UnityEditor.Undo.RecordObject(el, "Before The Part"); use.acquireBeforeEntry = false; EditorUtility.SetDirty(el); }));
+            }
+            if (el is ISetupUser su && su.Setup?.setupBy != null && su.Setup.setupBy.onTimeout == SimuLean.TimeoutAction.Reroute)
+                issues.Add(new InspectorIssue(MessageType.Error, "A setup crew's On Timeout cannot be Reroute (Keep Waiting or Give Up).", "Give Up",
+                    () => { UnityEditor.Undo.RecordObject(el, "On Timeout"); su.Setup.setupBy.onTimeout = SimuLean.TimeoutAction.GiveUp; EditorUtility.SetDirty(el); }));
         }
 
         /// <summary>The number of warnings and errors of an element (infos not counted).</summary>

@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: Choice logic demo
+  description: 'The choice logic in one small line: orders routed to the cell of their family by a BestScore expression, a flex cell opened and closed by a reaction (its admission condition wakes up by itself), a pack queue that serves the highest priority first and routes by a choice rule, and items coloured by family.'
+  author: SimuLean
+  scenePath: Assets/Scenes/ChoiceLogicDemo.unity
+  copiedFrom: 
+  created: 2026-11-07 12:00:00
+  modified: 2026-11-07 12:00:00
+  represents: 'Orders (exponential, mean 75 s) get the labels family = 1 / 2 / 3 (weights 4 / 4 / 2) and prio = 1 / 2 / 3 (weights 5 / 3 / 2); the reaction Colour By Family paints them on leaving Orders (family 1 blue, 2 orange, 3 green; prio 3 drawn 1.5 times larger: view only). Router (Queue) sends each to Cell A / Cell B / Flex Cell by BestScore: scoreExpression = (out.family == item.family ? 10 : 0) - out.content over the cells'' property family (1, 2, 3); whenBestFull Skip, so a busy own cell sends the order to another one with room. The cells process triangular 120 / 150 / 210 s. Flex Cell admits only while element.open == 1; the reaction Flex Cell Shift flips its property open every 1800 s (Set Element Property), and the orders it refused are offered again at once (admission wake-up, no Retry needed). Pack Queue serves prio desc, age (offerSort) and routes by the choice rule ShortestQueueRule with FreeWeight 0.5 to Packer 1 (1 slot, 140 s) / Packer 2 (2 slots, 270 s) -> Shipped.'
+  kpis: 'out=Shipped.input; routerWait=Router.stay_avg; packWait=Pack Queue.stay_avg; flex=Flex Cell.input; p1=Packer 1.input, p2=Packer 2.input; shifts=reaction:Flex Cell Shift.fired. Seeds 1..3, 28800 s: about 370 shipped, Router wait about 156 s, Pack Queue wait about 128 s (at most 9 waiting), Flex Cell about 68 orders, the packers about 182 / 190.'
+  parameters: Router.outputStrategy.strategyType (BestScore / FirstAvailable), Router.outputStrategy.whenBestFull (Skip / Wait), Pack Queue.rule.FreeWeight (0..2; 0 = BestScore -out.content), Pack Queue.outputStrategy.strategyType (Rule / FirstAvailable), reaction:Flex Cell Shift.reactionEnabled, reaction:Flex Cell Shift.period (1800), Orders.interArrivalDistribution.exponentialRate (0.0133).
+  assumptions: 'A feature demo, not a real system: time unit s, horizon 28800 s (8 h), fixed seed 1, no warm-up. Illustrative times. ShortestQueueRule is an example rule of SimuLean.UserLogic; its parameter is set away from its initial value so validate does not ask for the declarative form.'

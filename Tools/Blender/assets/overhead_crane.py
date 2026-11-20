@@ -1,5 +1,5 @@
 """
-SimuLean kit: single-girder overhead travelling crane (EOT, "grua puente") on
+SimuLean kit: single-girder overhead travelling crane (EOT) on
 steel runway beams.  10 t class, modular: the runway and the girder tile, the
 end trucks and the trolley/hoist keep their aspect ratio.
 

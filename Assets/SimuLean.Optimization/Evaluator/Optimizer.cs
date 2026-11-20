@@ -29,6 +29,7 @@ namespace SimuLean.Optimization.Evaluator
         [SerializeField] private List<MetricSpec> metrics = new List<MetricSpec>();
 
         [Tooltip("Maximised. An expression over the metric names, e.g. throughput - 50 * operators (negate to minimise: -wip).")]
+        [SimuLean.Unity.SimuLeanExpression("fitness")]
         [SerializeField] private string fitness = "throughput";
 
         [SerializeReference] private AlgorithmSettings algorithm = new GeneticAlgorithmSettings();
@@ -43,13 +44,13 @@ namespace SimuLean.Optimization.Evaluator
         [Min(0)] [SerializeField] private int maxEvaluations = 0;
         [Tooltip("Stop after this many seconds (0 = no limit).")]
         [Min(0)] [SerializeField] private float maxSeconds = 0;
-        [Tooltip("Candidates simulated at once (0 = one per processor up to 8).")]
+        [Tooltip("Candidates simulated at once (0 = half the logical processors, 1 to 16).")]
         [Min(0)] [SerializeField] private int threads = 0;
         [Tooltip("Formats the results are exported to when the run completes (the results folder of the project settings; SQLite: the project database): the best solution re-run for every replication, the history. Nothing = no file (the SimuLean window's Results tab still shows them).")]
         [SerializeField] private ResultFormats exportFormats = ResultFormats.Excel;
         [Tooltip("Interval of the time series recorded in the best solution's re-run (content, throughput, states per interval). 0 = none.")]
         [Min(0)] [SerializeField] private double seriesInterval = 0;
-        [Tooltip("Keep every state interval of elements and resources (the Gantt charts; G3c). Off by default: the results grow with every state change. (the best solution's re-run)")]
+        [Tooltip("Keep every state interval of elements and resources (the Gantt charts). Off by default: the results grow with every state change. (the best solution's re-run)")]
         [SerializeField] private bool recordTimeline = false;
 
         // results: in memory only (shown by the inspector, written to the report) — never saved with the scene
@@ -111,14 +112,26 @@ namespace SimuLean.Optimization.Evaluator
             public string Fitness;
             public double SeriesInterval;
             public bool RecordTimeline;
+            /// <summary>Where the candidates run (decided on the main thread, <see cref="ExternalRunner.Prepare()"/>):
+            /// with a runner, each generation is one batch outside the editor (<see cref="BatchedObjective"/>: the same
+            /// search); null or no runner = in the editor.</summary>
+            public ExternalRunner.Executor Executor;
 
             /// <summary>Runs the search and re-runs the best candidate for every replication (the result set; null with the
             /// error when it could not be built). Off the main thread: it never touches Unity.</summary>
             public (OptimizationResult result, ResultSet set, string setError) Run(Action<OptimizationProgress> progress, CancellationToken token)
             {
                 DateTime start = DateTime.Now;
-                var r = OptimizationEngine.Run(Space, Objective, Algorithm.Create(), Settings, progress, token);
-                try { return (r, BuildResultSet(r, Objective, Fitness, Algorithm.Describe(), start, SeriesInterval, RecordTimeline), null); }
+                IObjective objective = Executor?.RunnerPath != null
+                    ? new BatchedObjective(Objective, (batch, t) => Executor.Run(batch, t))
+                    : (IObjective)Objective;
+                var r = OptimizationEngine.Run(Space, objective, Algorithm.Create(), Settings, progress, token);
+                try
+                {
+                    var set = BuildResultSet(r, Objective, Fitness, Algorithm.Describe(), start, SeriesInterval, RecordTimeline);
+                    set.Metadata.Add(new KeyValuePair<string, string>("ran_in", Executor?.RunnerPath != null ? Executor.Description : "editor"));
+                    return (r, set, null);
+                }
                 catch (Exception e) { return (r, null, e.Message); }
             }
         }
@@ -137,6 +150,7 @@ namespace SimuLean.Optimization.Evaluator
                     MaxEvaluations = maxEvaluations, MaxSeconds = maxSeconds, Seed = seed,
                     Parallelism = threads > 0 ? threads : Study.DefaultThreads,
                 },
+                Executor = ExternalRunner.Prepare(),
             };
         }
 

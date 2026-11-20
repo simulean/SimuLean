@@ -6,40 +6,50 @@ using UnityEngine;
 namespace SimuLean.Serialization
 {
     /// <summary>Extraction (Unity scene → <see cref="ElementConfig"/>) for <c>UnityStorageSystem</c>; the headless build side is
-    /// <c>UnityStorageSystemHandler</c> in the engine.</summary>
+    /// <c>StorageSystemHandler</c> in the engine.</summary>
     internal sealed class UnityStorageSystemExtractor : ElementExtractorBase
     {
-        public override string TypeName => "UnityStorageSystem";
+        public override string TypeName => "StorageSystem";
 
         public override void ExtractParameters(SElement element, ElementConfig config)
         {
             if (!(element is UnityStorageSystem uss)) return;
 
-            var laneRecords = new List<string>();
+            var s = config.SettingsAs<StorageSystemSettings>();
+            // lanes left from an older layout (a field changed in the inspector without Rebuild)
+            if (uss is UnityStorageRack rack && rack.LayoutMismatch() is string stale)
+                Debug.LogWarning($"[SimuLean] Storage rack '{rack.name}': {stale} — press Rebuild Storage Locations " +
+                                 $"(simulean_invoke object={rack.name} action=Rebuild), or set a layout field again with simulean_set.");
+            s.Lanes = new List<StorageLaneSettings>();
             foreach (UnityStorageSystem.ResolvedLane lane in uss.ResolveLanes())
-            {
-                laneRecords.Add(TransportStorageConfigCodec.FormatLane(
-                    lane.LaneId, lane.Position.x, lane.Position.y, lane.Position.z,
-                    lane.Capacity, lane.Access, lane.Sku, lane.NodeId));
-            }
-            config.Parameters[TransportStorageConfigCodec.KeyLanes] = laneRecords;
+                s.Lanes.Add(StorageLaneSettings.Of(lane.LaneId, lane.Position.x, lane.Position.y, lane.Position.z,
+                                                   lane.Capacity, lane.Access, lane.Sku, lane.NodeId,
+                                                   lane.SlotSize.x, lane.SlotSize.y, lane.SlotSize.z));
+            s.PhysicalDimensions = uss.physicalDimensions;
+            s.LengthLabel = uss.lengthLabel ?? "";
+            s.WidthLabel = uss.widthLabel ?? "";
+            s.HeightLabel = uss.heightLabel ?? "";
+            s.PutAwayByTransport = uss.putAwayByTransport;
+            s.InboundCapacity = Mathf.Max(1, uss.inboundCapacity);
+            s.ReleaseAfterDwell = uss.releaseAfterDwell;
+            s.MinimumDwellTime = Mathf.Max(0f, uss.minimumDwellTime);
 
-            config.Parameters["locationPolicyType"] = uss.locationPolicy.ToString();
+            s.LocationPolicy = uss.locationPolicy.ToString();
             if (uss.locationPolicy == StoragePolicyKind.DedicatedBySku)
-                config.Parameters["locationPolicy_skuMap"] = uss.GetDedicatedSkuPairs();
+                s.DedicatedSkuMappings = uss.GetDedicatedSkuPairs();
 
             StoragePolicyKind relocationKind;
             if (UnityStorageSystem.TryMapRelocation(uss.relocationPolicy, out relocationKind))
             {
-                config.Parameters["relocationPolicyType"] = relocationKind.ToString();
+                s.RelocationPolicy = relocationKind.ToString();
                 if (relocationKind == StoragePolicyKind.DedicatedBySku)
-                    config.Parameters["relocationPolicy_skuMap"] = uss.GetDedicatedSkuPairs();
+                    s.DedicatedSkuMappings = uss.GetDedicatedSkuPairs();
             }
 
             Transform reference = uss.referencePoint != null ? uss.referencePoint : uss.transform;
-            config.Parameters["refX"] = (double)reference.position.x;
-            config.Parameters["refY"] = (double)reference.position.y;
-            config.Parameters["refZ"] = (double)reference.position.z;
+            s.RefX = reference.position.x;
+            s.RefY = reference.position.y;
+            s.RefZ = reference.position.z;
         }
 
     }

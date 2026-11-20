@@ -18,14 +18,14 @@ namespace SimuLean.Unity
 
         /// <summary>
         /// Items take the queue's <c>Seat</c> nodes in hierarchy order (e.g. the library's waiting chairs): each stands
-        /// on the floor just in front of its seat, facing the queue's +Z (lay the seats out facing it); items beyond the
-        /// last seat fall back to the grid.
+        /// on the floor just in front of its seat, facing the queue's front, −Z (lay the seats out facing it; the model
+        /// frame); items beyond the last seat fall back to the grid.
         /// </summary>
         Seats,
 
         /// <summary>
-        /// A single file (a waiting line): the head at the item position, the others behind it along the queue's −Z,
-        /// all facing the head (+Z: turn the queue towards what it feeds). With a <c>lineLength</c> the line folds back
+        /// A single file (a waiting line): the head at the item position, the others behind it along the queue's −X,
+        /// all facing the head (the flow, +X: the model frame). With a <c>lineLength</c> the line folds back
         /// beside itself when it reaches that length (a serpentine, as at an airport desk) instead of growing further.
         /// </summary>
         Line
@@ -42,14 +42,56 @@ namespace SimuLean.Unity
         ItemsQueue theQueue;
 
         // ── Queue Configuration ────────────────────────────────────────────
-        public int capacity = 100;   // a buffer that holds one item surprised users (review2 #43)
+        public int capacity = 100;   // a buffer that holds one item surprises users
 
         [Tooltip("How the held items are offered downstream. FIFO: only the first (a refused first item holds the rest back). " +
                  "Any Accepted: each item, oldest first, until a receiver accepts one — the receiver chooses with its input " +
                  "strategy (e.g. a Combiner's pull mode: the sub-block of its own block).")]
-        public SimuLean.ReleaseMode releaseMode = SimuLean.ReleaseMode.FIFO;
-        [Tooltip("Any Accepted: items offered per attempt (0 = every held item).")]
-        [Min(0)] public int releaseScan = 0;
+        public SimuLean.OfferOrder offerOrder = SimuLean.OfferOrder.FIFO;
+        [Tooltip("The order the held items are offered in (empty = oldest first): order keys 'key [desc], key ...', each a label " +
+                 "or an expression over the item and the queue, e.g. 'priority desc, due' or 'item.prio * 10 + age desc'. FIFO " +
+                 "offers only the best item; Any Accepted offers them best first. Ties: the oldest.")]
+        public string offerSort = "";
+        [Tooltip("Instead of Offer by: a release rule's type name (a class implementing IReleaseRule in Assets/SimuLean.UserLogic) " +
+                 "that scores each held item; offered best first, ties by arrival.")]
+        public string offerRule = "";
+        [Tooltip("The release rule's parameters (its [RuleParameter] fields) and their values.")]
+        public System.Collections.Generic.List<RuleParameterValue> ruleParameters = new System.Collections.Generic.List<RuleParameterValue>();
+        [Tooltip("Any Accepted: items offered per attempt (0 = every held item). Group By Setup: the items looked through for " +
+                 "one the receiver is set up for, too.")]
+        [Min(0)] public int offerScan = 0;
+
+        [Tooltip("Offer first the items the receiving station is already set up for (a station with a setup on label change): " +
+                 "items of one type follow each other and the station avoids changeovers.")]
+        public bool groupBySetup = false;
+        [Tooltip("Group By Setup: the most items in a row that may leave ahead of the oldest one, then it goes first (so no item " +
+                 "waits for ever). 0 = no limit.")]
+        [Min(0)] public int groupLimit = 0;
+
+        [Tooltip("Reneging: the longest an item waits in the queue (a time, or an expression over the item and the queue " +
+                 "evaluated when it enters); empty or 0 = no limit.")]
+        [SimuLean.Unity.SimuLeanExpression("maxWait")]
+        public string maxWait = "";
+        [Tooltip("When an item's max wait is over (always counted as a timeout and signalled: WaitTimedOut). Keep Waiting: only " +
+                 "record it. Reroute / Give Up: the item leaves by the Timeout Target (a Sink = a lost customer); while the target " +
+                 "is full it keeps its place in the line. Needs plain Next Elements (not a list or a transport team).")]
+        public SimuLean.TimeoutAction onTimeout = SimuLean.TimeoutAction.KeepWaiting;
+        [Tooltip("Where items that waited too long go (Reroute / Give Up), e.g. a Sink for the lost ones. Not one of the Next " +
+                 "Elements: the normal routing never sends items there.")]
+        public SElement timeoutTarget;
+
+        [Tooltip("Items leave only when released: a reaction's Release action (orders every period, a kanban: one per item " +
+                 "leaving the station) or the Release button in Play. A release not used yet is kept for the next items.")]
+        public bool gated = false;
+
+        /// <summary>Released on command: lets <paramref name="quantity"/> more items go (Play mode).</summary>
+        public void ReleaseItems(int quantity)
+        {
+            if (theQueue != null && theQueue.Gated && quantity > 0) theQueue.ReleaseItems(quantity);
+        }
+
+        /// <summary>Releases not used yet (released on command).</summary>
+        public int PendingRelease => theQueue?.PendingRelease ?? 0;
 
 
 
@@ -74,15 +116,39 @@ namespace SimuLean.Unity
                  "footprint still sizes the grid.")]
         public bool showFootprint = true;
 
-        private void OnValidate() => ApplyFootprintVisibility();
+        private void OnValidate()
+        {
+            ApplyFootprintVisibility();
+#if UNITY_EDITOR
+            // a waiting line's floor marking follows its length when it is edited (visual only, after the change is applied)
+            UnityEditor.EditorApplication.delayCall += () => { if (this != null && !Application.isPlaying) FitLineMarking(); };
+#endif
+        }
         private void Awake() => ApplyFootprintVisibility();
+
+        /// <summary>Default length of a waiting line's floor marking when the line has no <see cref="lineLength"/> (m).</summary>
+        public const float DefaultMarkedLine = 4f;
+
+        /// <summary>Fits the queue's floor marking (a child <see cref="UnityLaneMarking"/>, the Waiting Line preset)
+        /// to its line: from a little ahead of the head (the item position) back along −X over <see cref="lineLength"/>
+        /// (else <see cref="DefaultMarkedLine"/>), the exit chevron at the head. Visual only.</summary>
+        public void FitLineMarking()
+        {
+            const float ahead = 0.4f;
+            var marking = GetComponentInChildren<UnityLaneMarking>(true);
+            if (marking == null) return;
+            float length = (lineLength > 0f ? lineLength : DefaultMarkedLine) + 2f * ahead;
+            marking.FitTo(length, 0f);
+            Vector3 head = itemPosition != null && itemPosition != transform ? transform.InverseTransformPoint(itemPosition.position) : Vector3.zero;
+            marking.transform.localPosition = new Vector3(head.x + ahead, marking.transform.localPosition.y, head.z);
+        }
 
         /// <summary>Shows or hides the pad per <see cref="showFootprint"/>: the renderers of this GameObject only, never the
         /// items or the children (chairs, decor).</summary>
         public void ApplyFootprintVisibility()
         {
             var sm = GetComponent<StationModel>();
-            bool show = sm != null ? StationModel.OwnModelShown(sm.look, gameObject) : showFootprint;   // one owner (review2 #34)
+            bool show = sm != null ? StationModel.OwnModelShown(sm.look, gameObject) : showFootprint;   // one owner
             foreach (var r in GetComponents<Renderer>())
                 if (r.enabled != show) r.enabled = show;
         }

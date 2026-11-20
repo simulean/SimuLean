@@ -95,7 +95,7 @@ namespace SimuLean.Unity.Editor.Tests
                 model.StartModel();
                 clock.AdvanceClock(300);
                 double expected = 0;
-                foreach (var e in model.GetAllElements().Values) if (e.GetName() == "Sink") expected = e.GetStatsInputCount();
+                foreach (var e in model.GetAllElements().Values) if (e.Name == "Sink") expected = e.GetStatsInputCount();
                 Assert.AreEqual(expected, results[3].Metrics["throughput"], "a run is the scene's model with the scenario's values and seed");
 
                 exp.Scenarios[1].parameterValues.Add("2");
@@ -103,7 +103,7 @@ namespace SimuLean.Unity.Editor.Tests
                 exp.Scenarios[1].parameterValues.RemoveAt(1);
 
                 // any kind of parameter: an option (the service-time distribution) by its name
-                exp.Parameters.Add(new ParameterSpec { name = "dist", target = ParameterTarget.Element, element = server, key = "delayStrategyType" });
+                exp.Parameters.Add(new ParameterSpec { name = "dist", target = ParameterTarget.Element, element = server, key = "delayStrategy.strategyType" });
                 exp.Scenarios[0].parameterValues.Add("Uniform");
                 exp.Scenarios[1].parameterValues.Add("Constant");
                 Assert.IsNull(exp.Validate());

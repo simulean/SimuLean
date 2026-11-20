@@ -13,127 +13,146 @@ namespace SimuLean.Serialization
     internal static class ElementBuildHelpers
     {
         /// <summary>
-        /// Builds an IRandomSampler from config parameters using the given prefix
-        /// (e.g. "delay" reads "delayStrategyType", "interArrival" reads "interArrivalStrategyType").
-        /// With a <paramref name="clock"/> the sampler gets its own random stream, keyed by
-        /// <paramref name="owner"/> (default: the element name) and <paramref name="purpose"/>
-        /// (default: the prefix) — see <see cref="SimContext.CreateRandomStream(string, string)"/>.
-        /// The Unity wrappers use the same keys, so scene and headless runs draw the same numbers.
+        /// A sampler from a flat sampler's settings (<see cref="SamplerSettings"/>: the distribution and its own fields; absent
+        /// fields take the distribution's defaults; null = the default Constant). <paramref name="prefix"/> is the setting's path
+        /// (<c>delayStrategy</c>, <c>interArrivalDistribution</c>), named in errors. With a <paramref name="clock"/> the sampler
+        /// gets its own random stream, keyed by <paramref name="owner"/> (default: the element name) and
+        /// <paramref name="purpose"/> (default: <see cref="StreamPurpose"/> of the prefix — <c>delay</c>, <c>interArrival</c>,
+        /// the names the sampler keys had, so seeded results are unchanged) — see <see cref="SimContext.CreateRandomStream(string, string)"/>.
         /// </summary>
-        public static IRandomSampler BuildRandomProcess(ElementConfig config, string prefix, SimClock clock = null,
+        public static IRandomSampler BuildRandomProcess(SamplerSettings settings, string element, string prefix, SimClock clock = null,
                                                         string owner = null, string purpose = null)
         {
-            IRandomSampler sampler = BuildRandomProcessCore(config, prefix);
+            IRandomSampler sampler = BuildRandomProcessCore(settings ?? new SamplerSettings(), element, prefix);
 
             // One stream per element and purpose, derived from the model seed and the stream key
             // (not from the creation order), so adding or removing elements leaves the others alone.
             if (clock != null)
-                clock.Context.AssignRandomStream(sampler, owner ?? config.Name,
-                                                 string.IsNullOrEmpty(purpose) ? prefix : purpose);
+                clock.Context.AssignRandomStream(sampler, owner ?? element,
+                                                 string.IsNullOrEmpty(purpose) ? StreamPurpose(prefix) : purpose);
 
             return sampler;
         }
 
-        private static IRandomSampler BuildRandomProcessCore(ElementConfig config, string prefix)
+        /// <summary>The sampler of a distribution setting (null = none: null), with its own stream keyed by
+        /// <paramref name="owner"/> (the element's name) and <paramref name="purpose"/>; <paramref name="path"/> names the
+        /// setting in errors.</summary>
+        public static IRandomSampler SamplerOf(SamplerSettings s, SimClock clock, string owner, string purpose, string path)
+            => s == null ? null : BuildRandomProcess(s, owner, path, clock, owner, purpose);
+
+        /// <summary>The stream purpose of a flat sampler (the name its keys had before they were renamed, which keys its stream).</summary>
+        public static string StreamPurpose(string prefix)
+            => prefix == "delayStrategy" ? "delay" : prefix == "interArrivalDistribution" ? "interArrival" : prefix;
+
+        /// <summary>The key of a flat sampler's field: <c>prefix.field</c> (the field alone without a prefix).</summary>
+        public static string SamplerKey(string prefix, string field) => string.IsNullOrEmpty(prefix) ? field : prefix + "." + field;
+
+        private static IRandomSampler BuildRandomProcessCore(SamplerSettings s, string owner, string prefix)
         {
-            string typeKey      = prefix + "StrategyType";
-            string strategyType = config.GetParameter<string>(typeKey, "Constant");
+            string typeKey      = SamplerKey(prefix, "strategyType");
+            string strategyType = string.IsNullOrEmpty(s.StrategyType) ? "Constant" : s.StrategyType;
 
             switch (strategyType)
             {
                 case "Constant":
                     return new ConstantRandomProcess(
-                        config.GetParameter<double>("constantValue", 5.0));
+                        s.ConstantValue ?? 5.0);
 
                 case "Uniform":
                     return new UniformDistribution(
-                        config.GetParameter<double>("uniformMin", 3.0),
-                        config.GetParameter<double>("uniformMax", 7.0));
+                        s.UniformMin ?? 3.0,
+                        s.UniformMax ?? 7.0);
 
                 case "Normal":
                     return new NormalDistribution(
-                        config.GetParameter<double>("normalMean",   5.0),
-                        config.GetParameter<double>("normalStdDev", 1.0),
+                        s.NormalMean ?? 5.0,
+                        s.NormalStdDev ?? 1.0,
                         clampNonNegative: true);
 
                 case "Exponential":
                     return new ExponentialDistribution(
-                        config.GetParameter<double>("exponentialRate", 0.2));
+                        s.ExponentialRate ?? 0.2);
+
+                case "ExponentialMean":   // the same distribution given by its mean (MTBF / MTTR data)
+                    return new ExponentialDistribution(
+                        1.0 / Math.Max(1e-12, s.ExponentialMean ?? 5.0));
 
                 case "Triangular":
                     return new TriangularDistribution(
-                        config.GetParameter<double>("triangularMin",  3.0),
-                        config.GetParameter<double>("triangularMode", 5.0),
-                        config.GetParameter<double>("triangularMax",  8.0));
+                        s.TriangularMin ?? 3.0,
+                        s.TriangularMode ?? 5.0,
+                        s.TriangularMax ?? 8.0);
 
                 case "Expression":
-                    return new SimuLean.Expressions.ExpressionSampler(
-                        config.GetParameter<string>("expression", "processingTime"));
+                {
+                    // no hidden default an empty text read the label processingTime, 0 when no item had it)
+                    string text = s.Expression ?? "";
+                    if (string.IsNullOrWhiteSpace(text))
+                        throw new FormatException($"Element '{owner}': its {(string.IsNullOrEmpty(prefix) ? "sampler" : prefix.TrimEnd('.'))} is an Expression with no expression text (write the time, e.g. item.weight * 2).");
+                    return new SimuLean.Expressions.ExpressionSampler(text, owner, string.IsNullOrEmpty(prefix) ? "sampler" : prefix.TrimEnd('.'));
+                }
 
                 case "Gamma":
                     return new GammaDistribution(
-                        config.GetParameter<double>("gammaShape", 2.0),
-                        config.GetParameter<double>("gammaScale", 2.5));
+                        s.GammaShape ?? 2.0,
+                        s.GammaScale ?? 2.5);
 
                 case "Weibull":
                     return new WeibullDistribution(
-                        config.GetParameter<double>("weibullShape", 1.5),
-                        config.GetParameter<double>("weibullScale", 5.0));
+                        s.WeibullShape ?? 1.5,
+                        s.WeibullScale ?? 5.0);
 
                 case "LogNormal":
                     return new LogNormalDistribution(
-                        config.GetParameter<double>("logNormalMu",    1.5),
-                        config.GetParameter<double>("logNormalSigma", 0.5));
+                        s.LogNormalMu ?? 1.5,
+                        s.LogNormalSigma ?? 0.5);
 
                 case "Beta":
                     return new BetaDistribution(
-                        config.GetParameter<double>("betaAlpha", 2.0),
-                        config.GetParameter<double>("betaBeta",  5.0),
-                        config.GetParameter<double>("betaMin",   0.0),
-                        config.GetParameter<double>("betaMax",   1.0));
+                        s.BetaAlpha ?? 2.0,
+                        s.BetaBeta ?? 5.0,
+                        s.BetaMin ?? 0.0,
+                        s.BetaMax ?? 1.0);
 
                 case "ChiSquare":
                     return new ChiSquareDistribution(
-                        config.GetParameter<int>("chiSquareDf", 5));
+                        s.ChiSquareDf ?? 5);
 
                 case "StudentT":
                     return new StudentTDistribution(
-                        config.GetParameter<int>("studentTDf",     10),
-                        config.GetParameter<bool>("studentTClamp", true));
+                        s.StudentTDf ?? 10,
+                        s.StudentTClamp ?? true);
 
                 case "FDistribution":
                     return new FDistribution(
-                        config.GetParameter<int>("fDistD1", 5),
-                        config.GetParameter<int>("fDistD2", 10));
+                        s.FDistD1 ?? 5,
+                        s.FDistD2 ?? 10);
 
                 case "Poisson":
                     return new PoissonDistribution(
-                        config.GetParameter<double>("poissonLambda", 3.0));
+                        s.PoissonLambda ?? 3.0);
 
                 case "Binomial":
                     return new BinomialDistribution(
-                        config.GetParameter<int>("binomialN",    10),
-                        config.GetParameter<double>("binomialP", 0.5));
+                        s.BinomialN ?? 10,
+                        s.BinomialP ?? 0.5);
 
                 case "DiscreteUniform":
                     return new IntegerUniformDistribution(
-                        config.GetParameter<int>("discreteUniformMin", 3),
-                        config.GetParameter<int>("discreteUniformMax", 7));
+                        s.DiscreteUniformMin ?? 3,
+                        s.DiscreteUniformMax ?? 7);
 
                 default:
                     // Fail loudly: a silent Constant(5) made a typo look like a valid model.
                     throw new FormatException($"Unknown random process '{strategyType}' for element " +
-                                              $"'{config.Name}' (parameter '{typeKey}').");
+                                              $"'{owner}' (parameter '{typeKey}').");
             }
         }
 
         public static IOutputStrategy BuildOutputStrategy(ElementConfig config)
         {
-            string typeStr = config.GetParameter<string>("outputStrategyType", "FirstAvailable");
-            if (!Enum.TryParse<HeadlessOutputStrategyType>(typeStr, out var strategyType))
-                strategyType = HeadlessOutputStrategyType.FirstAvailable;
-
-            switch (strategyType)
+            var o = config.Settings?.OutputStrategy ?? new OutputStrategySettings();
+            switch (BuilderChoices.Routing(o.StrategyType))
             {
                 case HeadlessOutputStrategyType.FirstAvailable:
                     return new FirstAvailableStrategy();
@@ -147,15 +166,31 @@ namespace SimuLean.Serialization
                     return new PriorityRoutingStrategy();
                 case HeadlessOutputStrategyType.Expression:
                 {
-                    string ex = config.GetParameter<string>("outputStrategy_expression", "");
-                    return string.IsNullOrWhiteSpace(ex) ? (IOutputStrategy)new FirstAvailableStrategy() : new ExpressionRoutingStrategy(ex);
+                    string ex = o.RoutingExpression ?? "";
+                    return string.IsNullOrWhiteSpace(ex) ? (IOutputStrategy)new FirstAvailableStrategy() : new ExpressionRoutingStrategy(ex, null, config.Name);
                 }
                 case HeadlessOutputStrategyType.Probability:
-                    return new ProbabilityRoutingStrategy(ParseNumberList(config.GetParameter<string>(OutputWeightsKey, ""), config.Name, OutputWeightsKey));
+                    return new ProbabilityRoutingStrategy(o.Weights ?? new double[0]);
+                case HeadlessOutputStrategyType.BestScore:
+                {
+                    string ex = o.ScoreExpression;
+                    if (string.IsNullOrWhiteSpace(ex))
+                        throw new FormatException($"Element '{config.Name}': a BestScore routing needs its outputStrategy.scoreExpression.");
+                    return o.WhenBestFull == BestScoreFull.Wait ? new BestScoreWaitRoutingStrategy(ex, config.Name) : new BestScoreRoutingStrategy(ex, config.Name);
+                }
+                case HeadlessOutputStrategyType.Rule:
+                {
+                    string owner = $"Element '{config.Name}'";
+                    if (string.IsNullOrWhiteSpace(o.Rule)) throw new FormatException($"{owner}: a Rule routing needs its outputStrategy.rule (the rule's type name).");
+                    var rule = (SimuLean.Rules.IRoutingRule)SimuLean.Rules.ChoiceRules.Create(o.Rule, SimuLean.Rules.RuleSite.Routing, config.Settings?.Rule,
+                                                                                              SimuLean.Rules.ChoiceRules.RulesOf(config.Settings), owner);
+                    return o.WhenBestFull == BestScoreFull.Wait ? new SimuLean.Rules.RuleWaitRoutingStrategy(rule, config.Name)
+                                                                : new SimuLean.Rules.RuleRoutingStrategy(rule, config.Name);
+                }
                 case HeadlessOutputStrategyType.Parameterized:
                 {
                     // Same as the scene (OutputStrategyConfig): no key -> FirstAvailable.
-                    string paramKey = config.GetParameter<string>("outputStrategy_paramKey", "");
+                    string paramKey = o.ParameterKey ?? "";
                     return string.IsNullOrEmpty(paramKey)
                         ? (IOutputStrategy)new FirstAvailableStrategy()
                         : new ParameterizedRoutingStrategy(paramKey);
@@ -167,58 +202,44 @@ namespace SimuLean.Serialization
 
         public static InputStrategy BuildInputStrategy(ElementConfig config)
         {
-            string typeStr = config.GetParameter<string>("inputStrategyType", "Default");
-            if (!Enum.TryParse<HeadlessInputStrategyType>(typeStr, out var strategyType))
-                strategyType = HeadlessInputStrategyType.Default;
-
-            switch (strategyType)
+            var s = config.Settings?.InputStrategy ?? new InputStrategySettings();
+            switch (BuilderChoices.Admission(s.StrategyType))
             {
                 case HeadlessInputStrategyType.SingleLabel:
                 {
-                    string labelName     = config.GetParameter<string>("inputStrategy_singleLabelName",  "");
-                    string labelValueStr = config.GetParameter<string>("inputStrategy_singleLabelValue", "");
-                    double? requiredValue = null;
-                    if (!string.IsNullOrEmpty(labelValueStr)) requiredValue = LabelNumber(labelValueStr, labelName);
-                    return new SingleLabelStrategy(labelName, requiredValue);
+                    string labelName     = s.SingleLabelName ?? "";
+                    string labelValueStr = s.SingleLabelValue ?? "";
+                    return new SingleLabelStrategy(labelName, labelValueStr);   // a number or a text
                 }
                 case HeadlessInputStrategyType.MultiLabel:
                 {
                     var acceptedLabels = new Dictionary<string, object>();
-                    var pairs = config.GetParameter<List<string>>("inputStrategy_multiLabelPairs");
-                    if (pairs != null)
-                        foreach (string pair in pairs)
-                            ParseLabelPair(pair, acceptedLabels);
+                    if (s.MultiLabelPairs != null)
+                        foreach (var pair in s.MultiLabelPairs)
+                            AddLabelValue(pair, acceptedLabels);
                     return new MultiLabelStrategy(acceptedLabels);
                 }
                 case HeadlessInputStrategyType.Condition:
-                    return new ConditionStrategy(config.GetParameter<string>("inputStrategy_condition", "1"));
+                    return new ConditionStrategy(s.Condition ?? "1", config.Name);
                 case HeadlessInputStrategyType.Default:
                 default:
                     return new DefaultStrategy();
             }
         }
 
-        public static InputStrategy BuildPullModeStrategy(ElementConfig config)
+        /// <summary>What a Combiner's component inputs accept (its pull mode).</summary>
+        public static InputStrategy BuildPullModeStrategy(ElementConfig config, CombinerSettings c)
         {
-            string pullModeType = config.GetParameter<string>("pullModeType", "Default");
-
-            switch (pullModeType)
+            switch (c.PullModeType ?? "Default")
             {
                 case "SingleLabel":
-                {
-                    string labelName     = config.GetParameter<string>("singleLabelName",  "type");
-                    string labelValueStr = config.GetParameter<string>("singleLabelValue", "");
-                    double? requiredValue = null;
-                    if (!string.IsNullOrEmpty(labelValueStr)) requiredValue = LabelNumber(labelValueStr, labelName);
-                    return new SingleLabelStrategy(labelName, requiredValue);
-                }
+                    return new SingleLabelStrategy(c.SingleLabelName ?? "", c.SingleLabelValue ?? "");   // a number or a text
                 case "MultiLabel":
                 {
                     var acceptedLabels = new Dictionary<string, object>();
-                    var pairs = config.GetParameter<List<string>>("multiLabelPairs");
-                    if (pairs != null)
-                        foreach (string pair in pairs)
-                            ParseLabelPair(pair, acceptedLabels);
+                    if (c.MultiLabelPairs != null)
+                        foreach (var pair in c.MultiLabelPairs)
+                            AddLabelValue(pair, acceptedLabels);
                     return new MultiLabelStrategy(acceptedLabels);
                 }
                 case "Custom":
@@ -230,84 +251,43 @@ namespace SimuLean.Serialization
             }
         }
 
-        public const string OutputWeightsKey = ElementConfigKeys.OutputWeights;
-        public const string EntryLabelsKey = ElementConfigKeys.EntryLabels, ExitLabelsKey = ElementConfigKeys.ExitLabels;
-
-        /// <summary>A <c>a|b|c</c> text of numbers (invariant culture; <c>;</c> and <c>,</c> also separate when there is no
-        /// <c>|</c>).</summary>
-        public static double[] ParseNumberList(string text, string owner, string key)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return new double[0];
-            char[] seps = text.IndexOf('|') >= 0 ? new[] { '|' } : new[] { ';', ',', ' ' };
-            var parts = text.Split(seps, StringSplitOptions.RemoveEmptyEntries);
-            var values = new double[parts.Length];
-            for (int i = 0; i < parts.Length; i++)
-                if (!double.TryParse(parts[i].Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out values[i]))
-                    throw new FormatException($"Element '{owner}': '{parts[i]}' in '{key}' is not a number.");
-            return values;
-        }
 
         /// <summary>The element's entry / exit label assignments (<see cref="LabelAssignments"/>), when the config has them.</summary>
         public static void ApplyLabelAssignments(Element element, ElementConfig config)
         {
-            element.EntryLabels = LabelAssignments.Parse(config.GetParameter<List<string>>(EntryLabelsKey), config.Name);
-            element.ExitLabels = LabelAssignments.Parse(config.GetParameter<List<string>>(ExitLabelsKey), config.Name);
+            element.EntryLabels = LabelAssignments.Parse(config.Settings?.EntryLabels, config.Name, "entryLabel");
+            element.ExitLabels = LabelAssignments.Parse(config.Settings?.ExitLabels, config.Name, "exitLabel");
         }
 
         /// <summary>The element's item statistics (<see cref="SimuLean.Statistics.ItemTallies"/>), when the config has them.</summary>
         public static void ApplyTallies(Element element, ElementConfig config)
         {
-            var tallies = SimuLean.Statistics.ItemTallies.Parse(config.GetParameter<List<string>>(ElementConfigKeys.Tallies),
-                                                                config.GetParameter<string>(ElementConfigKeys.TallySplit, null), config.Name);
+            var tallies = SimuLean.Statistics.ItemTallies.Parse(config.Settings?.Tallies, config.Settings?.TallySplit, config.Name);
             if (tallies != null && element.StatsCollector != null) element.StatsCollector.Tallies = tallies;
         }
 
         public static void ApplyOutputStrategy(Element element, ElementConfig config)
         {
-            if (!config.Parameters.ContainsKey("outputStrategyType")) return;
+            if (config.Settings?.OutputStrategy?.StrategyType == null) return;
             element.SetOutputStrategy(BuildOutputStrategy(config));
         }
 
         public static void ApplyInputStrategy(Element element, ElementConfig config)
         {
-            if (!config.Parameters.ContainsKey("inputStrategyType")) return;
+            if (config.Settings?.InputStrategy?.StrategyType == null) return;
             element.SetInputStrategy(BuildInputStrategy(config));
         }
 
-        /// <summary>
-        /// A label value typed as text: a decimal comma is a decimal comma ("2,5" = 2.5; <c>NumberStyles.Any</c> read it as
-        /// a thousands separator, 25), and text that is not a number fails, naming it
-        /// (it silently admitted nothing).
-        /// </summary>
-        private static double LabelNumber(string text, string label)
-        {
-            if (SimuLean.Data.ModelTable.TryNumber(text, out double v)) return v;
-            throw new FormatException($"Input strategy: the value '{text}' of label '{label}' is not a number.");
-        }
 
-        private static void ParseLabelPair(string pair, Dictionary<string, object> target)
+        private static void AddLabelValue(LabelValueSettings pair, Dictionary<string, object> target)
         {
-            if (string.IsNullOrEmpty(pair)) return;
-            string[] parts = pair.Split('=');
-            if (parts.Length != 2) return;
-            string label    = parts[0].Trim();
-            string valueStr = parts[1].Trim();
+            if (pair == null || string.IsNullOrWhiteSpace(pair.Label)) return;
+            string label    = pair.Label.Trim();
+            string valueStr = (pair.Value ?? "").Trim();
             if (SimuLean.Data.ModelTable.TryNumber(valueStr, out double dv))   // "2,5" = 2.5
                 target[label] = dv;
             else
                 target[label] = valueStr;
-        }
-        /// <summary>Config keys of the release mode (Queue, Multi-Server).</summary>
-        public const string ReleaseModeKey = "releaseMode", ReleaseScanKey = "releaseScan";
-
-        /// <summary>Reads <c>releaseMode</c> (FIFO / AnyAccepted) and <c>releaseScan</c> (0 = every held item).</summary>
-        public static (ReleaseMode mode, int scan) BuildRelease(ElementConfig config)
-        {
-            string text = config.GetParameter<string>(ReleaseModeKey, "") ?? "";
-            ReleaseMode mode = ReleaseMode.FIFO;
-            if (text.Trim().Length > 0 && !System.Enum.TryParse(text.Trim(), true, out mode))
-                throw new System.ArgumentException($"Element '{config.Name}': unknown release mode '{text}' (FIFO or AnyAccepted).");
-            return (mode, System.Math.Max(0, config.GetParameter<int>(ReleaseScanKey, 0)));
         }
     }
 
@@ -317,21 +297,11 @@ namespace SimuLean.Serialization
 
     internal enum HeadlessInputStrategyType { Default, SingleLabel, MultiLabel, Condition }
 
-    /// <summary>Config keys common to every element that the scene side writes too.</summary>
-    public static class ElementConfigKeys
-    {
-        /// <summary>Probability routing: the weights of the outputs, in connection order, as <c>w1|w2|…</c>.</summary>
-        public const string OutputWeights = "outputStrategy_weights";
-        /// <summary>Labels set on the items that enter / leave the element (<c>name = expression</c> records).</summary>
-        public const string EntryLabels = "entryLabels", ExitLabels = "exitLabels";
-        /// <summary>Values recorded per entering item (<c>name = expression</c> records) and the label that splits them.</summary>
-        public const string Tallies = "tallies", TallySplit = "tallySplit";
-    }
 
     internal enum HeadlessOutputStrategyType
     {
         FirstAvailable, ShortestQueue, RoundRobin,
-        MostAvailableCapacity, PriorityBased, Parameterized, Expression, Probability
+        MostAvailableCapacity, PriorityBased, Parameterized, Expression, Probability, BestScore, Rule
 
     }
 }

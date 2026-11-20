@@ -51,6 +51,38 @@ namespace SimuLean.Unity.Editor
                 }
             }
 
+            GroupHeader("Models", "Flow", "project setting");
+            {
+                var s = SimuLeanProjectSettings.Load();
+                EditorGUILayout.BeginHorizontal();
+                EditorGUI.BeginChangeCheck();
+                string models = EditorGUILayout.DelayedTextField(new GUIContent("Folder",
+                    "Where the models are kept (Models tab): one subfolder per model with its scene, model card and data. Under Assets; " +
+                    "the models already made stay where they are."), s.modelsFolder);
+                if (GUILayout.Button("…", GUILayout.Width(24)))
+                {
+                    string assets = System.IO.Path.GetFullPath(Application.dataPath);
+                    string picked = EditorUtility.OpenFolderPanel("Models folder", assets, "");
+                    if (!string.IsNullOrEmpty(picked))
+                    {
+                        string full = System.IO.Path.GetFullPath(picked);
+                        if (full.StartsWith(assets, System.StringComparison.OrdinalIgnoreCase))
+                            models = ("Assets" + full.Substring(assets.Length)).Replace('\\', '/');
+                        else EditorUtility.DisplayDialog("SimuLean", "The models folder must be inside the project's Assets folder.", "OK");
+                        GUI.FocusControl(null);
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+                models = (models ?? "").Trim().Replace('\\', '/').TrimEnd('/');
+                EditorGUI.EndChangeCheck();
+                if (models != s.modelsFolder)
+                {
+                    if (models.StartsWith("Assets/", System.StringComparison.Ordinal)) { s.modelsFolder = models; s.Save(); modelList = null; }
+                    else EditorUtility.DisplayDialog("SimuLean", $"'{models}' is not a folder under Assets: the models folder must be (e.g. {SimuLeanProjectSettings.DefaultModelsFolder}).", "OK");
+                }
+                EditorGUILayout.LabelField("Each model's exported results go to its own subfolder of the results folder.", EditorStyles.miniLabel);
+            }
+
             GroupHeader("Results", "Experiments", "project setting");
             {
                 var s = SimuLeanProjectSettings.Load();
@@ -76,13 +108,21 @@ namespace SimuLean.Unity.Editor
                 s.storeResults = EditorGUILayout.Toggle(new GUIContent("Store results",
                     "Keep every experiment, study and optimisation (with all its candidates) in the project database — Results tab ▸ Stored, " +
                     "where they are deleted by hand. Off by default: a result set is kept only with its Save button."), s.storeResults);
+                s.runOutsideEditor = EditorGUILayout.Toggle(new GUIContent("Run outside the editor",
+                    "Experiments, studies and optimisations run on .NET in a separate process (the runner, built once per engine version " +
+                    "in Library/SimuLeanRunner; about 10x faster per run). Off, or while there is no runner, they run in the editor."), s.runOutsideEditor);
+                using (new EditorGUI.DisabledScope(!s.runOutsideEditor))
+                    s.downloadRunner = EditorGUILayout.Toggle(new GUIContent("Download the runner",
+                        "When there is no runner, download the release's prebuilt one (once, about 35 MB, from the SimuLean repository " +
+                        "on GitHub) into SimuLeanRunner/ — only while the project's engine is the release's own. Off: a .NET 10 SDK " +
+                        "builds it, or the work runs in the editor."), s.downloadRunner);
                 if (EditorGUI.EndChangeCheck()) { s.confidence = System.Math.Round(s.confidence, 3); s.Save(); }
             }
 
             GroupHeader("Maintenance", "Presets");
             if (GUILayout.Button(new GUIContent("Reimport 3D Model Library", "Re-applies the import settings of Art/Models (materials, LODs).")))
                 EditorApplication.ExecuteMenuItem("Tools/SimuLean/Reimport 3D Model Library");
-            // the checks a modeller uses here; the developers' (test runs, camera measurements) in a closed foldout (review2 #46)
+            // the checks a modeller uses here; the developers' (test runs, camera measurements) in a closed foldout
             var checks = new System.Collections.Generic.List<string>();
             foreach (var m in TypeCache.GetMethodsWithAttribute<MenuItem>())
                 foreach (MenuItem mi in m.GetCustomAttributes(typeof(MenuItem), false))

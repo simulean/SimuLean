@@ -122,10 +122,11 @@ namespace SimuLean.Unity.Editor.Tests
                 var rollers = go.GetComponentInChildren<UnityRollerConveyor>();
                 Assert.IsNotNull(rollers, "with the roller look");
                 Assert.AreEqual(lane.laneLengths[0], rollers.length, 1e-4f);
-                Assert.AreEqual(-lane.laneLengths[0], rollers.transform.localPosition.z, 1e-4f, "from the exit backwards");
+                Assert.AreEqual(-lane.laneLengths[0], rollers.transform.localPosition.x, 1e-4f, "from the exit backwards (flow +X)");
+                Assert.AreEqual(1f, Vector3.Dot(rollers.transform.forward, go.transform.right), 1e-4f, "the rollers run along the lane's X");
                 rollers.FitTo(9f, 0f);
                 Assert.AreEqual(9f, rollers.length, 1e-4f);
-                Assert.AreEqual(-9f, rollers.transform.localPosition.z, 1e-4f);
+                Assert.AreEqual(-9f, rollers.transform.localPosition.x, 1e-4f);
             }
             finally { UnityEngine.Object.DestroyImmediate(go); }
         }
@@ -141,7 +142,7 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void TheAgentsSeeThePack()
         {
-            var types = JObject.FromObject(SimuLeanCommands.Types(""))["types"];
+            var types = JObject.FromObject(SimuLeanCommands.Types(pack: "all"))["types"];
             Assert.AreEqual(SimuLeanPacks.Healthcare, (string)types.First(t => (string)t["name"] == "Agenda")["pack"]);
             Assert.AreEqual(SimuLeanPacks.Core, (string)types.First(t => (string)t["name"] == "Delay")["pack"]);
         }

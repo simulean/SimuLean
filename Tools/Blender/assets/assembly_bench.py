@@ -15,7 +15,9 @@ bins on a rear rail, LED light bar, a tool balancer with an in-line electric scr
 monitor, a drawer unit, a stack light.  Same footprint as the AssemblyWorkstation model (both stay selectable).
 Library palette: natural aluminium, grey ESD mat, blue bins, graphite drawers, orange accents.
 
-Frame as the other assets: authored front = -Y (Unity +Z: the operator's side), +Z up (Unity +Y), origin on the
+Frame as the other stations: authored front = -Y (the operator's side), exported turned 180 deg (station_parts.STATION_TURN) to
+the library's model frame -- front on Unity -Z, flow along Unity +X; the Unity coordinates quoted below are
+the authored ones (x and z change sign in the export) --, +Z up (Unity +Y), origin on the
 floor at the centre of the footprint.
 
 Animation hierarchy (Unity names; every name is a bare Transform with <name>_LOD0/1/2 meshes under it):
@@ -208,4 +210,4 @@ def build_preview():
 
 
 if __name__ == '__main__':
-    SP.station_main('AssemblyBench', build_bench, LOD_PLAN, NODES, TEXEL_WEIGHTS)
+    SP.station_main('AssemblyBench', build_bench, LOD_PLAN, NODES, TEXEL_WEIGHTS, turn=SP.STATION_TURN)

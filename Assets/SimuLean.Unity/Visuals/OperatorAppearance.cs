@@ -8,7 +8,7 @@ namespace SimuLean.Unity
     /// nurse, patient, fitter, welder, painter, outfitter…) — so the Doctor, Nurse, Fitter… prefabs are variants of the
     /// operator that only set it (the patient item and the porters' and pallet truck's drivers use the same component).
     /// Each look comes male and female — the same height and joint names, so <see cref="UnityVehicleAnimator"/> walks and
-    /// carries both alike — and with the hard hat on or off, as the operator gender in FlexSim.
+    /// carries both alike — and with the hard hat on or off.
     /// <para>The look's models are built as children when the object is enabled (a member spawned by its team, an item,
     /// a scene object) and rebuilt when <see cref="look"/> changes; in the editor they are not saved (nothing is dirtied
     /// by opening a scene or a prefab). The look not chosen is deactivated. <see cref="Gender.Mixed"/> alternates by

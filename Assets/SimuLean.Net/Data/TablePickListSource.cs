@@ -65,7 +65,7 @@ namespace SimuLean.Data
                 string text = container.GetLabelText(containerKeyLabel);
                 if (!string.IsNullOrEmpty(text)) return Key(text);
             }
-            return container.GetTypeName();
+            return container.Name;
         }
     }
 }

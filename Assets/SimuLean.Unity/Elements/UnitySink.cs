@@ -7,7 +7,7 @@ namespace SimuLean.Unity
     /// Unity Component for Sink Element.
     /// Collects simulation metrics for optimization.
     /// </summary>
-    [SimuLean.Unity.SimuLeanElement(SimuLean.Unity.SimuLeanModules.Sinks, "Sink", Description = "Consumes items and records statistics", Prefab = "Sink.prefab", Order = 0)]
+    [SimuLean.Unity.SimuLeanElement(SimuLean.Unity.SimuLeanModules.Sinks, "Sink", Description = "Consumes items and records statistics", Prefab = "Sink.prefab", Order = 1)]
     public class UnitySink : SElement, IVElement
     {
         public override bool HasOutput => false;
@@ -60,23 +60,28 @@ namespace SimuLean.Unity
             }
             keptViews.Add(gItem);
             gItem.transform.SetParent(transform, true);
-            gItem.transform.SetPositionAndRotation(KeptPosition(vItem, gItem), transform.rotation);
+            // laid by its position labels: in the sink's axes (the labels' frame); in the row: along the flow
+            gItem.transform.SetPositionAndRotation(KeptPosition(vItem, gItem, out bool byLabels),
+                                                   byLabels ? transform.rotation : transform.rotation * ItemVisuals.AlongFlow);
             // the row's length kept as it grows (it summed every kept item for each new one: O(n²))
             keptRow += ItemVisuals.SizeOf(gItem).x * 1.1f;
         }
 
-        // by the item's position labels, else in a row along +X (each item's own length apart)
-        private Vector3 KeptPosition(Item item, GameObject view)
+        // by the item's position labels, else in a row behind the sink (+Z; the element frame: flow along +X, front −Z),
+        // each item's own width apart, the items along the flow (ItemVisuals.AlongFlow)
+        private Vector3 KeptPosition(Item item, GameObject view, out bool byLabels)
         {
+            byLabels = false;
             var labels = (positionLabels ?? "").Split(',');
             if (labels.Length == 3)
             {
                 double? x = item.GetLabelValue(labels[0].Trim()), y = item.GetLabelValue(labels[1].Trim()), z = item.GetLabelValue(labels[2].Trim());
-                if (x.HasValue || y.HasValue || z.HasValue)
+                byLabels = x.HasValue || y.HasValue || z.HasValue;
+                if (byLabels)
                     return transform.TransformPoint(new Vector3((float)(x ?? 0), (float)(y ?? 0), (float)(z ?? 0)))
                            + transform.up * ItemVisuals.PivotHeight(view);
             }
-            return transform.position + transform.right * keptRow + transform.up * ItemVisuals.PivotHeight(view);
+            return transform.position + transform.forward * keptRow + transform.up * ItemVisuals.PivotHeight(view);
         }
 
         void IVElement.UnloadItem(Item vItem)

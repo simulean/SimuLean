@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace SimuLean.Expressions
 {
@@ -9,15 +10,15 @@ namespace SimuLean.Expressions
     /// </summary>
     public sealed class EntityScope : IExpressionScope, IDataScope, IRandomScope, IModelScope
     {
-        /// <summary>The model's element of that name (<see cref="SimuLean.SimContext.FindElement"/>).</summary>
-        public SimuLean.Element FindElement(string name) => Element?.GetSimClock()?.Context.FindElement(name);
+        /// <summary>The element's model.</summary>
+        public SimuLean.SimContext Model => Element?.GetSimClock()?.Context;
 
         /// <summary>The element's own stream (<see cref="SimuLean.Element.ExpressionRandom"/>), or the one set in
         /// <see cref="RandomStream"/>.</summary>
         public SimuLean.Stochastics.Streams.IRandomEngine Random => RandomStream ?? Element?.ExpressionRandom;
 
         /// <summary>Another stream for the random functions (null = the element's): what observes the model — a tally —
-        /// draws from its own, so observing does not change the model (review2 #27).</summary>
+        /// draws from its own, so observing does not change the model.</summary>
         public SimuLean.Stochastics.Streams.IRandomEngine RandomStream;
 
         /// <summary>The model's data tables: the element's clock's.</summary>
@@ -25,8 +26,18 @@ namespace SimuLean.Expressions
 
         public Item Item;
         public Element Element;
+        /// <summary>The element the item comes from (<c>origin.x</c>): the sender in an admission condition, the carrier's
+        /// origin in a milk run's filter; null elsewhere.</summary>
+        public Element Origin;
+        /// <summary>The output a best-score routing is scoring (<c>out.x</c>); null elsewhere.</summary>
+        public Element Out;
 
-        public EntityScope Set(Item item, Element element) { Item = item; Element = element; return this; }
+        /// <summary>An item's built-in values (when it has no property of that name): see <see cref="OfItem"/>.</summary>
+        public static readonly IReadOnlyList<string> ItemBuiltIns = new[] { "id", "type", "priority", "created", "age" };
+        /// <summary>An element's built-in values (when it has no property of that name): see <see cref="OfElement"/>.</summary>
+        public static readonly IReadOnlyList<string> ElementBuiltIns = new[] { "name", "state", "content", "free" };
+
+        public EntityScope Set(Item item, Element element, Element origin = null) { Item = item; Element = element; Origin = origin; return this; }
 
         public double Now => Element?.GetSimClock()?.GetSimulationTime() ?? 0;
 
@@ -37,6 +48,8 @@ namespace SimuLean.Expressions
                 case null:
                 case "item": return OfItem(Item, name, Now);
                 case "element": return OfElement(Element, name);
+                case "origin": return OfElement(Origin, name);
+                case "out": return OfElement(Out, name);
             }
             return ExprValue.None;
         }
@@ -55,7 +68,7 @@ namespace SimuLean.Expressions
             switch (name)
             {
                 case "id": return ExprValue.Of(item.GetId());
-                case "type": return ExprValue.Of(item.GetTypeName() ?? "");
+                case "type": return ExprValue.Of(item.Name ?? "");
                 case "priority": return ExprValue.Of(item.priority);
                 case "created": return ExprValue.Of(item.GetCreationTime());
                 case "age": return ExprValue.Of(now - item.GetCreationTime());
@@ -63,7 +76,7 @@ namespace SimuLean.Expressions
             return ExprValue.None;
         }
 
-        /// <summary>An element's property, else its built-in value of that name (name, content, free).</summary>
+        /// <summary>An element's property, else its built-in value of that name (name, state, content, free).</summary>
         public static ExprValue OfElement(Element element, string name)
         {
             if (element == null) return ExprValue.None;
@@ -76,7 +89,9 @@ namespace SimuLean.Expressions
             }
             switch (name)
             {
-                case "name": return ExprValue.Of(element.GetName() ?? "");
+                case "name": return ExprValue.Of(element.Name ?? "");
+                // its current state's name, a text: 'IDLE', 'PROCESSING', 'BLOCKED'... (compare with == / !=, exact case)
+                case "state": return ExprValue.Of(element.CurrentState.Name ?? "");
                 case "content": return ExprValue.Of(element.GetQueueLength());
                 case "free": return ExprValue.Of(element.GetFreeCapacity());
             }
@@ -87,13 +102,23 @@ namespace SimuLean.Expressions
     /// <summary>
     /// A value given by an expression over the item and the element — process / cycle times, transport times
     /// (the common expression syntax): <c>processingTime</c>, <c>item.weight * element.secondsPerKg + 2</c>,
-    /// <c>item.color == 'red' ? 5 : 3</c>. Negative / NaN results count as 0. Use <see cref="Samplers.Sample"/>.
+    /// <c>item.color == 'red' ? 5 : 3</c>. A negative result counts as 0; a NaN or infinite one stops the run
+    /// (<see cref="ExpressionException"/>). Use <see cref="Samplers.Sample"/>.
     /// </summary>
-    public sealed class ExpressionSampler : IRandomSampler
+    public sealed class ExpressionSampler : IRandomSampler, SimuLean.Stochastics.Streams.IRandomStreamUser
     {
         private readonly EntityScope scope = new EntityScope();
+        private SimuLean.Stochastics.Streams.IRandomEngine engine;
 
-        public ExpressionSampler(string expression) { Expression = Expressions.Expression.Parse(expression); }
+        /// <summary>The stream of its random functions, given by the model as to any sampler (owner / purpose of the use);
+        /// null = the element's fallback stream.</summary>
+        public void SetRandomEngine(SimuLean.Stochastics.Streams.IRandomEngine e) => engine = e;
+
+        public ExpressionSampler(string expression) : this(expression, null, null) { }
+
+        /// <summary>A time written in <paramref name="owner"/>'s field <paramref name="field"/> (checked when the model is built).</summary>
+        public ExpressionSampler(string expression, string owner, string field)
+        { Expression = Expressions.Expression.Parse(expression, ExpressionContext.Time, owner, field); }
 
         public Expression Expression { get; }
 
@@ -102,8 +127,10 @@ namespace SimuLean.Expressions
 
         public double NextValue(Item item, Element element)
         {
+            scope.RandomStream = engine;
             double v = Expression.Number(scope.Set(item, element));
             scope.Set(null, null);
+            scope.RandomStream = null;
             return v > 0 ? v : 0;
         }
     }

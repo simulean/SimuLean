@@ -4,7 +4,7 @@ using UnityEngine;
 namespace SimuLean.Unity
 {
     /// <summary>
-    /// Floor arrows that follow the model's connections (healthcare §6 "pathway arrows"): chevrons every
+    /// Floor arrows that follow the model's connections: chevrons every
     /// <see cref="spacing"/> metres along each connection (an element's Next Elements) between the elements under
     /// <see cref="root"/> (empty = the whole scene) — the pathway a visitor can follow on the floor, from the entrance to
     /// the exit. Built when enabled and on <i>Rebuild</i>, never saved (only the fields are); decoration only.

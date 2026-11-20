@@ -19,7 +19,7 @@ namespace SimuLean.Unity.Editor
     /// <item>a <see cref="PersonAnimator"/> with that controller on <c>Operator.prefab</c> (so on every role variant) and on
     /// the patient item.</item>
     /// </list>
-    /// Run it again after re-exporting the clips (<i>Tools ▸ SimuLean ▸ Build People Animations</i>).
+    /// Run it again after re-exporting the clips (<i>Tools ▸ SimuLean ▸ Developer ▸ Build People Animations</i>).
     /// </summary>
     public static class PeopleAnimationBuilder
     {
@@ -35,7 +35,7 @@ namespace SimuLean.Unity.Editor
         /// <summary>Clips whose pelvis moves (the seat, the bed): their Torso position is kept.</summary>
         public static readonly string[] PelvisMoves = { PersonAnimator.SitIdle, PersonAnimator.LieOnBed };
 
-        [MenuItem("Tools/SimuLean/Build People Animations", false, 60)]
+        [MenuItem("Tools/SimuLean/Developer/Build People Animations", false, 300)]
         public static void BuildMenu() => Debug.Log("[SimuLean] " + Build());
 
         public static string Build()

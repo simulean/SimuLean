@@ -51,8 +51,8 @@ namespace SimuLean.Unity
 
         // ── Expression (the common syntax: item.x, element.x, functions…) ──
         [Tooltip("For Expression: value from the item and the element, e.g. processingTime or item.weight * element.secondsPerKg")]
-        [TextArea(3, 10)]
-        public string expression = "processingTime";
+                [SimuLean.Unity.SimuLeanExpression("time")]
+        public string expression = "";
 
         // ── Gamma ─────────────────────────────────────────────────────
         [Tooltip("For Gamma: Shape parameter (k)")]
@@ -124,31 +124,31 @@ namespace SimuLean.Unity
         [Tooltip("For Discrete Uniform: Minimum valuess")]
         public double discreteUniformMax = 7;
 
-        private static string Inv(double v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture);
-
-        /// <summary>Encodes this distribution in the compact <see cref="SimuLean.Serialization.SamplerSpec"/> format (<c>Type~p1~p2</c>).</summary>
-        public string ToSamplerSpec()
+        /// <summary>The engine settings of this distribution (<see cref="SimuLean.Serialization.SamplerSettings"/>: its type
+        /// and the chosen distribution's fields only; the build side is <c>ElementBuildHelpers.BuildRandomProcess</c>).</summary>
+        public SimuLean.Serialization.SamplerSettings ToSettings()
         {
+            var s = new SimuLean.Serialization.SamplerSettings { StrategyType = GetStrategyTypeName() };
             switch (strategyType)
             {
-                case RandomProcessType.Constant:        return $"Constant~{Inv(constantValue)}";
-                case RandomProcessType.Uniform:         return $"Uniform~{Inv(uniformMin)}~{Inv(uniformMax)}";
-                case RandomProcessType.Normal:          return $"Normal~{Inv(normalMean)}~{Inv(normalStdDev)}";
-                case RandomProcessType.Exponential:     return $"Exponential~{Inv(exponentialRate)}";
-                case RandomProcessType.Triangular:      return $"Triangular~{Inv(triangularMin)}~{Inv(triangularMode)}~{Inv(triangularMax)}";
-                case RandomProcessType.Expression: return $"Expression~{expression}";
-                case RandomProcessType.Gamma:           return $"Gamma~{Inv(gammaShape)}~{Inv(gammaScale)}";
-                case RandomProcessType.Weibull:         return $"Weibull~{Inv(weibullShape)}~{Inv(weibullScale)}";
-                case RandomProcessType.LogNormal:       return $"LogNormal~{Inv(logNormalMu)}~{Inv(logNormalSigma)}";
-                case RandomProcessType.Beta:            return $"Beta~{Inv(betaAlpha)}~{Inv(betaBeta)}~{Inv(betaMin)}~{Inv(betaMax)}";
-                case RandomProcessType.ChiSquare:       return $"ChiSquare~{chiSquareDf}";
-                case RandomProcessType.StudentT:        return $"StudentT~{studentTDf}~{studentTClamp}";
-                case RandomProcessType.FDistribution:   return $"FDistribution~{fDistD1}~{fDistD2}";
-                case RandomProcessType.Poisson:         return $"Poisson~{Inv(poissonLambda)}";
-                case RandomProcessType.Binomial:        return $"Binomial~{binomialN}~{Inv(binomialP)}";
-                case RandomProcessType.DiscreteUniform: return $"DiscreteUniform~{discreteUniformMin}~{(int)discreteUniformMax}";
-                default:                                return $"Constant~{Inv(constantValue)}";
+                case RandomProcessType.Constant: s.ConstantValue = constantValue; break;
+                case RandomProcessType.Uniform: s.UniformMin = uniformMin; s.UniformMax = uniformMax; break;
+                case RandomProcessType.Normal: s.NormalMean = normalMean; s.NormalStdDev = normalStdDev; break;
+                case RandomProcessType.Exponential: s.ExponentialRate = exponentialRate; break;
+                case RandomProcessType.Triangular: s.TriangularMin = triangularMin; s.TriangularMode = triangularMode; s.TriangularMax = triangularMax; break;
+                case RandomProcessType.Expression: s.Expression = expression; break;
+                case RandomProcessType.Gamma: s.GammaShape = gammaShape; s.GammaScale = gammaScale; break;
+                case RandomProcessType.Weibull: s.WeibullShape = weibullShape; s.WeibullScale = weibullScale; break;
+                case RandomProcessType.LogNormal: s.LogNormalMu = logNormalMu; s.LogNormalSigma = logNormalSigma; break;
+                case RandomProcessType.Beta: s.BetaAlpha = betaAlpha; s.BetaBeta = betaBeta; s.BetaMin = betaMin; s.BetaMax = betaMax; break;
+                case RandomProcessType.ChiSquare: s.ChiSquareDf = chiSquareDf; break;
+                case RandomProcessType.StudentT: s.StudentTDf = studentTDf; s.StudentTClamp = studentTClamp; break;
+                case RandomProcessType.FDistribution: s.FDistD1 = fDistD1; s.FDistD2 = fDistD2; break;
+                case RandomProcessType.Poisson: s.PoissonLambda = poissonLambda; break;
+                case RandomProcessType.Binomial: s.BinomialN = binomialN; s.BinomialP = binomialP; break;
+                case RandomProcessType.DiscreteUniform: s.DiscreteUniformMin = discreteUniformMin; s.DiscreteUniformMax = (int)discreteUniformMax; break;
             }
+            return s;
         }
 
         public virtual string GetStrategyTypeName()

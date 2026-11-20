@@ -33,7 +33,7 @@ namespace SimuLean.Results
     public sealed class ResultStore
     {
         /// <summary>The store's schema version (<c>rs_meta.schema_version</c>).</summary>
-        public const int SchemaVersion = 2;   // 2: rs_timeline / rs_jobs (G3c–d); a version-1 database gets the tables on opening
+        public const int SchemaVersion = 2;   // 2: rs_timeline / rs_jobs; a version-1 database gets the tables on opening
 
         private readonly ProjectDatabase db;
 
@@ -353,7 +353,7 @@ namespace SimuLean.Results
         // ── queries across sets ──────────────────────────────────────────────
 
         /// <summary>
-        /// A statistic of an object across stored sets: <c>set_id, set, scenario, replication, object, value</c> — e.g.
+        /// A statistic of an object across stored sets: <c>result_set_id, result_set, scenario, replication, object, value</c> — e.g.
         /// <c>Statistic(ResultScope.Element, "Sink", "input")</c>. <paramref name="sets"/> null = every set.
         /// </summary>
         public ResultTable Statistic(ResultScope scope, string objectName, string metric, IEnumerable<int> sets = null)
@@ -367,12 +367,12 @@ namespace SimuLean.Results
                 "FROM rs_stats st JOIN rs_objects o ON o.set_id = st.set_id AND o.id = st.object " +
                 "JOIN rs_runs r ON r.set_id = o.set_id AND r.id = o.run_id JOIN rs_scenarios c ON c.set_id = r.set_id AND c.id = r.scenario_id " +
                 "JOIN rs_sets s ON s.id = o.set_id WHERE o.scope = ? AND st.metric = ?" + filter + " ORDER BY o.set_id, r.id, o.id", args.ToArray());
-            var t = new ResultTable("statistic", "set_id", "set", "scenario", "replication", "object", "value");
+            var t = new ResultTable("statistic", "result_set_id", "result_set", "scenario", "replication", "object", "value");
             foreach (var r in rows) t.Add(Int(r["set_id"]), Str(r["set_name"]), Str(r["scenario"]), Int(r["replication"]), Str(r["object"]), r["value"]);
             return t;
         }
 
-        /// <summary>A named run metric across stored sets: <c>set_id, set, scenario, replication, value</c>.</summary>
+        /// <summary>A named run metric across stored sets: <c>result_set_id, result_set, scenario, replication, value</c>.</summary>
         public ResultTable Metric(string metric, IEnumerable<int> sets = null)
         {
             var args = new List<object> { metric };
@@ -381,7 +381,7 @@ namespace SimuLean.Results
                 "SELECT m.set_id, s.name AS set_name, c.name AS scenario, r.replication, m.value FROM rs_run_metrics m " +
                 "JOIN rs_runs r ON r.set_id = m.set_id AND r.id = m.run_id JOIN rs_scenarios c ON c.set_id = r.set_id AND c.id = r.scenario_id " +
                 "JOIN rs_sets s ON s.id = m.set_id WHERE m.name = ?" + filter + " ORDER BY m.set_id, r.id", args.ToArray());
-            var t = new ResultTable("metric", "set_id", "set", "scenario", "replication", "value");
+            var t = new ResultTable("metric", "result_set_id", "result_set", "scenario", "replication", "value");
             foreach (var r in rows) t.Add(Int(r["set_id"]), Str(r["set_name"]), Str(r["scenario"]), Int(r["replication"]), r["value"]);
             return t;
         }

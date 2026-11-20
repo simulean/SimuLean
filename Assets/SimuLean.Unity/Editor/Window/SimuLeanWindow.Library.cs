@@ -37,8 +37,10 @@ namespace SimuLean.Unity.Editor
                                              : "Click a tile to place it at the view's centre, or drag it into the Scene view.", EditorStyles.miniLabel);
 
             bool visuals = PackSettings().showVisuals;
-            var visible = entries.Where(e => e.IsTool == tools && shown.Contains(e.Pack) && (visuals || !e.Visual)
+            var visible = entries.Where(e => e.IsTool == tools && !e.Hidden && shown.Contains(e.Pack) && (visuals || !e.Visual)
                                              && Matches(e.Name, e.Description)).ToList();
+            if (string.IsNullOrEmpty(search)) FoldVariants(visible);   // a search shows every match on its own
+            else variantsOf.Clear();
             // each tab keeps its own scroll position (switching packs or tabs does not jump to the top)
             var scrollPos = tools ? toolsScroll : elementsScroll;
             scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
@@ -51,7 +53,9 @@ namespace SimuLean.Unity.Editor
             {
                 foreach (string section in CoreSections)
                     Section(section, section == "Resources & paths" ? "Resources" : "Flow",
-                            visible.Where(e => e.Pack == SimuLeanPacks.Core && e.Section == section).ToList(), width, cols);
+                            visible.Where(e => e.Pack == SimuLeanPacks.Core && e.Section == section)
+                                   .OrderBy(e => e.Group == "Transport" ? 1 : 0)   // resources first, then their paths
+                                   .ThenBy(e => e.SectionOrder).ThenBy(e => e.Name).ToList(), width, cols);
                 Section("Visuals", "Presets", visible.Where(e => e.Pack == SimuLeanPacks.Core && e.Visual).ToList(), width, cols);
                 foreach (string pack in SimuLeanPacks.Optional)
                 {
@@ -89,8 +93,48 @@ namespace SimuLean.Unity.Editor
             Tiles(list, width, cols);
         }
 
+        // ── variants folded under their element ─────────────────
+
+        // tile → its folded variants (this draw); the tiles opened (per user session)
+        private readonly Dictionary<Entry, List<Entry>> variantsOf = new Dictionary<Entry, List<Entry>>();
+        private readonly HashSet<string> unfolded = new HashSet<string>();
+
+        // Takes the variants out of the visible list and hangs them under their element's tile; an element left out of the
+        // Library is drawn by its first variant (the Conveyor for the lanes). A variant whose element is not shown stays.
+        private void FoldVariants(List<Entry> visible)
+        {
+            variantsOf.Clear();
+            foreach (var group in visible.Where(e => e.VariantOf != null).GroupBy(e => (e.VariantOf, e.Family)).ToList())
+            {
+                var variants = group.OrderBy(e => e.SectionOrder).ThenBy(e => e.Name).ToList();
+                bool family = !string.IsNullOrEmpty(group.Key.Family);   // a family: its first preset is the tile
+                Entry tile = family ? null : visible.FirstOrDefault(e => e.Group == "Flow" && e.Type == group.Key.VariantOf && e.MenuPath == null);
+                bool baseHidden = family || entries.Any(e => e.Group == "Flow" && e.Type == group.Key.VariantOf && e.Hidden);
+                if (tile == null && !baseHidden) continue;   // the element is in a hidden pack: the variants stay as tiles
+                if (tile == null) { tile = variants[0]; variants.RemoveAt(0); }
+                if (variants.Count == 0) continue;
+                foreach (var v in variants) visible.Remove(v);
+                variantsOf[tile] = variants;
+            }
+        }
+
+        // the list as drawn: an unfolded tile followed by its variants
+        private List<Entry> WithVariants(List<Entry> list)
+        {
+            var drawn = new List<Entry>(list.Count);
+            foreach (var e in list)
+            {
+                drawn.Add(e);
+                if (variantsOf.TryGetValue(e, out var vs) && unfolded.Contains(e.Name)) drawn.AddRange(vs);
+            }
+            return drawn;
+        }
+
+        private bool IsVariantShown(Entry e) => variantsOf.Any(kv => kv.Value.Contains(e) && unfolded.Contains(kv.Key.Name));
+
         private void Tiles(List<Entry> list, float width, int cols)
         {
+            list = WithVariants(list);
             for (int i = 0; i < list.Count; i += cols)
             {
                 var row = GUILayoutUtility.GetRect(width, TileH + 4);
@@ -188,9 +232,24 @@ namespace SimuLean.Unity.Editor
             }
             Color col = GroupColor(e.Group);
             bool hover = r.Contains(Event.current.mousePosition);
+            bool variant = IsVariantShown(e);
             EditorGUI.DrawRect(r, EditorGUIUtility.isProSkin ? new Color(0.22f, 0.22f, 0.24f) : new Color(0.86f, 0.86f, 0.88f));
+            if (variant) EditorGUI.DrawRect(r, EditorGUIUtility.isProSkin ? new Color(1, 1, 1, 0.04f) : new Color(0, 0, 0, 0.05f));
             if (hover) EditorGUI.DrawRect(r, new Color(1, 1, 1, 0.06f));
             EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 3), col);
+            if (variant) EditorGUI.DrawRect(new Rect(r.x, r.y + 3, 3, r.height - 3), new Color(col.r, col.g, col.b, 0.6f));   // a variant
+            // an element with variants: ▾ n opens them in place (▴ folds them)
+            if (variantsOf.TryGetValue(e, out var vs))
+            {
+                bool open = unfolded.Contains(e.Name);
+                var fold = new Rect(r.xMax - 26, r.y + 5, 24, 16);
+                if (GUI.Button(fold, new GUIContent((open ? "▴" : "▾") + vs.Count, open ? "Fold the variants" :
+                                   "Variants: " + string.Join(", ", vs.Select(v => v.Name))), EditorStyles.miniButton))
+                {
+                    if (open) unfolded.Remove(e.Name); else unfolded.Add(e.Name);
+                    GUIUtility.ExitGUI();
+                }
+            }
 
             var thumbRect = new Rect(r.x + (r.width - Thumb) / 2, r.y + 8, Thumb, Thumb);
             var tex = Preview(e);
@@ -218,7 +277,7 @@ namespace SimuLean.Unity.Editor
             else if (ev.type == EventType.MouseUp && pressed == e)
             {
                 pressed = null;
-                if (r.Contains(ev.mousePosition)) Place(e, ScenePivot());
+                if (r.Contains(ev.mousePosition)) Place(e, OnGrid(ScenePivot()));
                 ev.Use();
             }
         }
@@ -256,7 +315,7 @@ namespace SimuLean.Unity.Editor
             {
                 DragAndDrop.AcceptDrag();
                 DragAndDrop.SetGenericData("SimuLeanEntry", null);
-                Place(e, GroundPoint(HandleUtility.GUIPointToWorldRay(ev.mousePosition)));
+                Place(e, OnGrid(GroundPoint(HandleUtility.GUIPointToWorldRay(ev.mousePosition))));
             }
             ev.Use();
         }
@@ -266,6 +325,14 @@ namespace SimuLean.Unity.Editor
             if (Physics.Raycast(ray, out RaycastHit hit)) return hit.point;
             float d = ray.direction.y != 0f ? -ray.origin.y / ray.direction.y : 0f;
             return d > 0f ? ray.origin + ray.direction * d : ray.origin + ray.direction * 10f;
+        }
+
+        // A dropped element lands on the floor grid (the Place tool's step) while snapping is on.
+        private static Vector3 OnGrid(Vector3 p)
+        {
+            if (!SimuLeanPlaceTool.Snap) return p;
+            float step = SimuLeanPlaceTool.MoveStep;
+            return new Vector3(Mathf.Round(p.x / step) * step, p.y, Mathf.Round(p.z / step) * step);
         }
 
         private static Vector3 ScenePivot()
@@ -309,8 +376,10 @@ namespace SimuLean.Unity.Editor
             if (go == null && e.Type != null)
             {
                 go = new GameObject(e.Name);
-                Undo.RegisterCreatedObjectUndo(go, "Place " + e.Name);
-                Undo.AddComponent(go, e.Type);
+                go.AddComponent(e.Type);
+                if (!string.IsNullOrEmpty(e.Model))   // its library model, as a preset's
+                    LibraryPresets.AddModel(go, (System.IO.Path.GetFileNameWithoutExtension(e.Model), e.Model));
+                Undo.RegisterCreatedObjectUndo(go, "Place " + e.Name);   // complete: one undo step
             }
             if (go == null) return null;
             if (parent != null) Undo.SetTransformParent(go.transform, parent, "Place " + e.Name);
@@ -326,6 +395,9 @@ namespace SimuLean.Unity.Editor
             {
                 Undo.RecordObject(team, "Place " + e.Name);
                 team.AddMembers(1);
+                // the plain Resource Team (not a preset, which sets its own look or none): the default member look of its
+                // travel, never a box (LibraryPresets.DefaultKind)
+                if (e.MenuPath == null && team.memberPrefab == null) LibraryPresets.ApplyLook(team, LibraryPresets.DefaultKind(team.travel));
             }
             Undo.RecordObject(go.transform, "Place " + e.Name);
             go.transform.position = position;

@@ -42,7 +42,7 @@ namespace SimuLean
         public SimCalendar(DateTime start, double secondsPerUnit = 1.0) : this(start, secondsPerUnit, false) { }
 
         /// <summary>A calendar without a start date but with a time unit (e.g. 3600 = the model counts hours): dates from
-        /// 2000-01-01 at that unit (the unit was dropped when no start date was set).</summary>
+        /// 2000-01-01 at that unit.</summary>
         public static SimCalendar Undated(double secondsPerUnit)
             => secondsPerUnit > 0 && secondsPerUnit != 1.0 ? new SimCalendar(Default.Start, secondsPerUnit, isDefault: true) : Default;
 

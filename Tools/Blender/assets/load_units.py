@@ -6,10 +6,10 @@ Run (headless):
             [--quick] [--cpu]
 
 Outputs (a kit: one FBX per unit, one shared texture set / material LoadUnits.mat)
-    Assets/SimuLean.Unity/Art/Models/LoadUnits/EuroPallet.fbx   EUR pallet 1200 x 800 x 144 mm (wood)
-    Assets/SimuLean.Unity/Art/Models/LoadUnits/Tote.fbx         plastic small-load carrier (KLT type)
-                                                                600 x 400 x 280 mm, stackable
     Assets/SimuLean.Unity/Art/Models/LoadUnits/RollCage.fbx     roll container 800 x 720 x 1800 mm
+The Euro pallet and the tote (KLT 600 x 400 x 280) are now built by warehouse_load_units.py (WarehouseLoadUnits/,
+one renderer per LOD, proxy LODs: lighter for many instances); build_pallet / build_tote stay here for reference and
+are no longer exported (2026-10-26).
                                                                 (galvanised, mesh on three sides, 4 casters)
     Assets/SimuLean.Unity/Art/Models/LoadUnits/LoadUnits_*.png
     Tools/Blender/build/LoadUnits.blend
@@ -183,7 +183,7 @@ def build_rollcage():
 
 def build_kit():
     build_materials()
-    return [build_pallet(), build_tote(), build_rollcage()]
+    return [build_rollcage()]   # the pallet and the tote: warehouse_load_units.py
 
 
 def build_preview():

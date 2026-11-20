@@ -60,7 +60,7 @@ namespace SimuLean.Results
         private void OnEntered(Element e, Item item)
         {
             if (item == null || e is Sink) return;
-            if (!labels.ContainsKey(item)) labels[item] = $"{item.GetTypeName()} {labels.Count + 1}";
+            if (!labels.ContainsKey(item)) labels[item] = $"{item.Name} {labels.Count + 1}";
             if (passedAt == Now && passed.Remove((item, e))) return;
             open[(item, e)] = Now;
         }
@@ -81,7 +81,7 @@ namespace SimuLean.Results
                 cut = true;
                 return;
             }
-            if (Now > start) closed.Add(new JobEntry(Label(item), e.GetName(), start, Now));
+            if (Now > start) closed.Add(new JobEntry(Label(item), e.Name, start, Now));
         }
 
         /// <summary>Adds the jobs so far to <paramref name="results"/> (stays still going end now). Read-only.</summary>
@@ -90,10 +90,10 @@ namespace SimuLean.Results
             results.Jobs.AddRange(closed);
             double now = Now;
             foreach (var kv in open)
-                if (now > kv.Value) results.Jobs.Add(new JobEntry(Label(kv.Key.Item1), kv.Key.Item2.GetName(), kv.Value, now));
+                if (now > kv.Value) results.Jobs.Add(new JobEntry(Label(kv.Key.Item1), kv.Key.Item2.Name, kv.Value, now));
         }
 
-        private string Label(Item item) => labels.TryGetValue(item, out string l) ? l : item.GetTypeName();
+        private string Label(Item item) => labels.TryGetValue(item, out string l) ? l : item.Name;
 
         // items compare by identity here (an item's equality may follow its id, which is not unique)
         private sealed class ByReference : IEqualityComparer<Item>, IEqualityComparer<(Item, Element)>

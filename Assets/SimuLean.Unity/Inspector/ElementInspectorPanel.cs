@@ -109,8 +109,9 @@ namespace SimuLean.Unity
 
         private void Reset()
         {
-            simClock = UnityCompat.FindAny<UnitySimClock>();
-            cameraController = UnityCompat.FindAny<SimCameraController>();
+            // this scene's clock and camera (another open scene's would be a cross-scene reference, dropped on save)
+            simClock = UnityCompat.FindInScene<UnitySimClock>(gameObject.scene);
+            cameraController = UnityCompat.FindInScene<SimCameraController>(gameObject.scene);
             GatherSceneElements();
         }
 #endif
@@ -154,6 +155,7 @@ namespace SimuLean.Unity
         private SimClock boundClock;
         private SimCalendar boundCalendar;
         private readonly List<Texture2D> chartTex = new List<Texture2D>();
+        private readonly ChartBuffers plotBuffers = new ChartBuffers();   // drawn into again, uploaded at once
         private readonly List<float> chartMax = new List<float>();
         private readonly List<Vector2> chartPx = new List<Vector2>();
         private bool chartsDirty;
@@ -210,14 +212,14 @@ namespace SimuLean.Unity
 
         private void Update()
         {
-            if (open && closeKey != KeyCode.None && Input.GetKeyDown(closeKey))
+            if (open && closeKey != KeyCode.None && SimInput.GetKeyDown(closeKey))
             {
                 if (closeKey == KeyCode.Escape) UnitySimClock.ConsumeEscape();
                 Close();
             }
-            if (cameraController == null && Input.GetMouseButtonDown(0) && !SimRuntimeHud.IsPointerOverHud(Input.mousePosition))
+            if (cameraController == null && SimInput.GetMouseButtonDown(0) && !SimRuntimeHud.IsPointerOverHud(SimInput.MousePosition))
             {
-                var picked = SimCameraController.PickObject(Camera.main, Input.mousePosition);
+                var picked = SimCameraController.PickObject(Camera.main, SimInput.MousePosition);
                 if (picked != null) OnSelection(picked);
             }
         }
@@ -282,6 +284,7 @@ namespace SimuLean.Unity
             active.Clear();
             foreach (var mb in contributors) if (mb is IElementInspectorContributor c && !active.Contains(c)) active.Add(c);
             foreach (var c in registered) if (!active.Contains(c)) active.Add(c);
+            active.Add(DecisionInspectorContributor.Shared);   // built in: the element's decisions and their run-time counters
             if (owner != null)
                 foreach (var mb in owner.GetComponentsInParent<MonoBehaviour>())
                     if (mb is IElementInspectorContributor c && !active.Contains(c)) active.Add(c);
@@ -401,7 +404,7 @@ namespace SimuLean.Unity
                         // the engine draws the plot (one chart renderer), the panel writes the labels in its own font
                         ChartTextures.UseResourceFonts();
                         var img = ChartRenderer.RenderPlot(spec, Mathf.Clamp((int)px.x, 16, 2048), Mathf.Clamp((int)px.y, 16, 1024), ChartTheme.Panel,
-                                                           out double top, Mathf.Max(1, Mathf.RoundToInt(ui)));
+                                                           out double top, Mathf.Max(1, Mathf.RoundToInt(ui)), plotBuffers);
                         chartTex[i] = ChartTextures.ToTexture(img, chartTex[i]);
                         chartMax[i] = (float)top;
                         chartPx[i] = px;

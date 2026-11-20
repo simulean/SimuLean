@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace SimuLean.Collections
 {
     /// <summary>
-    /// A FlexSim-style model list: a decoupling rendezvous between producers
+    /// A model list: a decoupling rendezvous between producers
     /// (Push) and consumers (Pull) of any model object — items, move requests,
     /// vehicles, orders.
     ///

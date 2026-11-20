@@ -17,6 +17,13 @@ namespace SimuLean.Unity.Editor.Tests
     {
         private const string CopyPath = "Assets/__SimuLeanTestScene__.unity";
 
+        /// <summary>The test fixture scenes (one per resource travel kind): kept out of <c>Assets/Scenes</c> so the
+        /// SimuLean window's Examples tab does not list them.</summary>
+        public const string FixtureFolder = "Assets/SimuLean.Unity/Editor/Tests/Scenes";
+
+        /// <summary>The folders whose scenes the whole-scene scans see: the examples and the test fixtures.</summary>
+        public static readonly string[] SceneFolders = { SimuLeanModels.ExamplesFolder, FixtureFolder };
+
         public Scene Scene { get; }
         public GameObject Root { get; }
         private readonly bool copied;

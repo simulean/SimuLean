@@ -5,7 +5,7 @@ using SimuLean.Expressions;
 
 namespace SimuLean.Signals
 {
-    /// <summary>What a reaction does.</summary>
+    /// <summary>What a reaction does (first version).</summary>
     public enum ReactionActionKind
     {
         /// <summary>Sets a label of the signal's item (<c>item.name = value</c>).</summary>
@@ -20,6 +20,16 @@ namespace SimuLean.Signals
         Resume,
         /// <summary>Pushes a value to a model list.</summary>
         PushToList,
+        /// <summary>Releases items held by a gated Queue (the element, or the one that signalled): the value is how many
+        /// (empty = 1).</summary>
+        Release,
+        /// <summary>Offers an element (empty = the one that signalled) again the items waiting for it upstream, so its admission
+        /// is evaluated again for a condition that reads something other than an element property
+        /// (<c>content('Buffer') &lt; 5</c>, a table) — a property write wakes it by itself.</summary>
+        Retry,
+        /// <summary>Changes how the signal's item looks in the 3D view: its colour and / or scale. View-only:
+        /// nothing scheduled, no label or property written, every result unchanged (headless runs ignore it).</summary>
+        SetItemLook,
     }
 
     /// <summary>A value of an action: a plain number (a study can vary it) or an expression over the item and the
@@ -60,6 +70,8 @@ namespace SimuLean.Signals
         /// <summary>Only if: the action runs only when this holds (null = always), evaluated when its turn comes, after the
         /// actions before it (e.g. decrement a counter, then stop if it reached zero).</summary>
         public Expression Condition;
+        /// <summary>Set Item Look: the colour / scale it gives the item.</summary>
+        public ItemLook Look;
     }
 
     /// <summary>
@@ -170,7 +182,7 @@ namespace SimuLean.Signals
         {
             if (!Enabled) return;
             if (State.HasValue && SignalKinds.HasState(Signal) && !s.To.Equals(State.Value)) return;
-            scope.Item = s.Item; scope.Element = s.Source;
+            scope.Item = s.Item; scope.Element = s.Source; scope.Signal = s;
             try
             {
                 if (Condition != null && !Condition.Condition(scope)) { Skipped++; return; }
@@ -182,10 +194,10 @@ namespace SimuLean.Signals
             }
             catch (Exception e) when (!(e is OutOfMemoryException) && !(e is ReactionException))
             {
-                string where = s.Source != null ? " of '" + s.Source.GetName() + "'" : "";
+                string where = s.Source != null ? " of '" + s.Source.Name + "'" : "";
                 throw new ReactionException($"Reaction '{Name}' (on {s.Kind}{where} at t = {s.Time.ToString("0.###", CultureInfo.InvariantCulture)}): {e.Message}", e);
             }
-            finally { scope.Item = null; scope.Element = null; }
+            finally { scope.Item = null; scope.Element = null; scope.Signal = default; }
         }
 
         private void Run(ReactionAction a, in SignalArgs s)
@@ -196,18 +208,12 @@ namespace SimuLean.Signals
                 case ReactionActionKind.SetItemLabel:
                 {
                     if (s.Item == null) return;
-                    var v = a.Value.Evaluate(scope);
-                    if (v.Missing) s.Item.Properties.Remove(a.Name);
-                    else if (v.IsText) s.Item.SetLabelText(a.Name, v.Text);
-                    else s.Item.SetLabelValue(a.Name, v.AsNumber());
+                    s.Item.Properties.Set(a.Name, a.Value.Evaluate(scope));
                     return;
                 }
                 case ReactionActionKind.SetElementProperty:
                 {
-                    var v = a.Value.Evaluate(scope);
-                    if (v.Missing) target.Properties.Remove(a.Name);
-                    else if (v.IsText) target.Properties.SetString(a.Name, v.Text);
-                    else target.Properties.SetDouble(a.Name, v.AsNumber());
+                    target.Properties.Set(a.Name, a.Value.Evaluate(scope));
                     return;
                 }
                 case ReactionActionKind.Stop:
@@ -229,6 +235,23 @@ namespace SimuLean.Signals
                     list.PushValue(v.IsText ? (object)v.Text : v.AsNumber(), null, s.Source);
                     return;
                 }
+                case ReactionActionKind.Release:
+                {
+                    if (!(target is ItemsQueue gate) || !gate.Gated)
+                        throw new InvalidOperationException($"a release acts on a Queue released on command, not on '{target?.Name ?? "(none)"}'.");
+                    double n = a.Value.IsSet ? a.Value.Evaluate(scope).AsNumber() : 1;
+                    if (double.IsNaN(n) || n < 0 || n != Math.Floor(n))
+                        throw new InvalidOperationException($"the number of items to release ({n}) must be a whole number ≥ 0.");
+                    if (n > 0) gate.ReleaseItems((int)n);
+                    return;
+                }
+                case ReactionActionKind.Retry:
+                    if (target == null) throw new InvalidOperationException("a retry needs an element (a time signal has none).");
+                    target.WakeInput();
+                    return;
+                case ReactionActionKind.SetItemLook:
+                    s.Item?.SetLook(a.Look);   // view-only: nothing scheduled, nothing read by the model
+                    return;
             }
         }
 
@@ -237,7 +260,8 @@ namespace SimuLean.Signals
             var token = target.Stop(new StopRequest { State = a.State, Mode = a.Mode, Reason = "Reaction " + Name });
             if (!Stops.TryGetValue(target, out var list)) Stops[target] = list = new List<(StopToken, string)>(1);
             list.Add((token, Group(a)));
-            if (a.Duration > 0) clock.ScheduleEvent(new ResumeAfter(this, target, token), a.Duration);
+            // its duration from when it takes effect: an AfterCurrent stop starts when the work in hand ends, whole
+            if (a.Duration > 0) token.WhenEffective(t => clock.ScheduleEvent(new ResumeAfter(this, target, t), a.Duration));
             if (a.Team != null) StoppedMembers.Add((target, Group(a)));
         }
 
@@ -315,12 +339,13 @@ namespace SimuLean.Signals
             private SimuLean.Stochastics.Streams.IRandomEngine random;
             public Item Item;
             public Element Element;
+            public SignalArgs Signal;
             public Scope(Reaction owner) { this.owner = owner; }
             public double Now => owner.clock.GetSimulationTime();
             public SimuLean.Data.ModelData Data => owner.clock.Context.Data;
             public SimuLean.Stochastics.Streams.IRandomEngine Random
                 => random ?? (random = owner.clock.Context.CreateRandomStream("reaction:" + owner.Name, "expr"));
-            public Element FindElement(string name) => owner.clock.Context.FindElement(name);
+            public SimContext Model => owner.clock.Context;
 
             public ExprValue Get(string root, string name)
             {
@@ -329,6 +354,20 @@ namespace SimuLean.Signals
                     case null:
                     case "item": return EntityScope.OfItem(Item, name, Now);
                     case "element": return EntityScope.OfElement(Element, name);
+                    case "signal": return OfSignal(name);
+                }
+                return ExprValue.None;
+            }
+
+            // what the signal carries (a timeout: kind, action, waited; every signal: its time)
+            private ExprValue OfSignal(string name)
+            {
+                switch (name)
+                {
+                    case "time": return ExprValue.Of(Signal.Time);
+                    case "waited": return double.IsNaN(Signal.Waited) ? ExprValue.None : ExprValue.Of(Signal.Waited);
+                    case "kind": return Signal.WaitKind != null ? ExprValue.Of(Signal.WaitKind) : ExprValue.None;
+                    case "action": return Signal.WaitAction != null ? ExprValue.Of(Signal.WaitAction) : ExprValue.None;
                 }
                 return ExprValue.None;
             }

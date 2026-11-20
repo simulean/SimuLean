@@ -75,9 +75,13 @@ namespace SimuLean.Unity.Editor
             if (serializedObject.FindProperty("stopAt").arraySize > 0)
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("stopAtCount"), new GUIContent("Stop At Count", "Items those elements must receive between them."));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("stopWhenEmpty"), new GUIContent("Stop When Empty", "End condition: nothing left to do — every item out, at rest in a buffer without outputs, or surplus nothing will take; or a deadlock / stall."));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("stopWhenNoProgressFor"), new GUIContent("Stop When No Progress For",
+                "End condition: no item has entered or left any element for this model time while items wait (end reason NoProgress) — " +
+                "a stall beside a periodic signal or a reaction, which keep the run from ever being idle. Longer than the longest " +
+                "process, stop or break; an element off shift until its next window is never taken for it. 0 = off."));
 
             // ── Results (the fields were serialized but never drawn: Record Timeline could not be switched on) ──
-            // (the "Results" heading is the field's [Header]; review2 #42: it was drawn twice)
+            // (the "Results" heading is the field's [Header], so the field is not drawn with its own)
             EditorGUILayout.PropertyField(serializedObject.FindProperty("exportOnFinish"), new GUIContent("Export On Finish",
                 "Formats written when a Play run finishes (Nothing = no file; the SimuLean window's Results tab still shows the run)."));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("seriesInterval"), new GUIContent("Series Interval",
@@ -284,7 +288,7 @@ namespace SimuLean.Unity.Editor
             Rect rect = EditorGUI.IndentedRect(GUILayoutUtility.GetRect(18, 16, GUILayout.ExpandWidth(true)));
             string status = run.State switch
             {
-                HeadlessSceneRun.RunState.Running   => $"{run.Progress * 100:F1} %",
+                HeadlessSceneRun.RunState.Running   => run.RanIn == "editor" ? $"{run.Progress * 100:F1} %" : "Running outside the editor…",
                 HeadlessSceneRun.RunState.Finished  => "Finished",
                 HeadlessSceneRun.RunState.Cancelled => "Cancelled",
                 _                                   => "Failed (see Console)",
@@ -292,7 +296,7 @@ namespace SimuLean.Unity.Editor
             EditorGUI.ProgressBar(rect, (float)run.Progress, status);
             EditorGUILayout.LabelField(
                 $"{run.ElementCount} elements · {FormatSimTime(run.SimTime)} simulated in {run.WallSeconds:F2} s real " +
-                $"(×{run.EffectiveSpeed:N0}) · seed {(run.Seed.HasValue ? run.Seed.Value.ToString() : "random")}",
+                $"(×{run.EffectiveSpeed:N0}) · seed {(run.Seed.HasValue ? run.Seed.Value.ToString() : "random")} · {run.RanIn}",
                 EditorStyles.miniLabel);
 
             var results = run.Results;

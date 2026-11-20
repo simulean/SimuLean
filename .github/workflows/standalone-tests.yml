@@ -1,0 +1,59 @@
+# The standalone (headless, no Unity) suites on every push and pull request to main: StandaloneTests/run-all.ps1 builds
+# the engine library once and every suite, runs them (reference models against their baselines, unit suites, docs
+# checks) and checks that docs/agents/commands.md is current (Python). The Unity EditMode suite needs a licensed editor
+# and runs in the local pre-commit gate only (.claude/hooks/test-gate.ps1).
+name: standalone-tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: standalone-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  standalone:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # StandaloneTests/Engine.props: net10.0 (the runner's runtime), the engine at Unity's C# 9
+      - uses: actions/setup-dotnet@v4
+        id: dotnet
+        with:
+          dotnet-version: '10.0.x'
+
+      # the runner image also carries a newer SDK, which dotnet would pick (and whose parallel NuGet restore failed on
+      # the suites: "Cannot create a file when that file already exists"): the job builds with the .NET 10 SDK set up
+      # above, through a global.json of the job only (a developer's machine keeps its own SDK choice)
+      - name: Pin the .NET 10 SDK
+        shell: powershell
+        run: dotnet new globaljson --sdk-version ${{ steps.dotnet.outputs.dotnet-version }} --roll-forward latestFeature --force
+
+      # run-all's commands.md check (Tools/Docs/command_reference.py, standard library only)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Standalone suites
+        shell: powershell
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+          DOTNET_NOLOGO: '1'
+        # SqliteInterop loads a "sqlite3" library before Windows' own winsqlite3.dll: a sqlite3.dll that a tool of the
+        # runner image puts on the PATH crashed sqlite3_open16 (0xC0000005) in the four suites that open a database.
+        # The suites get the machine without it, as on a developer's Windows (winsqlite3.dll).
+        run: |
+          $dirs = $env:PATH -split ';' | Where-Object { $_ }
+          $dropped = @($dirs | Where-Object { Test-Path (Join-Path $_ 'sqlite3.dll') })
+          if ($dropped.Count -gt 0) { Write-Host "PATH folders with a sqlite3.dll left out: $($dropped -join ', ')" }
+          $env:PATH = (@($dirs | Where-Object { $dropped -notcontains $_ }) -join ';')
+          powershell -NoProfile -ExecutionPolicy Bypass -File StandaloneTests/run-all.ps1
+          exit $LASTEXITCODE

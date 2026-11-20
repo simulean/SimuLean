@@ -6,10 +6,10 @@ namespace SimuLean.Unity
     // Core types (Item, ...) resolve from the enclosing SimuLean namespace.
     public class UnityItem : MonoBehaviour
     {
-        [Header("Modelo")]
-        public Item item;  // the engine item (set from code; shown for debugging)
+        [System.NonSerialized]
+        public Item item;  // the engine item (set from code)
 
-        [Header("Etiquetas (Labels)")]
+        [Header("Labels")]
         [SerializeField]
         private List<LabelEntry> labels = new List<LabelEntry>();
 
@@ -28,7 +28,7 @@ namespace SimuLean.Unity
             }
         }
 
-        [ContextMenu("Actualizar etiquetas")]
+        [ContextMenu("Refresh Labels")]
         public void UpdateLabelsFromItem()
         {
             labels.Clear();

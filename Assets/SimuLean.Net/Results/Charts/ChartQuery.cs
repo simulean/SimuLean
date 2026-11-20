@@ -18,7 +18,7 @@ namespace SimuLean.Results.Charts
         Line,
         /// <summary>Share of time per state, stacked per object.</summary>
         States,
-        /// <summary>Stacked columns (e.g. per period of a live run), absolute or each column to 100 % (<see cref="ChartData.Normalise"/>).
+        /// <summary>Stacked columns (e.g. per period of a live run), absolute or each column to 100 % (<see cref="ChartData.Normalize"/>).
         /// Drawn from data built in code (the element inspector, dashboards), not from a query.</summary>
         Stacked,
         /// <summary>A Gantt of one run: a row per object, its state intervals over time in the states' colours (needs the
@@ -65,6 +65,48 @@ namespace SimuLean.Results.Charts
 
         public string Label => Source == ChartSource.Statistic && !string.IsNullOrEmpty(Objects) && !Objects.Contains("*") && !Objects.Contains(";")
             ? $"{Objects} {Name}" : Name;
+
+        /// <summary>
+        /// A chart value written as a study writes it (one grammar with the study's metric and factor paths):
+        /// a named metric of <paramref name="set"/> (<c>out</c>), one of its factors (<c>Buf.capacity</c>,
+        /// <c>team:Operators.members</c>), else a statistic path <c>[scope:]OBJECTS.statistic</c> whose objects may be
+        /// several, <c>;</c>-separated, or <c>*</c> patterns (<c>Srv;Buf.utilization</c>, <c>*.utilization</c>,
+        /// <c>team:*.utilization</c>, <c>model.makespan</c>; the scope a <see cref="ResultScope"/>, default element).
+        /// </summary>
+        public static ChartValue Parse(string text, ResultSet set)
+        {
+            string t = (text ?? "").Trim();
+            if (t.Length == 0) throw new ArgumentException("A chart value is empty: give a metric, a factor or a statistic path (e.g. Srv.utilization).");
+            var metrics = set?.MetricNames ?? new List<string>();
+            if (metrics.Contains(t)) return new ChartValue(ChartSource.Metric, t);
+            var factors = new List<string>();
+            if (set != null)
+                foreach (var s in set.Scenarios)
+                    foreach (var p in s.Parameters)
+                        if (!factors.Contains(p.Key)) factors.Add(p.Key);
+            if (factors.Contains(t)) return new ChartValue(ChartSource.Parameter, t);
+            if (t.StartsWith("model.", StringComparison.OrdinalIgnoreCase) && t.Length > 6)
+                return new ChartValue(ChartSource.Statistic, t.Substring(6), "model", "");
+            string scope = "element", path = t;
+            int colon = path.IndexOf(':'), firstDot = path.IndexOf('.');
+            if (colon > 0 && (firstDot < 0 || colon < firstDot))
+            {
+                scope = path.Substring(0, colon).Trim().ToLowerInvariant();
+                path = path.Substring(colon + 1);
+            }
+            int dot = path.IndexOf('.');
+            bool knownScope = Enum.TryParse(scope, true, out ResultScope rs) && Enum.IsDefined(typeof(ResultScope), rs) && !char.IsDigit(scope[0]);
+            if (knownScope && dot > 0 && dot < path.Length - 1)
+            {
+                string objects = path.Substring(0, dot).Trim();
+                return new ChartValue(ChartSource.Statistic, path.Substring(dot + 1).Trim(), scope, objects == "*" ? "" : objects);
+            }
+            throw new ArgumentException($"'{t}' is not a metric of the set ({List(metrics)}), one of its factors ({List(factors)}) " +
+                                        "or a statistic path [scope:]OBJECTS.statistic (e.g. Srv.utilization, Srv;Buf.utilization, " +
+                                        $"*.utilization, team:*.utilization, model.makespan; scopes {string.Join(", ", Enum.GetNames(typeof(ResultScope))).ToLowerInvariant()}).");
+        }
+
+        private static string List(List<string> names) => names.Count == 0 ? "none" : string.Join(", ", names);
     }
 
     /// <summary>
@@ -144,7 +186,7 @@ namespace SimuLean.Results.Charts
         /// <summary>Histogram: the width of a bin.</summary>
         public double BinWidth;
         /// <summary>Stacked: each column to 100 %.</summary>
-        public bool Normalise;
+        public bool Normalize;
         /// <summary>The value unit shown with the axis maximum (e.g. <c>%</c>, <c>items</c>).</summary>
         public string Unit = "";
         /// <summary>Columns too many to label one by one (time buckets): the labels under the first, middle and last column.</summary>

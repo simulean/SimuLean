@@ -1,0 +1,17 @@
+<!-- Builds the engine library (Engine/Engine.csproj) once and every suite (each folder <name>/<name>.csproj) in ONE MSBuild
+     run, in parallel: dotnet build StandaloneTests/StandaloneTests.proj -m (run-all.ps1 does it, then runs the built
+     suites; 2026-11-13). A traversal project because *.sln / *.slnx are git-ignored (Unity generates them). -->
+<Project DefaultTargets="Build">
+  <ItemGroup>
+    <SimuLeanSuite Include="$(MSBuildThisFileDirectory)*\*.csproj" />
+  </ItemGroup>
+  <Target Name="Restore">
+    <MSBuild Projects="@(SimuLeanSuite)" Targets="Restore" BuildInParallel="true" />
+  </Target>
+  <Target Name="Build">
+    <MSBuild Projects="@(SimuLeanSuite)" Targets="Build" BuildInParallel="true" />
+  </Target>
+  <Target Name="Clean">
+    <MSBuild Projects="@(SimuLeanSuite)" Targets="Clean" BuildInParallel="true" />
+  </Target>
+</Project>

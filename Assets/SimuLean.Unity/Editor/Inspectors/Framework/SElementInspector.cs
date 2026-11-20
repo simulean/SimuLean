@@ -33,6 +33,29 @@ namespace SimuLean.Unity.Editor
         /// <summary>More of the Statistics section in Play (live controls, progress), drawn after the KPIs.</summary>
         protected virtual void DrawPlayExtra() { }
 
+        /// <summary>The fields <see cref="DrawParameters"/>, <see cref="DrawVisual"/> and <see cref="DrawFlowExtra"/> draw
+        /// themselves (also those drawn only under a condition). Every other serialized field — but the shared sections' and
+        /// <see cref="HiddenFields"/> — is drawn after them by <see cref="DrawRemaining"/> (unless the section called it
+        /// itself, at the place it chose), so a field added to an element is never missing from its inspector. An inspector that declares fields must declare every one (<c>InspectorCoverageTests</c>); one that
+        /// declares none shows them all among the remaining fields, as the generic inspector does.</summary>
+        protected virtual string[] DrawnFields => System.Array.Empty<string>();
+
+        /// <summary>Serialized fields deliberately not drawn (data kept by tooling, e.g. a loaded table's copy).</summary>
+        protected virtual string[] HiddenFields => System.Array.Empty<string>();
+
+        /// <summary>Fields the shared sections draw (Flow, Resources, Setup).</summary>
+        internal static IEnumerable<string> SharedFieldNames => SharedFields;
+
+        /// <summary>The fields this inspector draws itself or hides (the others are drawn by <see cref="DrawRemaining"/>).</summary>
+        internal IEnumerable<string> CoveredFields
+        {
+            get { foreach (var f in DrawnFields) yield return f; foreach (var f in HiddenFields) yield return f; }
+        }
+
+        private HashSet<string> covered;
+        private HashSet<string> Covered => covered ?? (covered = new HashSet<string>(CoveredFields));
+        private bool remainingDrawn;   // the section being drawn already called DrawRemaining
+
         protected SElement Element => (SElement)target;
         protected SerializedProperty Prop(string name) => serializedObject.FindProperty(name);
         private string Key(string section) => target.GetType().Name + "." + section;
@@ -51,7 +74,8 @@ namespace SimuLean.Unity.Editor
             serializedObject.Update();
             DrawElementHeader();
 
-            if (SimuLeanGUI.Section(Key("Parameters"), "Parameters")) { EditorGUI.indentLevel++; DrawParameters(); DrawProperties(); EditorGUI.indentLevel--; }
+            if (SimuLeanGUI.Section(Key("Parameters"), "Parameters"))
+            { EditorGUI.indentLevel++; remainingDrawn = false; DrawParameters(); if (!remainingDrawn) DrawRemaining(false); DrawProperties(); EditorGUI.indentLevel--; }
             if (SimuLeanGUI.Section(Key("Flow"), "Flow", true, FlowSummary()))
             {
                 EditorGUI.indentLevel++;
@@ -63,11 +87,14 @@ namespace SimuLean.Unity.Editor
             }
             if (SimuLeanGUI.Section(Key("Resources"), "Resources", false, ResourcesSummary()))
             { EditorGUI.indentLevel++; SElementEditorHelper.DrawResourceFields(serializedObject); EditorGUI.indentLevel--; }
+            // a station's setup before its process: Multi-Server, Combiner, Picking Station
+            if (target is ISetupUser setupUser && SimuLeanGUI.Section(Key("Setup"), "Setup", false, SetupSummary(setupUser)))
+            { EditorGUI.indentLevel++; SElementEditorHelper.DrawSetup(serializedObject); EditorGUI.indentLevel--; }
             // what reacts to this element, and + Reaction
             if (SimuLeanGUI.Section(Key("Reactions"), "Reactions", false, ReactionsSection.Summary(Element)))
             { EditorGUI.indentLevel++; ReactionsSection.Draw(Element); EditorGUI.indentLevel--; }
             if (HasVisual && SimuLeanGUI.Section(Key("Visual"), "Visual", false))
-            { EditorGUI.indentLevel++; DrawVisual(); DrawConnectionSwitch(); EditorGUI.indentLevel--; }
+            { EditorGUI.indentLevel++; remainingDrawn = false; DrawVisual(); if (!remainingDrawn) DrawRemaining(true); DrawConnectionSwitch(); EditorGUI.indentLevel--; }
             if (Application.isPlaying && SimuLeanGUI.Section(Key("Statistics"), "Statistics"))
             { EditorGUI.indentLevel++; DrawStatistics(); DrawPlayExtra(); EditorGUI.indentLevel--; }
 
@@ -76,7 +103,7 @@ namespace SimuLean.Unity.Editor
 
         // ── header and issues ────────────────────────────────────────────────
 
-        // The element's look as its icon (review2 #47: every header showed the generic script icon): the prefab it was
+        // The element's look as its icon: the prefab it was
         // placed from, else the Library's prefab or icon of its type; previews load over a few frames.
         private Texture HeaderIcon(SimuLeanElementAttribute info)
         {
@@ -137,9 +164,19 @@ namespace SimuLean.Unity.Editor
             return parts.Count > 0 ? string.Join(" · ", parts) : "none";
         }
 
+        private static string SetupSummary(ISetupUser user)
+        {
+            var s = user.Setup;
+            if (s == null || !s.IsUsed) return "none";
+            string when = s.when == SetupWhen.LabelChange ? "on change of " + s.label : "each item";
+            string who = s.keepForProcess ? "process team" : s.setupBy?.team != null ? s.setupBy.team.name : "machine";
+            return when + (s.matrix != null ? " · matrix " + s.matrix.TableName : "") + " · " + who;
+        }
+
         // ── shared helpers for element inspectors ────────────────────────────
 
         private static readonly HashSet<string> SharedFields = new HashSet<string>(SElementEditorHelper.ConnectionFields);
+        // HiddenFields of every element: none yet
 
         /// <summary>
         /// Every serialized field of the element not drawn by the shared sections nor listed in <paramref name="skip"/>,
@@ -148,12 +185,13 @@ namespace SimuLean.Unity.Editor
         /// </summary>
         protected void DrawRemaining(bool visual, params string[] skip)
         {
+            remainingDrawn = true;
             var it = serializedObject.GetIterator();
             bool enter = true;
             while (it.NextVisible(enter))
             {
                 enter = false;
-                if (SharedFields.Contains(it.name) || System.Array.IndexOf(skip, it.name) >= 0) continue;
+                if (SharedFields.Contains(it.name) || Covered.Contains(it.name) || System.Array.IndexOf(skip, it.name) >= 0) continue;
                 if (IsVisual(it) != visual) continue;
                 SimuLeanGUI.Field(it.Copy());
             }
@@ -186,15 +224,15 @@ namespace SimuLean.Unity.Editor
             }
         }
 
-        // ── user properties (labels) ─────────────────────────────────────────
+        // ── user properties ─────────────────────────────────────────
 
         private void DrawProperties()
         {
             var go = Element.gameObject;
-            if (go.GetComponent<SElementLabels>() != null) return;   // edited in its own component
+            if (go.GetComponent<SElementProperties>() != null) return;   // edited in its own component
             var r = EditorGUILayout.GetControlRect();
             r = EditorGUI.PrefixLabel(r, new GUIContent("Properties", "User properties (key = value) read by expressions, lists and routing."));
-            if (GUI.Button(r, "+ Add properties")) Undo.AddComponent<SElementLabels>(go);
+            if (GUI.Button(r, "+ Add properties")) Undo.AddComponent<SElementProperties>(go);
         }
 
         // ── statistics (Play) ────────────────────────────────────────────────

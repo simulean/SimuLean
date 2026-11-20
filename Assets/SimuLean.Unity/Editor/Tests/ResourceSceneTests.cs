@@ -19,21 +19,13 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void TeamSceneExtractsAndRunsHeadless()
         {
-            var active = SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                SceneManager.MoveGameObjectToScene(root, scene);
-                T Make<T>(string n) where T : Component
-                {
-                    var go = new GameObject(n);
-                    go.transform.SetParent(root.transform);
-                    return go.AddComponent<T>();
-                }
+                var root = test.Root;
+                T Make<T>(string n) where T : Component => test.Make<T>(n);
 
                 var team = Make<UnityResourceTeam>("Crew");
+                team.travel = TeamTravel.Abstract;   // the element's travel time (a team now travels straight by default)
                 team.AddMembers(2);
                 team.members[0].loadTime = 0.1f;
                 var src = Make<UnitySource>("Src");
@@ -62,13 +54,13 @@ namespace SimuLean.Unity.Editor.Tests
                 var tc = cfg.ResourceTeams[0];
                 Assert.AreEqual(2, tc.Members.Count);
                 Assert.AreEqual(0.1, tc.Members[0].LoadTime, 1e-6, "member load time exported");
-                var sc = cfg.Elements.Single(e => e.Type == nameof(UnityMultiServer));
-                Assert.AreEqual(tc.Id, sc.GetParameter<string>(ResourceUseKeys.ProcessTeam, ""), "process team");
-                Assert.AreEqual("ItemLeaves", sc.GetParameter<string>(ResourceUseKeys.ProcessRelease, ""));
-                Assert.AreEqual(tc.Id, sc.GetParameter<string>(ResourceUseKeys.TransportTeam, ""), "transport team");
-                Assert.IsNotEmpty(sc.GetParameter<string>(ResourceUseKeys.TransportTravel, ""), "travel time exported");
-                var qc = cfg.Elements.Single(e => e.Type == nameof(UnityQueue));
-                Assert.IsEmpty(qc.GetParameter<string>(ResourceUseKeys.ProcessTeam, ""), "no process team on a queue");
+                var sc = cfg.Elements.Single(e => e.Type == "MultiServer");
+                Assert.AreEqual(tc.Id, sc.Get<string>("processBy.team", ""), "process team");
+                Assert.AreEqual("ItemLeaves", sc.Get<string>("processBy.release", ""));
+                Assert.AreEqual(tc.Id, sc.Get<string>("transportBy.team", ""), "transport team");
+                Assert.IsNotNull(sc.Get<SimuLean.Serialization.SamplerSettings>("transportBy.travelTime"), "travel time exported");
+                var qc = cfg.Elements.Single(e => e.Type == "Queue");
+                Assert.IsEmpty(qc.Get<string>("processBy.team", ""), "no process team on a queue");
 
                 cfg.MaxSimulationTime = 100;
                 var clock = new SimClock(1);
@@ -82,23 +74,226 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.AreEqual(2, factory.Executors.Count);
                 Assert.Greater(factory.Executors.Sum(x => x.TasksDone), 90, "the crew processed and carried");
             }
-            finally
+        }
+
+        /// <summary>The preemption fields of the Process / Transport blocks and the team's On Stop are extracted and
+        /// built; a new use's priority is 1.</summary>
+        [Test]
+        public void PreemptionFieldsExtractAndBuild()
+        {
+            using (var test = new TestScene("Model"))
             {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
+                var root = test.Root;
+                T Make<T>(string n) where T : Component => test.Make<T>(n);
+
+                var team = Make<UnityResourceTeam>("Crew");
+                team.travel = TeamTravel.Abstract;
+                team.AddMembers(1);
+                team.jobOnMemberStop = ResourceStopPolicy.WaitForSame;
+                var src = Make<UnitySource>("Src");
+                src.mode = SourceMode.InterArrival;
+                src.interArrivalDistribution = new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = 2f };
+                var routine = Make<UnityMultiServer>("Routine");
+                routine.delayStrategy = new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = 1.5f };
+                var urgent = Make<UnityMultiServer>("Urgent");
+                urgent.delayStrategy = new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = 0.5f };
+                var sink = Make<UnitySink>("Sink");
+                src.nextElements = new List<SElement> { routine, urgent };
+                routine.nextElements = new List<SElement> { sink };
+                urgent.nextElements = new List<SElement> { sink };
+                routine.processBy = new ProcessResourceUse { team = team, preemptable = false };
+                urgent.processBy = new ProcessResourceUse { team = team, priority = "5", preemption = PreemptMode.Restart };
+                urgent.transportBy = new TransportResourceUse { team = team, preemption = PreemptMode.Resume };
+                Assert.AreEqual("1", new ProcessResourceUse().priority, "a new use's priority is 1");
+
+                SimulationConfig cfg = SceneExtractor.Extract(root).Config;
+                Assert.AreEqual(ResourceStopPolicy.WaitForSame, cfg.ResourceTeams[0].JobOnMemberStop, "team On Stop exported");
+                var uc = cfg.Elements.Single(e => e.Name == "Urgent");
+                var rc = cfg.Elements.Single(e => e.Name == "Routine");
+                Assert.AreEqual("Restart", uc.Get<string>("processBy.preemption", ""));
+                Assert.AreEqual("Resume", uc.Get<string>("transportBy.preemption", ""));
+                Assert.AreEqual("None", rc.Get<string>("processBy.preemption", ""));
+                Assert.IsFalse(rc.Get<bool>("processBy.preemptable", true), "preemptable exported");
+
+                var clock = new SimClock(1);
+                var factory = new HeadlessModelFactory(clock);
+                factory.BuildModel(cfg);
+                var urgentRes = ((IResourceUser)factory.Find("Urgent")).Resources;
+                var routineRes = ((IResourceUser)factory.Find("Routine")).Resources;
+                Assert.AreEqual(PreemptMode.Restart, urgentRes.Preempt, "process mode built");
+                Assert.IsFalse(routineRes.Preemptable, "preemptable built");
+                Assert.AreEqual(ResourceStopPolicy.WaitForSame, factory.Executors[0].OnStop, "team On Stop built");
+                Assert.IsTrue(urgentRes.Dispatcher.Preemptive, "the team is preemptive");
+            }
+        }
+
+        /// <summary>Preemption everywhere: the Process block's preemption fields of an assembly station (one
+        /// request per task, the station's mode) and of an erection dock (with its own time, HoldFor) are extracted and built
+        /// onto the engine elements, and the scene runs headless with a station that takes their operators.</summary>
+        [Test]
+        public void PreemptionFieldsOfAssemblyAndDockExtractAndBuild()
+        {
+            using (var test = new TestScene("Model"))
+            {
+                var root = test.Root;
+                T Make<T>(string n) where T : Component => test.Make<T>(n);
+                RandomProcessConfig Const(float v) => new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = v };
+
+                var team = Make<UnityResourceTeam>("Crew");
+                team.travel = TeamTravel.Abstract;
+                team.AddMembers(2);
+                var src = Make<UnitySource>("Src");
+                src.mode = SourceMode.InterArrival;
+                src.interArrivalDistribution = Const(6f);
+                var asm = Make<UnityAssemblyStation>("Asm");
+                asm.workerCount = 2;
+                asm.tasks = new List<AssemblyTaskConfig>
+                {
+                    new AssemblyTaskConfig { id = "a", duration = Const(3f) },
+                    new AssemblyTaskConfig { id = "b", duration = Const(2f) },
+                };
+                asm.processBy = new ProcessResourceUse { team = team, preemption = PreemptMode.Restart, preemptable = true };
+                var urgentSrc = Make<UnitySource>("UrgentSrc");
+                urgentSrc.mode = SourceMode.InterArrival;
+                urgentSrc.interArrivalDistribution = Const(7f);
+                var urgent = Make<UnityMultiServer>("Urgent");
+                urgent.delayStrategy = Const(1f);
+                urgent.processBy = new ProcessResourceUse { team = team, priority = "5", preemption = PreemptMode.Resume };
+                var dock = Make<SimuLean.Unity.Naval.UnityErectionDock>("Dock");
+                dock.processBy = new ProcessResourceUse { team = team, preemptable = false, holdForOwnTime = true, holdFor = Const(2f) };
+                var sink = Make<UnitySink>("Sink");
+                src.nextElements = new List<SElement> { asm };
+                asm.nextElements = new List<SElement> { sink };
+                urgentSrc.nextElements = new List<SElement> { urgent };
+                urgent.nextElements = new List<SElement> { sink };
+
+                SimulationConfig cfg = SceneExtractor.Extract(root).Config;
+                var ac = cfg.Elements.Single(e => e.Name == "Asm");
+                var dc = cfg.Elements.Single(e => e.Name == "Dock");
+                Assert.AreEqual("Restart", ac.Get<string>("processBy.preemption", ""), "assembly mode exported");
+                Assert.IsTrue(ac.Get<bool>("processBy.preemptable", false), "assembly preemptable exported");
+                Assert.AreEqual("None", dc.Get<string>("processBy.preemption", ""), "dock mode exported");
+                Assert.IsFalse(dc.Get<bool>("processBy.preemptable", true), "dock preemptable exported");
+                Assert.IsTrue(dc.Has("processBy.holdFor"), "dock own time exported");
+
+                cfg.MaxSimulationTime = 200;
+                var clock = new SimClock(1);
+                var factory = new HeadlessModelFactory(clock);
+                factory.BuildModel(cfg);
+                var asmRes = ((IResourceUser)factory.Find("Asm")).Resources;
+                var dockRes = ((IResourceUser)factory.Find("Dock")).Resources;
+                Assert.IsInstanceOf<AssemblyStation>(factory.Find("Asm"));
+                Assert.IsInstanceOf<SimuLean.Naval.ErectionDock>(factory.Find("Dock"));
+                Assert.AreEqual(PreemptMode.Restart, asmRes.Preempt, "assembly mode built");
+                Assert.IsTrue(asmRes.Preemptable, "assembly preemptable built");
+                Assert.IsFalse(dockRes.Preemptable, "dock preemptable built");
+                Assert.IsNotNull(dockRes.HoldFor, "dock own time built");
+                factory.StartModel();
+                clock.AdvanceClock(200);
+                Assert.Greater(asmRes.Interruptions, 0, "the urgent station took operators from assembly tasks");
+                Assert.Greater(((Element)factory.Find("Sink")).GetStatsInputCount(), 0, "the scene's model runs headless");
+            }
+        }
+
+        [Test]
+        public void AStraightTeamGoesInStraightLinesToPointsInFrontOfTheElements()
+        {
+            using (var test = new TestScene("Model"))
+            {
+                var root = test.Root;
+                T Make<T>(string n, Vector3 at = default) where T : Component
+                {
+                    var go = new GameObject(n);
+                    go.transform.SetParent(root.transform);
+                    go.transform.position = at;
+                    return go.AddComponent<T>();
+                }
+
+                var team = Make<UnityResourceTeam>("Ops", new Vector3(0f, 0f, -10f));
+                Assert.AreEqual(TeamTravel.Straight, team.travel, "a new team travels in straight lines");
+                team.AddMembers(1);
+                team.speed = 2f;
+                var src = Make<UnitySource>("Src", new Vector3(-5f, 0f, 0f));
+                src.mode = SourceMode.InterArrival;
+                src.interArrivalDistribution = new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = 100f };
+                var server = Make<UnityMultiServer>("Server");
+                server.delayStrategy = new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = 1f };
+                var sink = Make<UnitySink>("Sink", new Vector3(5f, 0f, 0f));
+                src.nextElements = new List<SElement> { server };
+                server.nextElements = new List<SElement> { sink };
+                server.processBy = new ProcessResourceUse { team = team };
+
+                var x = SceneExtractor.Extract(root);
+                var cfg = x.Config;
+                var tc = cfg.ResourceTeams.Single();
+                Assert.AreEqual(SimuLean.Serialization.TravelKind.Straight, tc.Travel);
+                Assert.AreEqual(ExtractionRules.AutoHomeId(tc.Id), tc.HomeNode, "no home node: the team's own position");
+                string serverId = x.ElementIds[server];
+                var sc = cfg.Elements.Single(e => e.Id == serverId);
+                Assert.AreEqual(SceneExtractor.AutoPointPrefix + serverId, sc.Get<string>("location", ""),
+                                "an element without a location gets one");
+                Vector3 front = UnityResourceTeam.AutoPoint(server);
+                Assert.Less(front.z, -0.5f, "in front of the element (−Z, the model frame), where a person works");
+                Assert.AreEqual(0f, front.y, 1e-6f, "on its floor");
+
+                var clock = new SimClock(1);
+                var factory = new HeadlessModelFactory(clock);
+                factory.BuildModel(cfg);
+                double arrived = double.NaN, done = double.NaN;
+                factory.Find("Server").ItemEntered += (e, item) => { if (double.IsNaN(arrived)) arrived = clock.GetSimulationTime(); };
+                factory.Find("Sink").ItemEntered += (e, item) => { if (double.IsNaN(done)) done = clock.GetSimulationTime(); };
+                factory.StartModel();
+                clock.AdvanceClock(150);
+                var op = factory.Executors.Single();
+                Assert.GreaterOrEqual(op.TasksDone, 1, "the operator processed the first item");
+                Assert.AreEqual(SceneExtractor.AutoPointPrefix + serverId, op.Location, "and stays at the station's point");
+                double walk = Vector3.Distance(team.transform.position, front) / 2.0;
+                Assert.AreEqual(walk + 1.0, done - arrived, 1e-4, "the item leaves after the walk (straight distance ÷ speed) and the process");
+            }
+        }
+
+        [Test]
+        public void AStorageMovedByAStraightTeamGetsAPointPerLane()
+        {
+            using (var test = new TestScene("Model"))
+            {
+                var root = test.Root;
+                var crane = new GameObject("Crane");
+                crane.transform.SetParent(root.transform);
+                var team = crane.AddComponent<UnityResourceTeam>();
+                team.AddMembers(1);
+                var storeGo = new GameObject("Store");
+                storeGo.transform.SetParent(root.transform);
+                var store = storeGo.AddComponent<UnityStorageSystem>();
+                foreach (var (n, y) in new[] { ("L1", 0f), ("L2", 3f) })
+                {
+                    var lane = new GameObject(n);
+                    lane.transform.SetParent(storeGo.transform);
+                    lane.transform.localPosition = new Vector3(2f, y, 0f);
+                }
+                store.transportBy = new TransportResourceUse { team = team };
+                Assert.IsTrue(store.AutoLaneNodes);
+
+                var cfg = SceneExtractor.Extract(root).Config;
+                var nodes = cfg.Network.Nodes.Where(r => r.Id.StartsWith("lane:")).ToList();
+                Assert.AreEqual(2, nodes.Count, "one point per lane");
+                foreach (var lane in store.ResolveLanes())
+                {
+                    Assert.AreEqual(store.AutoLaneNodeId(lane.LaneId), lane.NodeId);
+                    Assert.IsTrue(nodes.Any(r => r.Id == lane.NodeId), $"{lane.LaneId}: its point is in the model");
+                }
+
+                team.travel = TeamTravel.Abstract;
+                Assert.IsFalse(store.AutoLaneNodes, "an abstract team: instant moves, as before");
             }
         }
 
         [Test]
         public void VehicleFleetOnNetworkExtractsAndRunsHeadless()
         {
-            var active = SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                SceneManager.MoveGameObjectToScene(root, scene);
+                var root = test.Root;
                 T Make<T>(string n, Vector3 at = default) where T : Component
                 {
                     var go = new GameObject(n);
@@ -138,12 +333,12 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.IsNotNull(cfg.Network, "network exported");
                 Assert.AreEqual(2, cfg.Network.Nodes.Count);
                 Assert.AreEqual(1, cfg.Network.Tracks.Count);
-                Assert.AreEqual("Network", cfg.ResourceTeams[0].Travel);
+                Assert.AreEqual(SimuLean.Serialization.TravelKind.Network, cfg.ResourceTeams[0].Travel);
                 Assert.AreEqual("n1", cfg.ResourceTeams[0].HomeNode);
                 Assert.IsTrue(cfg.ResourceTeams[0].Traffic, "traffic exported");
                 Assert.AreEqual(2, cfg.Network.SegmentCapacity, "segment capacity exported");
                 var q1c = cfg.Elements.Single(e => e.Name == "Q1");
-                Assert.AreEqual("n1", q1c.GetParameter<string>(HeadlessModelFactory.LocationKey, ""), "location exported");
+                Assert.AreEqual("n1", q1c.Get<string>("location", ""), "location exported");
 
                 cfg.MaxSimulationTime = 500;
                 var clock = new SimClock(1);
@@ -158,25 +353,16 @@ namespace SimuLean.Unity.Editor.Tests
                 var agv = factory.Executors.Single();
                 Assert.AreEqual(ResourceMode.Spatial, agv.Mode);
                 Assert.IsInstanceOf<TrafficNetworkTravel>(agv.TravelModel, "travels under traffic control");
-                Assert.Greater(agv.GetTimeInState(ResourceStates.TRAVELLING_LOADED), 150, "travelled loaded ~10 per item");
-            }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
+                Assert.Greater(agv.GetTimeInState(ResourceStates.TRAVELING_LOADED), 150, "travelled loaded ~10 per item");
             }
         }
 
         [Test]
         public void WalkingTeamOnMatrixExtractsAndRunsHeadless()
         {
-            var active = SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                SceneManager.MoveGameObjectToScene(root, scene);
+                var root = test.Root;
                 T Make<T>(string n, Vector3 at = default) where T : Component
                 {
                     var go = new GameObject(n);
@@ -214,7 +400,7 @@ namespace SimuLean.Unity.Editor.Tests
 
                 SimulationConfig cfg = SceneExtractor.Extract(root).Config;
                 Assert.AreEqual(1, cfg.TravelMatrices.Count, "matrix exported");
-                Assert.AreEqual("Matrix", cfg.ResourceTeams[0].Travel);
+                Assert.AreEqual(SimuLean.Serialization.TravelKind.Matrix, cfg.ResourceTeams[0].Travel);
                 Assert.AreEqual(cfg.TravelMatrices[0].Id, cfg.ResourceTeams[0].Matrix);
 
                 cfg.MaxSimulationTime = 500;
@@ -227,29 +413,15 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.AreEqual(5.0, serverEl.GetTimeInState(ElementState.WAITING_FOR_RESOURCE), 1e-6, "waited once for the 5-unit walk");
                 Assert.AreEqual(ResourceMode.Spatial, factory.Executors.Single().Mode);
             }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
-            }
         }
 
         [Test]
         public void GantryStackerOnAxesExtractsAndRunsHeadless()
         {
-            var active = SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                SceneManager.MoveGameObjectToScene(root, scene);
-                T Make<T>(string n) where T : Component
-                {
-                    var go = new GameObject(n);
-                    go.transform.SetParent(root.transform);
-                    return go.AddComponent<T>();
-                }
+                var root = test.Root;
+                T Make<T>(string n) where T : Component => test.Make<T>(n);
 
                 var src = Make<UnitySource>("Src");
                 src.mode = SourceMode.InterArrival;
@@ -275,9 +447,9 @@ namespace SimuLean.Unity.Editor.Tests
                 SimulationConfig cfg = SceneExtractor.Extract(root).Config;
                 Assert.IsNotNull(cfg.Network, "crane points exported as nodes");
                 Assert.AreEqual(3, cfg.Network.Nodes.Count);
-                Assert.AreEqual("Axes", cfg.ResourceTeams[0].Travel);
-                var stc = cfg.Elements.Single(e => e.Type == nameof(UnityStacker));
-                Assert.AreEqual(stacker.pickNode.NodeId, stc.GetParameter<string>(StackerBuilder.KeyPickLocation, ""));
+                Assert.AreEqual(SimuLean.Serialization.TravelKind.Axes, cfg.ResourceTeams[0].Travel);
+                var stc = cfg.Elements.Single(e => e.Type == "Stacker");
+                Assert.AreEqual(stacker.pickNode.NodeId, stc.Get<string>("pickNode", ""));
 
                 cfg.MaxSimulationTime = 400;
                 var clock = new SimClock(1);
@@ -287,25 +459,16 @@ namespace SimuLean.Unity.Editor.Tests
                 clock.AdvanceClock(400);
                 var st = (Stacker)elements.Values.Single(e => e is Stacker);
                 Assert.Greater(st.ItemsStacked, 15, "the gantry stacked the items");
-                Assert.Greater(factory.Executors.Single().GetTimeInState(ResourceStates.TRAVELLING_LOADED), 0, "by travelling");
-            }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
+                Assert.Greater(factory.Executors.Single().GetTimeInState(ResourceStates.TRAVELING_LOADED), 0, "by travelling");
             }
         }
 
         [Test]
         public void WalkGridBakedFromCollidersExtractsAndRunsHeadless()
         {
-            var active = SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                SceneManager.MoveGameObjectToScene(root, scene);
+                var root = test.Root;
                 T Make<T>(string n, Vector3 at = default) where T : Component
                 {
                     var go = new GameObject(n);
@@ -351,8 +514,8 @@ namespace SimuLean.Unity.Editor.Tests
 
                 SimulationConfig cfg = SceneExtractor.Extract(root).Config;
                 Assert.AreEqual(1, cfg.WalkGrids.Count, "grid exported");
-                Assert.AreEqual("Grid", cfg.ResourceTeams[0].Travel);
-                Assert.AreEqual(cfg.WalkGrids[0].Id, cfg.ResourceTeams[0].Grid);
+                Assert.AreEqual(SimuLean.Serialization.TravelKind.Grid, cfg.ResourceTeams[0].Travel);
+                Assert.AreEqual(cfg.WalkGrids[0].Id, cfg.ResourceTeams[0].WalkGrid);
 
                 cfg.MaxSimulationTime = 500;
                 var clock = new SimClock(1);
@@ -365,20 +528,15 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.Greater(walk, 8.5, "walked around the wall (straight would be 8)");
                 Assert.Less(walk, 16, "but not absurdly far");
             }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
-            }
         }
 
-        [TestCase("Assets/Scenes/ResourceExamples/Resources_Operators.unity")]
-        [TestCase("Assets/Scenes/ResourceExamples/Resources_OperatorsWalking.unity")]
-        [TestCase("Assets/Scenes/ResourceExamples/Resources_OperatorsWalkingGrid.unity")]
-        [TestCase("Assets/Scenes/ResourceExamples/Resources_AGVs.unity")]
-        [TestCase("Assets/Scenes/ResourceExamples/Resources_RobotCell.unity")]
-        [TestCase("Assets/Scenes/ResourceExamples/Resources_GantryStacker.unity")]
-        [TestCase("Assets/Scenes/ResourceExamples/Shipyard_BlockAssembly.unity")]
+        [TestCase("Assets/SimuLean.Unity/Editor/Tests/Scenes/Resources_Operators.unity")]
+        [TestCase("Assets/SimuLean.Unity/Editor/Tests/Scenes/Resources_OperatorsWalking.unity")]
+        [TestCase("Assets/SimuLean.Unity/Editor/Tests/Scenes/Resources_OperatorsWalkingGrid.unity")]
+        [TestCase("Assets/SimuLean.Unity/Editor/Tests/Scenes/Resources_AGVs.unity")]
+        [TestCase("Assets/SimuLean.Unity/Editor/Tests/Scenes/Resources_RobotCell.unity")]
+        [TestCase("Assets/SimuLean.Unity/Editor/Tests/Scenes/Resources_GantryStacker.unity")]
+        [TestCase("Assets/SimuLean.Unity/Editor/Tests/Scenes/Shipyard_BlockAssembly.unity")]
         public void ExampleSceneRunsHeadless(string path)
         {
             using (var iso = new IsolatedScene(path))
@@ -392,9 +550,9 @@ namespace SimuLean.Unity.Editor.Tests
                 clock.AdvanceClock(3000);
                 Assert.AreEqual(cfg.Elements.Count, elements.Count, "every extracted element is built");
                 foreach (var s in elements.Values.OfType<Sink>())
-                    Assert.Greater(s.GetStatsInputCount(), 0, $"{s.GetName()} received items headless");
+                    Assert.Greater(s.GetStatsInputCount(), 0, $"{s.Name} received items headless");
                 foreach (var ex in factory.Executors)
-                    Assert.Greater(ex.TasksDone, 0, $"{ex.GetName()} worked");
+                    Assert.Greater(ex.TasksDone, 0, $"{ex.Name} worked");
             }
         }
 
@@ -436,7 +594,7 @@ namespace SimuLean.Unity.Editor.Tests
                 src.nextElements = new List<SElement> { server };
                 server.nextElements = new List<SElement> { sink };
 
-                var ex = Assert.Throws<System.InvalidOperationException>(() => SceneExtractor.Extract(root));
+                var ex = Assert.Throws<SceneNotHeadlessException>(() => SceneExtractor.Extract(root));
                 StringAssert.Contains("calibration", ex.Message, "headless refused without a calibration");
 
                 // Calibrated: time = 1 + 1 · distance (moves measured as if with physics).
@@ -451,9 +609,9 @@ namespace SimuLean.Unity.Editor.Tests
                 team.calibration = asset;
                 SimulationConfig cfg = SceneExtractor.Extract(root).Config;
                 var tc = cfg.ResourceTeams[0];
-                Assert.AreEqual("Calibrated", tc.Travel);
-                Assert.AreEqual("Grid", tc.CalibrationBase);
-                Assert.AreEqual(cfg.WalkGrids[0].Id, tc.Grid);
+                Assert.AreEqual(SimuLean.Serialization.TravelKind.Calibrated, tc.Travel);
+                Assert.AreEqual(SimuLean.Serialization.TravelKind.Grid, tc.CalibrationBase);
+                Assert.AreEqual(cfg.WalkGrids[0].Id, tc.WalkGrid);
 
                 cfg.MaxSimulationTime = 300;
                 var clock = new SimClock(1);
@@ -476,19 +634,10 @@ namespace SimuLean.Unity.Editor.Tests
         [Test]
         public void ElementPropertiesExtractAndResolveHeadless()
         {
-            var active = SceneManager.GetActiveScene();
-            bool temporary = !string.IsNullOrEmpty(active.path);
-            var scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            var root = new GameObject("Model");
-            try
+            using (var test = new TestScene("Model"))
             {
-                SceneManager.MoveGameObjectToScene(root, scene);
-                T Make<T>(string n) where T : Component
-                {
-                    var go = new GameObject(n);
-                    go.transform.SetParent(root.transform);
-                    return go.AddComponent<T>();
-                }
+                var root = test.Root;
+                T Make<T>(string n) where T : Component => test.Make<T>(n);
                 var src = Make<UnitySource>("Src");
                 src.mode = SourceMode.InterArrival;
                 src.interArrivalDistribution = new RandomProcessConfig { strategyType = RandomProcessType.Constant, constantValue = 5f };
@@ -496,17 +645,18 @@ namespace SimuLean.Unity.Editor.Tests
                 var sink = Make<UnitySink>("Exit");
                 src.nextElements = new List<SElement> { queue };
                 queue.nextElements = new List<SElement> { sink };
-                var props = queue.gameObject.AddComponent<SElementLabels>();
-                props.GetLabelPairs().Add(new LabelPair("zone", 3));
-                props.GetLabelPairs().Add(new LabelPair("owner") { text = "Line 2" });
-                props.GetLabelPairs().Add(new LabelPair("exit") { reference = sink });
-                props.RebuildLabelsDictionary();
+                var props = queue.gameObject.AddComponent<SElementProperties>();
+                props.GetProperties().Add(new ElementProperty("zone", 3));
+                props.GetProperties().Add(new ElementProperty("owner") { text = "Line 2" });
+                props.GetProperties().Add(new ElementProperty("exit") { reference = sink });
+                props.Rebuild();
 
                 SimulationConfig cfg = SceneExtractor.Extract(root).Config;
                 var qc = cfg.Elements.Single(e => e.Name == "Buffer");
-                var recs = qc.GetParameter<List<string>>(PropertyRecords.Key, null);
+                var recs = qc.Get<List<PropertySettings>>(PropertyRecords.Key, null);
                 Assert.IsNotNull(recs, "properties exported");
-                CollectionAssert.AreEquivalent(new[] { "d|zone|3", "s|owner|Line 2", "ref|exit|Exit" }, recs);
+                CollectionAssert.AreEquivalent(new[] { "Number zone 3", "Text owner Line 2", "Reference exit Exit" },
+                                               recs.Select(r => r.Kind + " " + r.Name + " " + (r.Kind == PropertyValueKind.Number ? r.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : r.Text)));
 
                 var factory = new HeadlessModelFactory(new SimClock(1));
                 var built = factory.BuildModel(cfg);
@@ -514,27 +664,6 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.AreEqual(3.0, q.Properties.GetDouble("zone"));
                 Assert.AreEqual("Line 2", q.Properties.GetText("owner"));
                 Assert.AreSame(built.Values.Single(e => e is Sink), q.Properties.GetRef("exit"), "reference resolved headless");
-            }
-            finally
-            {
-                if (temporary) EditorSceneManager.CloseScene(scene, true);
-                else Object.DestroyImmediate(root);
-            }
-        }
-
-        [Test]
-        public void MigratedCombinerSceneUsesItsTeam()
-        {
-            const string path = "Assets/Scenes/CombinerScene.unity";
-            using (var iso = new IsolatedScene(path))
-            {
-                SimulationConfig cfg = SceneExtractor.Extract(iso.Root).Config;
-
-                Assert.AreEqual(1, cfg.ResourceTeams.Count, "the former operator pool is a team");
-                Assert.AreEqual(2, cfg.ResourceTeams[0].Members.Count, "with its two operators");
-                var users = cfg.Elements.Where(e => e.GetParameter<string>(ResourceUseKeys.ProcessTeam, "") == cfg.ResourceTeams[0].Id).ToList();
-                Assert.AreEqual(2, users.Count, "both stations that used the pool use the team");
-                Assert.IsTrue(users.All(e => e.GetParameter<string>(ResourceUseKeys.ProcessRelease, "") == "ItemLeaves"), "pool rule kept");
             }
         }
     }

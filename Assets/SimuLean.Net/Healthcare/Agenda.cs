@@ -24,7 +24,7 @@ namespace SimuLean.Healthcare
     /// <see cref="LeadTime"/> ahead, waits in the agenda (at home) and is released at its appointment time to the next
     /// element (the consultation). Sessions are a weekly pattern (<see cref="WeeklyShiftPattern"/>, e.g.
     /// <c>Mon-Fri 08:30-12:30</c>) cut into slots of <see cref="SlotLength"/>, on the model calendar with the model's
-    /// holidays (I7) and the agenda's own. The first <see cref="ReservedPerSession"/> slots of every session are kept for
+    /// holidays and the agenda's own. The first <see cref="ReservedPerSession"/> slots of every session are kept for
     /// priority patients (<see cref="PriorityLabel"/> ≠ 0); <see cref="Overflow"/> says what they do when none is free.
     /// A <see cref="NoShow"/> probability (an expression over the patient, drawn from the agenda's stream) marks
     /// <c>no_show</c> at the appointment — routing decides what happens next. Labels stamped: <c>booked_at</c>,
@@ -88,8 +88,8 @@ namespace SimuLean.Healthcare
         /// of 12). Its holidays are its own; the model's are added. Add them before the run.</summary>
         public void AddTemplate(DateTime from, WeeklyShiftPattern sessions, double slotLength)
         {
-            if (sessions == null || sessions.Windows.Count == 0) throw new ArgumentException($"Agenda '{GetName()}': a template from {from:yyyy-MM-dd} has no sessions.");
-            if (!(slotLength > 0)) throw new ArgumentOutOfRangeException(nameof(slotLength), $"Agenda '{GetName()}': the slot length must be > 0.");
+            if (sessions == null || sessions.Windows.Count == 0) throw new ArgumentException($"Agenda '{Name}': a template from {from:yyyy-MM-dd} has no sessions.");
+            if (!(slotLength > 0)) throw new ArgumentOutOfRangeException(nameof(slotLength), $"Agenda '{Name}': the slot length must be > 0.");
             templates.Add((from.Date, sessions, slotLength));
             templates.Sort((a, b) => a.from.CompareTo(b.from));
         }
@@ -110,9 +110,8 @@ namespace SimuLean.Healthcare
             {
                 cancelText = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
                 if (cancelText == null) { cancel = null; return; }
-                string error = Expression.Check(cancelText);
-                if (error != null) throw new FormatException($"Agenda '{GetName()}': cancellation '{cancelText}': {error}");
-                cancel = Expression.Parse(cancelText);
+                try { cancel = Expression.Parse(cancelText, ExpressionContext.Agenda, Name, "cancel"); }
+                catch (FormatException e) { throw new FormatException($"Agenda '{Name}': cancellation '{cancelText}': {e.Message}", e); }
             }
         }
         private string cancelText;
@@ -143,9 +142,8 @@ namespace SimuLean.Healthcare
             {
                 noShowText = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
                 if (noShowText == null) { noShow = null; return; }
-                string error = Expression.Check(noShowText);
-                if (error != null) throw new FormatException($"Agenda '{GetName()}': no-show '{noShowText}': {error}");
-                noShow = Expression.Parse(noShowText);
+                try { noShow = Expression.Parse(noShowText, ExpressionContext.Agenda, Name, "noShow"); }
+                catch (FormatException e) { throw new FormatException($"Agenda '{Name}': no-show '{noShowText}': {e.Message}", e); }
             }
         }
         private string noShowText;
@@ -225,12 +223,15 @@ namespace SimuLean.Healthcare
             appointments[theItem] = simClock.ScheduleEvent(new AppointmentEvent(this, theItem, priority), release - now);
             if (cancel != null && release > now)
             {
+                var random = RandomStreamFor("cancel");
                 var sc = (scope ?? (scope = new EntityScope())).Set(theItem, this);
+                sc.RandomStream = random;
                 double p = cancel.Number(sc);
                 sc.Set(null, null);
-                if (p > 0 && ExpressionRandom.NextDouble() < p)
+                sc.RandomStream = null;
+                if (p > 0 && random.NextDouble() < p)
                     cancellations[theItem] = simClock.ScheduleEvent(new CancelEvent(this, theItem),
-                                                                     ExpressionRandom.NextDouble() * (release - now));
+                                                                     random.NextDouble() * (release - now));
             }
         }
 
@@ -244,7 +245,7 @@ namespace SimuLean.Healthcare
             int i = IndexOf(slot);
             if (slot.Extra)
             {
-                // an extra slot exists only for its patient: it goes, and the session gets its overbooking back (review2 #6)
+                // an extra slot exists only for its patient: it goes, and the session gets its overbooking back
                 slots.RemoveAt(i);
                 if (firstFreeOrdinary > i) firstFreeOrdinary--;
                 if (firstFreeReserved > i) firstFreeReserved--;
@@ -286,10 +287,13 @@ namespace SimuLean.Healthcare
             bool absent = false;
             if (noShow != null)
             {
+                var random = RandomStreamFor("noShow");
                 var s = (scope ?? (scope = new EntityScope())).Set(item, this);
+                s.RandomStream = random;
                 double p = noShow.Number(s);
                 s.Set(null, null);
-                absent = p > 0 && ExpressionRandom.NextDouble() < p;
+                s.RandomStream = null;
+                absent = p > 0 && random.NextDouble() < p;
             }
             item.SetLabelValue("no_show", absent ? 1 : 0);
             if (absent) noShows++;
@@ -298,7 +302,7 @@ namespace SimuLean.Healthcare
             else
             {
                 dueNodes[item] = due.AddLast(item);
-                if (due.Count > 1 && GetOutput() is ListLink list) list.Advertise(item, this);
+                if (due.Count > 1 && GetOutput() is IAdvertisingLink list) list.Advertise(item, this);
             }
             UpdateState();
         }
@@ -348,8 +352,8 @@ namespace SimuLean.Healthcare
                 {
                     int session = slots[next].Session;
                     if (reserved != null && reserved.Session == session) return reserved;
-                    // no reserved slots: a free slot of that session before an extra one (review2 #28: every priority patient
-                    // was squeezed in as an extra although the session had room); with reserved slots the ordinary ones
+                    // no reserved slots: a free slot of that session before an extra one (else every priority patient
+                    // is squeezed in as an extra although the session has room); with reserved slots the ordinary ones
                     // stay for the ordinary patients (by design)
                     if (ReservedPerSession == 0 && ordinary != null && ordinary.Session == session) return ordinary;
                     extrasBySession.TryGetValue(session, out int extras);
@@ -357,7 +361,7 @@ namespace SimuLean.Healthcare
                 }
             }
             Slot pick = reserved == null ? ordinary : ordinary == null ? reserved : (reserved.Time <= ordinary.Time ? reserved : ordinary);
-            return pick ?? throw new InvalidOperationException($"Agenda '{GetName()}': no free slot within {HorizonDays} days.");
+            return pick ?? throw new InvalidOperationException($"Agenda '{Name}': no free slot within {HorizonDays} days.");
         }
 
         // an extra slot at the end of a session (the time of its last slot), kept in time order
@@ -383,7 +387,7 @@ namespace SimuLean.Healthcare
                 while (i >= slots.Count)
                     if (!Generate()) return null;
                 var s = slots[i];
-                if (s.Reserved == reserved && !s.Extra && s.Booked == null && s.Time >= from - 1e-9) return s;
+                if (s.Reserved == reserved && !s.Extra && s.Booked == null && s.Time >= from - SimTime.Epsilon) return s;
                 i++;
             }
         }
@@ -402,10 +406,10 @@ namespace SimuLean.Healthcare
             while (lo < hi)
             {
                 int mid = (lo + hi) >> 1;
-                if (slots[mid].Time < time - 1e-9) lo = mid + 1; else hi = mid;
+                if (slots[mid].Time < time - SimTime.Epsilon) lo = mid + 1; else hi = mid;
             }
             // the slots up to `time` may not be generated yet
-            while (lo == slots.Count && slots.Count > 0 && slots[slots.Count - 1].Time < time - 1e-9 && Generate())
+            while (lo == slots.Count && slots.Count > 0 && slots[slots.Count - 1].Time < time - SimTime.Epsilon && Generate())
                 return LowerBound(time);
             return lo;
         }
@@ -415,7 +419,7 @@ namespace SimuLean.Healthcare
         {
             var cal = simClock.Context.Calendar;
             if (!generationStarted) StartCalendar();
-            // the look-ahead counts from now, not from the start of the model (review2 #4: bookings failed after ten years)
+            // the look-ahead counts from now, not from the start of the model (else bookings fail after ten years)
             DateTime origin = cal.ToDateTime(simClock.GetSimulationTime()).Date;
             if ((generatedUntil - origin).TotalDays > HorizonDays) return false;
             DateTime to = generatedUntil.AddDays(7);
@@ -443,13 +447,13 @@ namespace SimuLean.Healthcare
             }
         }
 
-        // the model's holidays into the sessions (I7) and the first day to generate
+        // the model's holidays into the sessions and the first day to generate
         private void StartCalendar()
         {
             if (generationStarted) return;
             generationStarted = true;
             foreach (var t in templates)
-                foreach (var h in simClock.Context.Holidays) t.pattern.AddHoliday(h);   // the model's working calendar (I7)
+                foreach (var h in simClock.Context.Holidays) t.pattern.AddHoliday(h);   // the model's working calendar
             generatedUntil = simClock.Context.Calendar.ToDateTime(0).Date;
         }
 
@@ -468,12 +472,12 @@ namespace SimuLean.Healthcare
         public (int offered, int booked, int reservedUnused) SlotCounts()
         {
             // only reads: the sessions up to now that no booking has generated yet are counted, not generated (a capture
-            // must not change the model; review2 #7) - none of their slots is booked
+            // must not change the model) - none of their slots is booked
             double now = simClock.GetSimulationTime();
             int offered = 0, booked = 0, unused = 0;
             foreach (var s in slots)
             {
-                if (s.Time < statsFrom - 1e-9) continue;
+                if (s.Time < statsFrom - SimTime.Epsilon) continue;
                 if (s.Time >= now) break;
                 if (s.Extra) continue;          // overbooked: counted apart
                 offered++;
@@ -487,7 +491,7 @@ namespace SimuLean.Healthcare
                     for (int k = 0; k < n; k++)
                     {
                         double t = ts + k * slot;
-                        if (t < statsFrom - 1e-9 || t >= now) continue;
+                        if (t < statsFrom - SimTime.Epsilon || t >= now) continue;
                         offered++;
                         if (k < ReservedPerSession) unused++;
                     }
@@ -508,16 +512,16 @@ namespace SimuLean.Healthcare
         /// <summary>Time from now to the first free ordinary slot a new referral could take (the booking horizon).</summary>
         public double BookingHorizon()
         {
-            // only reads (review2 #7): the generated slots first, then the sessions not generated yet (all free)
+            // only reads: the generated slots first, then the sessions not generated yet (all free)
             double now = simClock.GetSimulationTime(), from = now + Math.Max(0, LeadTime);
             for (int i = firstFreeOrdinary; i < slots.Count; i++)
-                if (!slots[i].Reserved && !slots[i].Extra && slots[i].Booked == null && slots[i].Time >= from - 1e-9) return slots[i].Time - now;
+                if (!slots[i].Reserved && !slots[i].Extra && slots[i].Booked == null && slots[i].Time >= from - SimTime.Epsilon) return slots[i].Time - now;
             if (!generationStarted) return double.NaN;
             DateTime end = simClock.Context.Calendar.ToDateTime(now).Date.AddDays(HorizonDays);
             for (DateTime day = generatedUntil; day <= end; day = day.AddDays(1))
                 foreach (var (ts, slot, n) in SessionsOn(day))
                     for (int k = ReservedPerSession; k < n; k++)
-                        if (ts + k * slot >= from - 1e-9) return ts + k * slot - now;
+                        if (ts + k * slot >= from - SimTime.Epsilon) return ts + k * slot - now;
             return double.NaN;
         }
 

@@ -73,9 +73,9 @@ namespace SimuLean.Stochastics.Streams
                 double u1 = 1.0 - random.NextDouble(); // Uniform(0,1] - avoid log(0)
                 double u2 = 1.0 - random.NextDouble();
                 
-                double magnitude = Math.Sqrt(-2.0 * Math.Log(u1));
-                double z0 = magnitude * Math.Cos(2.0 * Math.PI * u2);
-                double z1 = magnitude * Math.Sin(2.0 * Math.PI * u2);
+                double magnitude = Distributions.BoxMuller.Radius(u1);
+                double z0 = magnitude * Math.Cos(Distributions.BoxMuller.Angle(u2));
+                double z1 = magnitude * Math.Sin(Distributions.BoxMuller.Angle(u2));
                 
                 spareNormal = z1; // Save for next call
                 return z0;

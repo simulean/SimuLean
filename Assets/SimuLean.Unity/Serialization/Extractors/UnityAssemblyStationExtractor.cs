@@ -8,24 +8,29 @@ using UnityEngine;
 namespace SimuLean.Serialization
 {
     /// <summary>Extraction (Unity scene → <see cref="ElementConfig"/>) for <c>UnityAssemblyStation</c>; the headless build side is
-    /// <c>UnityAssemblyStationHandler</c> in the engine.</summary>
+    /// <c>AssemblyStationHandler</c> in the engine.</summary>
     internal sealed class UnityAssemblyStationExtractor : ElementExtractorBase
     {
-        public override string TypeName => "UnityAssemblyStation";
+        public override string TypeName => "AssemblyStation";
 
         public override void ExtractParameters(SElement element, ElementConfig config)
         {
             if (!(element is UnityAssemblyStation asy)) return;
 
-            config.Parameters["workerCount"]   = asy.workerCount;
-            config.Parameters["stockCapacity"] = asy.stockCapacity;
+            config.Set("workerCount", asy.workerCount);
+            config.Set("stockCapacity", asy.stockCapacity);
 
-            var records = new List<string>();
+            // the precedence network as typed records tasks[i] with its own requirements, the team only when it
+            // is not the station's
+            var tasks = new List<AssemblyTaskSettings>();
             if (asy.tasks != null)
                 foreach (var t in asy.tasks)
                     if (t != null && !string.IsNullOrEmpty(t.id))
-                        records.Add(EncodeTask(t));
-            config.Parameters["assemblyTasks"] = records;
+                        tasks.Add(TaskOf(t, asy.processBy != null ? asy.processBy.team : null));
+            config.Set("tasks", tasks);
+            // no station team, tasks with teams of their own: the Process block's settings for their uses
+            if (asy.TasksUseOwnTeams) (asy.processBy ?? new ProcessResourceUse()).ExportTaskSettings(config);
+            asy.setup?.Export(config);   // its setup (rule None: nothing); the crew's team in SceneExtractor
         }
 
         public override void ExtractConnections(SElement element, string elementId,
@@ -39,24 +44,39 @@ namespace SimuLean.Serialization
                     connections.Add(new ConnectionConfig(ids[src], elementId, "StockInput"));
         }
 
-        private static string EncodeTask(AssemblyTaskConfig t)
+        private static AssemblyTaskSettings TaskOf(AssemblyTaskConfig t, UnityResourceTeam stationTeam)
         {
-            var materials = new List<string>();
+            var task = new AssemblyTaskSettings
+            {
+                Id = t.id,
+                Priority = t.priority,
+                Duration = EncodeDuration(t.duration ?? new RandomProcessConfig()),
+            };
+            foreach (string p in (t.predecessors ?? "").Split(','))
+                if (!string.IsNullOrWhiteSpace(p)) (task.Predecessors = task.Predecessors ?? new List<string>()).Add(p.Trim());
             if (t.materials != null)
                 foreach (var m in t.materials)
                     if (m != null && !string.IsNullOrEmpty(m.sku) && m.qty > 0)
-                        materials.Add(m.sku + ":" + m.qty);
-
-            return string.Join("|", new[]
+                        (task.Materials = task.Materials ?? new List<MaterialSettings>()).Add(new MaterialSettings { Sku = m.sku, Qty = m.qty });
+            // its own resource use (tasks[i].processBy): its requirements, and its request settings when it has its own
+            var use = new TaskUseSettings();
+            if (t.requirements != null)
+                foreach (var r in t.requirements)
+                    if (r != null) (use.Requirements = use.Requirements ?? new List<RequirementSettings>()).Add(r.ToSettings(stationTeam));
+            var own = t.resourceSettings;
+            if (own != null && own.own)
             {
-                t.id ?? "",
-                t.predecessors ?? "",
-                string.Join(",", materials),
-                t.priority.ToString(CultureInfo.InvariantCulture),
-                EncodeDuration(t.duration ?? new RandomProcessConfig())
-            });
+                if (!string.IsNullOrWhiteSpace(own.priority)) use.Priority = own.priority.Trim();
+                use.Preemption = (SimuLean.Resources.PreemptMode)System.Enum.Parse(typeof(SimuLean.Resources.PreemptMode), own.preemption.ToString());
+                use.Preemptable = own.preemptable;
+                use.Acquire = (SimuLean.Resources.AcquireOrder)System.Enum.Parse(typeof(SimuLean.Resources.AcquireOrder), own.acquire.ToString());
+                use.MaxWait = string.IsNullOrWhiteSpace(own.maxWait) ? "0" : own.maxWait.Trim();
+                use.OnTimeout = own.onTimeout.ToString();
+            }
+            if (use.Any) task.ProcessBy = use;
+            return task;
         }
 
-        internal static string EncodeDuration(RandomProcessConfig d) => d.ToSamplerSpec();
+        internal static SamplerSettings EncodeDuration(RandomProcessConfig d) => d.ToSettings();
     }
 }

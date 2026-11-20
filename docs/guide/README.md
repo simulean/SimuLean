@@ -32,6 +32,22 @@ Further reading: expressions [`Assets/Docs/Expressions.md`](../../Assets/Docs/Ex
 5. **A run is reproducible and measured**: every element draws from its own random stream; a study runs scenarios ×
    replications with the same seeds and reports each metric as mean ± half-width.
 
+## Working in the editor
+
+- **A new scene comes ready**: the clock with its views, the navigation camera and a 100 × 100 m floor with a 1 m grid
+  (*Tools ▸ SimuLean ▸ Fit Floor to Model* resizes it). *Tools ▸ SimuLean ▸ Modelling Layout* arranges the windows with
+  the SimuLean library next to the Project browser.
+- The Library shows each element once; its variants — the same element with another look and typical values (the
+  CNC Machine and the Paint Booth under the Multi-Server, the racks under the Storage Rack…) — open with its ▾.
+- **Drag** an element from the SimuLean window onto the floor. A click on its model selects the element, not a part
+  of it (*Edit Element Parts* to reach the parts).
+- **Place** (*Shift+P*, on by itself when an element is selected): drag the element over the floor and turn it with
+  its ring — 0.5 m and 15° steps, *Ctrl* to place freely; right-click it for turn 90°, connect, duplicate, delete.
+- **Connect** (*Shift+C*): drag from one element to the next. The **SimuLean** bar of the Scene view has both tools,
+  *Validate* (the model checked without running), the floor and the switches (snap, links, parts).
+- Next to **Play**: *Game / Scene* switches between the two views, *Maximize* plays with the Game view full size. In
+  Play, the Hierarchy shows each element's state with a coloured dot.
+
 ## Coming from another tool
 
 | You may expect | In SimuLean |
@@ -39,8 +55,8 @@ Further reading: expressions [`Assets/Docs/Expressions.md`](../../Assets/Docs/Ex
 | A station with its own input queue | A Multi-Server has **no queue**: put a Queue in front |
 | A blocked source to keep generating (or to count lost arrivals) | An InterArrival Source **waits** with one item; add an unlimited Queue to keep orders, or route to a "Lost" sink to count them ([recipe](recipes.md#arrivals-and-demand)) |
 | A queue sorted by priority | Queues are oldest first; sort with a list and an order query, or let the receiver choose (`AnyAccepted`) |
-| A conveyor with travel time | The Conveyor accumulates by length, with **no transit time**: add a Delay |
-| Setup times on a machine | No setup on stations: a preceding element, or a resource step |
+| A conveyor with travel time | The Conveyor (a Length-Limited Lane with `speed`, 0.3 m/s) takes its length ÷ `speed`; `speed = 0` = an accumulation lane with no transit time |
+| Setup times on a machine | `setup` on the Multi-Server / Combiner, with a matrix per pair of products ([`Setups_And_Changeovers.md`](../../Assets/Docs/Setups_And_Changeovers.md)) |
 | A Combiner input per component | K requirements → **K + 1** inputs (input 0 is the main item) |
 | Utilisation over the time on shift | `utilization` is over all the time; `utilization_onshift` over the time on shift |
 | A seed per run | A stream per element, keyed by its name: renaming an element changes its draws |

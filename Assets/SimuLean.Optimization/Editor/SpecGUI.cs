@@ -114,6 +114,13 @@ namespace SimuLean.Optimization.Editor
                 return remove;
             }
             EditorGUILayout.LabelField(" ", Describe(info), EditorStyles.miniLabel);
+            if (info.IsText)
+            {
+                // the Optimizer chooses among the texts given here; the Experimenter's scenarios give one each
+                if (ranges) EditorGUILayout.PropertyField(p.FindPropertyRelative("texts"), new GUIContent("Texts to try",
+                    "One text per entry (e.g. prio, table('T', item.k, 'p'); a request order |priority desc). The optimiser chooses among them."), true);
+                return remove;
+            }
             bool number = info.Kind == VariableKind.Integer || info.Kind == VariableKind.Real;
             if (ranges && number)
             {
@@ -133,6 +140,7 @@ namespace SimuLean.Optimization.Editor
         /// <summary>"integer ×3, now 1, 2, 3" / "choice of 4, now RoundRobin" / "yes / no, now true".</summary>
         public static string Describe(ParameterInfo info)
         {
+            if (info.IsText) return $"text, now '{info.CurrentText}'";
             string what = info.Kind == VariableKind.Choice ? $"choice of {info.Options.Count}"
                         : info.Kind == VariableKind.Binary ? "yes / no"
                         : (info.Kind == VariableKind.Integer ? "integer" : "real") + (info.Length > 1 ? " ×" + info.Length : "");
@@ -144,7 +152,18 @@ namespace SimuLean.Optimization.Editor
         public static void Value(SerializedProperty value, ParameterInfo info, string label)
         {
             var content = new GUIContent(label, info != null ? Describe(info) : "a number, an option, true / false, or values separated by commas");
-            if (info != null && info.Kind == VariableKind.Choice)
+            if (info != null && info.IsText)
+            {
+                // an empty text is a value of its own (no priority, first come first served): a new row is not filled in
+                // silently, the current text is offered instead
+                EditorGUILayout.BeginHorizontal();
+                value.stringValue = EditorGUILayout.TextField(content, value.stringValue);
+                if (string.IsNullOrEmpty(value.stringValue) && !string.IsNullOrEmpty(info.CurrentText)
+                    && GUILayout.Button(new GUIContent("Now", $"Use the current text '{info.CurrentText}' (empty = the setting cleared)"), GUILayout.Width(40)))
+                    value.stringValue = info.CurrentText;
+                EditorGUILayout.EndHorizontal();
+            }
+            else if (info != null && info.Kind == VariableKind.Choice)
             {
                 var opts = info.Options.ToList();
                 int i = Math.Max(0, opts.IndexOf(value.stringValue));
@@ -210,7 +229,7 @@ namespace SimuLean.Optimization.Editor
                 var s = (MetricScope)scope.enumValueIndex;
                 if (s != MetricScope.Model)   // the model's statistics (makespan, deadlocked…) have no target
                     EditorGUILayout.PropertyField(m.FindPropertyRelative(s == MetricScope.Element ? "element" : s == MetricScope.Team ? "team"
-                                                                       : s == MetricScope.Reaction ? "reaction" : "list"), new GUIContent(s.ToString()));
+                                                                       : s == MetricScope.Reaction ? "reaction" : s == MetricScope.Downtime ? "downtime" : "list"), new GUIContent(s.ToString()));
                 var stat = m.FindPropertyRelative("statistic");
                 var options = MetricSpec.StatisticsOf(s).ToList();
                 if (s == MetricScope.Element) { options.Add("state:…"); options.Add("member:…"); }

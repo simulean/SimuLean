@@ -6,7 +6,7 @@ namespace SimuLean.Data
 {
     /// <summary>
     /// Per-project SQLite database — SimuLean's structured data store
-    /// (FlexSim-style "global tables", but real SQL). Elements can read model
+    /// ("global tables", but real SQL). Elements can read model
     /// data (pick lists, task tables, parameters) from here instead of
     /// Inspector fields or spreadsheets.
     ///

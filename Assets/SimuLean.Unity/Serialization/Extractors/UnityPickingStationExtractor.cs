@@ -8,37 +8,39 @@ using UnityEngine;
 namespace SimuLean.Serialization
 {
     /// <summary>Extraction (Unity scene → <see cref="ElementConfig"/>) for <c>UnityPickingStation</c>; the headless build side is
-    /// <c>UnityPickingStationHandler</c> in the engine.</summary>
+    /// <c>PickingStationHandler</c> in the engine.</summary>
     internal sealed class UnityPickingStationExtractor : ElementExtractorBase
     {
-        public override string TypeName => "UnityPickingStation";
+        public override string TypeName => "PickingStation";
 
         public override void ExtractParameters(SElement element, ElementConfig config)
         {
             if (!(element is UnityPickingStation ps)) return;
 
-            config.Parameters["stockCapacity"] = ps.stockCapacity;
+            config.Set("stockCapacity", ps.stockCapacity);
+            config.Set("returnLeftovers", ps.returnLeftovers);
 
             if (ps.delayStrategy != null)
-                ExtractorHelpers.ExtractRandomProcessConfig(ps.delayStrategy, config, prefix: "delay");
+                ExtractorHelpers.ExtractRandomProcessConfig(ps.delayStrategy, config, "delayStrategy");
+            ps.setup?.Export(config);   // its setup (also the rule None); the crew's team in SceneExtractor
+            config.Set("reserveExit", ps.reserveExit);
 
             // Pick-list source configuration (a data table first).
-            if (ps.pickTable != null) config.Parameters["pickTable"] = ps.pickTable.TableName;
-            config.Parameters["skuColumn"]          = ps.skuColumn ?? "";
-            config.Parameters["qtyColumn"]          = ps.qtyColumn ?? "";
-            config.Parameters["keyColumn"]          = ps.keyColumn ?? "";
-            config.Parameters["containerKeyLabel"]  = ps.containerKeyLabel ?? "";
-            config.Parameters["useContainerLabels"] = ps.useContainerLabels;
-            config.Parameters["labelPrefix"]        = ps.labelPrefix ?? "";
+            if (ps.pickTable != null) config.Set("pickTable", ps.pickTable.TableName);
+            config.Set("skuColumn", ps.skuColumn ?? "");
+            config.Set("qtyColumn", ps.qtyColumn ?? "");
+            config.Set("keyColumn", ps.keyColumn ?? "");
+            config.Set("containerKeyLabel", ps.containerKeyLabel ?? "");
+            config.Set("useContainerLabels", ps.useContainerLabels);
+            config.Set("labelPrefix", ps.labelPrefix ?? "");
 
-            // Static fallback list encoded as "sku:qty" records (List<string> is
-            // deep-cloned by the GA's CloneConfig).
-            var staticList = new List<string>();
+            // the static fallback list: typed records staticPickList[i] (sku, qty)
+            var staticList = new List<PickListEntrySettings>();
             if (ps.staticPickList != null)
                 foreach (var row in ps.staticPickList)
                     if (row != null && !string.IsNullOrEmpty(row.sku) && row.qty > 0)
-                        staticList.Add(row.sku + ":" + row.qty);
-            config.Parameters["staticPickList"] = staticList;
+                        staticList.Add(PickListEntrySettings.Of(row.sku, row.qty));
+            config.SettingsAs<PickingStationSettings>().StaticPickList = staticList;
         }
 
         public override void ExtractConnections(SElement element, string elementId,

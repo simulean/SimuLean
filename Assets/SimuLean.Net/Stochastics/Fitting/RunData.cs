@@ -31,7 +31,7 @@ namespace SimuLean.Stochastics.Fitting
             var clock = new SimClock(seed);
             var model = new HeadlessModelFactory(clock);
             model.BuildModel(config);
-            var element = model.GetAllElements().Values.FirstOrDefault(e => e.GetName() == elementName)
+            var element = model.GetAllElements().Values.FirstOrDefault(e => e.Name == elementName)
                           ?? throw new ArgumentException($"No element '{elementName}' in the model.");
             var stats = element.StatsCollector ?? throw new InvalidOperationException($"'{elementName}' has no statistics.");
             stats.RecordSamples();

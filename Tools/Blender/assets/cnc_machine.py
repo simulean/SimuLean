@@ -15,14 +15,16 @@ Full guarding with two sliding doors (open sight windows: the interior shows wit
 and coolant tank, a swivel control pendant, a stack light.  Library palette: light grey guarding, graphite base and
 interior, orange door handles and accents.
 
-Frame as the other assets: authored front = -Y (Unity +Z: the operator's side, with the doors and the pendant),
+Frame as the other stations: authored front = -Y (the operator's side, with the doors and the pendant), exported turned 180 deg (station_parts.STATION_TURN) to
+the library's model frame -- front on Unity -Z, flow along Unity +X; the Unity coordinates quoted below are
+the authored ones (x and z change sign in the export) --,
 +Z up (Unity +Y), origin on the floor at the centre of the footprint.
 
 Animation hierarchy (Unity names; every name is a bare Transform with <name>_LOD0/1/2 meshes under it):
     CncMachine              root, on the floor at the footprint centre
     |- Body                 base, guarding, interior, column, coolant tank, chip conveyor, pendant (static)
     |- Door_L / Door_R      sliding doors, pivot at their closed centre: translate along local X
-    |                       (Door_L 0 .. -0.38, Door_R 0 .. +0.38 to open)
+    |                       (authored Door_L 0 .. -0.38, Door_R 0 .. +0.38 to open; exported: +0.38 / -0.38)
     |- Table                X axis, pivot (-0.10, 0.92, 0.05): translate along local X (-0.18 .. +0.18)
     |   '- WorkSocket       the vise jaws (-0.10, 0.99, 0.05): the part is clamped here
     |- Head                 Z axis (spindle head), pivot (-0.10, 1.30, 0.05): translate along local Y
@@ -239,4 +241,4 @@ def build_preview():
 
 
 if __name__ == '__main__':
-    SP.station_main('CncMachine', build_cnc, LOD_PLAN, NODES, TEXEL_WEIGHTS)
+    SP.station_main('CncMachine', build_cnc, LOD_PLAN, NODES, TEXEL_WEIGHTS, turn=SP.STATION_TURN)

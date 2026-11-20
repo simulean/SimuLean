@@ -49,7 +49,7 @@ headless run of the same model with the same seed draws the same numbers per ele
 
 ## Camera and HUD
 
-- `SimCameraController` (FlexSim-style): left- or middle-drag grab-pans (the grabbed ground point
+- `SimCameraController` (map-like): left- or middle-drag grab-pans (the grabbed ground point
   stays under the cursor; `leftDragPans` off keeps left for selection only), right-drag orbits
   about the ground point at the screen centre, the wheel zooms towards the cursor by a constant
   ratio per notch (never below `minHeight`), W A S D / arrows pan and Q/E move down/up at a speed

@@ -197,6 +197,9 @@ namespace SimuLean.Unity.Editor
                 };
         }
 
+        /// The library's materials: the project renders with the Universal Render Pipeline.
+        const string LitShader = "Universal Render Pipeline/Lit";
+
         /// Creates or refreshes &lt;dir&gt;/&lt;baseName&gt;.mat from the baked maps; returns true if created.
         static bool EnsureMaterial(string dir, string baseName)
         {
@@ -206,17 +209,24 @@ namespace SimuLean.Unity.Editor
             string matPath = $"{dir}/{baseName}.mat";
             var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
             bool created = mat == null;
+            var lit = Shader.Find(LitShader) ?? Shader.Find("Standard");   // a project without URP keeps the built-in one
             if (created)
-                mat = new Material(Shader.Find("Standard")) { name = baseName };
+                mat = new Material(lit) { name = baseName };
+            else if (mat.shader != lit)
+                mat.shader = lit;
 
-            mat.SetColor("_Color", Color.white);
-            mat.SetTexture("_MainTex", albedo);
+            // URP Lit, metallic workflow, opaque (or alpha-clipped)
+            mat.SetFloat("_WorkflowMode", 1f);
+            mat.SetFloat("_Surface", 0f);
+            mat.SetColor("_BaseColor", Color.white);
+            mat.SetTexture("_BaseMap", albedo);
             SetCutout(mat, AlbedoHasAlpha(dir, baseName));
 
             var ms = LoadMap(dir, baseName, "_MetallicSmoothness");
             mat.SetTexture("_MetallicGlossMap", ms);
-            SetKeyword(mat, "_METALLICGLOSSMAP", ms != null);
-            mat.SetFloat("_GlossMapScale", 1f);
+            SetKeyword(mat, "_METALLICSPECGLOSSMAP", ms != null);
+            mat.SetFloat("_Metallic", 0f);   // with the map, metallic is the map's red channel
+            mat.SetFloat("_Smoothness", ms != null ? 1f : 0.5f);
             mat.SetFloat("_SmoothnessTextureChannel", 0f);   // metallic alpha
 
             var nrm = LoadMap(dir, baseName, "_Normal");
@@ -227,6 +237,7 @@ namespace SimuLean.Unity.Editor
             var ao = LoadMap(dir, baseName, "_Occlusion");
             mat.SetTexture("_OcclusionMap", ao);
             mat.SetFloat("_OcclusionStrength", 1f);
+            SetKeyword(mat, "_OCCLUSIONMAP", ao != null);
 
             var em = LoadMap(dir, baseName, "_Emission");
             mat.SetTexture("_EmissionMap", em);
@@ -247,7 +258,7 @@ namespace SimuLean.Unity.Editor
 
         static void SetCutout(Material m, bool cutout)
         {
-            m.SetFloat("_Mode", cutout ? 1f : 0f);
+            m.SetFloat("_AlphaClip", cutout ? 1f : 0f);
             m.SetFloat("_Cutoff", 0.5f);
             m.SetOverrideTag("RenderType", cutout ? "TransparentCutout" : "");
             SetKeyword(m, "_ALPHATEST_ON", cutout);

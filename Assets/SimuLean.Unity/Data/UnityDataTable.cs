@@ -8,7 +8,7 @@ namespace SimuLean.Unity
     /// A named data table of the model: rows typed here, a file (CSV / <c>.data</c> / Excel) or
     /// an SQL query on the project database. Every run starts from a snapshot taken when the scene is extracted
     /// (<see cref="Snapshot"/>; never read during the run): SQL is queried then, a file is read then with
-    /// <see cref="readFileAtRun"/>, else its copy loaded in the inspector is used (with a warning when the file is newer). The engine reads it by name: <c>clock.Context.Data["name"]</c>.
+    /// <see cref="readFileAtRun"/>, else its copy loaded in the inspector is used (with a warning when the file's content changed since). The engine reads it by name: <c>clock.Context.Data["name"]</c>.
     /// </summary>
     [SimuLeanTool(SimuLeanToolCategories.Data, "Data Table",
                   Description = "A named table of model data: typed rows, a CSV / Excel file or an SQL query on the project database",
@@ -27,7 +27,7 @@ namespace SimuLean.Unity
         [Tooltip("File source, Excel: the sheet (empty = the first).")]
         public string sheetName = "";
         [Tooltip("File source: read the file when each run starts; off = the copy loaded in the inspector (a warning tells " +
-                 "when the file is newer).")]
+                 "when the file's content changed since).")]
         public bool readFileAtRun = false;
 
         [Tooltip("SQL source: a SELECT on the project database (Project Settings ▸ SimuLean), run when each run starts.")]
@@ -35,8 +35,9 @@ namespace SimuLean.Unity
 
         // The rows: typed here (Inline) or the loaded copy of the file / query.
         [SerializeField] private SerializableDataDict data;
-        // The file's write time when it was loaded (UTC ticks; 0 = unknown).
-        [SerializeField, HideInInspector] private long loadedFileTicks;
+        // The file's content when it was loaded (FileFingerprint; empty = unknown). Content, not the write time: a git
+        // checkout gives every file a new time, which made every fresh clone warn.
+        [SerializeField, HideInInspector] private string loadedFileHash = "";
 
         /// <summary>The table's name in the model.</summary>
         public string TableName => string.IsNullOrWhiteSpace(tableName) ? gameObject.name : tableName.Trim();
@@ -64,13 +65,24 @@ namespace SimuLean.Unity
             if (source == DataSourceKind.Inline) return;
             Rows = Read(databasePath);
             string path = source == DataSourceKind.File ? ResolveFile() : null;
-            loadedFileTicks = path != null ? System.IO.File.GetLastWriteTimeUtc(path).Ticks : 0;
+            loadedFileHash = path != null ? FileFingerprint(path) : "";
+        }
+
+        /// <summary>The file's content as a SHA-256 hex string, carriage returns left out (a checkout may turn LF into
+        /// CRLF without changing the table).</summary>
+        public static string FileFingerprint(string path)
+        {
+            byte[] bytes = System.IO.File.ReadAllBytes(path);
+            var text = new List<byte>(bytes.Length);
+            foreach (byte b in bytes) if (b != (byte)'\r') text.Add(b);
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+                return System.BitConverter.ToString(sha.ComputeHash(text.ToArray())).Replace("-", "");
         }
 
         /// <summary>
         /// The table as the run takes it (extraction): its config with the snapshot. SQL is queried now; a file is read
         /// now with <see cref="readFileAtRun"/>, else the loaded copy is used — <paramref name="warning"/> tells when the
-        /// file is newer than it. Errors name the table.
+        /// file's content differs from it. Errors name the table.
         /// </summary>
         public DataTableConfig Snapshot(string databasePath, out string warning)
         {
@@ -86,7 +98,7 @@ namespace SimuLean.Unity
                     break;
                 case DataSourceKind.File:
                     string path = ResolveFile();
-                    if (path != null && loadedFileTicks != 0 && System.IO.File.GetLastWriteTimeUtc(path).Ticks > loadedFileTicks)
+                    if (path != null && !string.IsNullOrEmpty(loadedFileHash) && FileFingerprint(path) != loadedFileHash)
                         warning = $"Data table '{TableName}': the file '{fileName}' changed after it was loaded — the run uses the " +
                                   "loaded copy. Load it again, or tick 'Read file at run'.";
                     var copy = Rows;

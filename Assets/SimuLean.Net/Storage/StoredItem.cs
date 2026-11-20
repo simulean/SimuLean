@@ -7,7 +7,7 @@ namespace SimuLean.Storage
     /// </summary>
     public class StoredItem
     {
-        /// <summary>The stored simulation item. Its SKU is <c>Item.GetTypeName()</c>.</summary>
+        /// <summary>The stored simulation item. Its SKU is <c>Item.Name</c>.</summary>
         public Item Item { get; set; }
 
         /// <summary>Id of the lane currently holding the item (null while in transit).</summary>

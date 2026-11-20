@@ -5,7 +5,7 @@ namespace SimuLean
 {
     /// <summary>
     /// An activity without capacity: every item that enters waits its own delay, drawn when it
-    /// enters (an expression reads the item, e.g. <c>t_test</c>), all at once — a patient at home for a night, three months
+    /// enters (an expression reads the item, e.g. <c>t_test</c>), all at once — a patient at home, three months
     /// on a therapy, a curing time, a transit. Its cost does not depend on how many items wait (a <see cref="MultiServer"/>
     /// with a huge capacity was the workaround). The delays are work of the element (<see cref="Element.ScheduleWork"/>):
     /// an Immediate stop pauses them. An item whose delay is over and that cannot leave waits, in the order they finished,
@@ -78,7 +78,7 @@ namespace SimuLean
             else
             {
                 finishedNodes[item] = finished.AddLast(item);
-                if (finished.Count > 1 && GetOutput() is ListLink list) list.Advertise(item, this);
+                if (finished.Count > 1 && GetOutput() is IAdvertisingLink list) list.Advertise(item, this);
             }
             UpdateState();
         }

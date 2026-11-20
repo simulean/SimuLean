@@ -4,14 +4,11 @@ using UnityEngine;
 
 namespace SimuLean.Unity
 {
+    [SelectionBase]   // a click on the element's model selects the element (Editor/Hierarchy/ElementSelection)
     public abstract class SElement : MonoBehaviour
     {
         [Tooltip("Output elements this element connects to.")]
         public List<SElement> nextElements = new List<SElement>();
-
-        [Tooltip("Optional shared routing-strategy asset (Assets → Create → SimuLean → Output Strategy). " +
-                 "Applied in ConnectSim; empty = element/inline default (FirstAvailable).")]
-        public OutputStrategyAsset outputStrategyAsset;
 
         [Tooltip("Which next element gets each item (first available, round robin, shortest queue, an expression…).")]
         public OutputStrategyConfig outputStrategy = new OutputStrategyConfig();
@@ -19,16 +16,28 @@ namespace SimuLean.Unity
         [Tooltip("Which items this element admits (all, by label, by a condition over the item and the element…).")]
         public InputStrategyConfig inputStrategy = new InputStrategyConfig();
 
-        [Tooltip("Labels set on every item that enters, 'name = expression' (e.g. reps = reps + 1, t_in = now(), " +
-                 "valid = rand() < 0.9). Set before this element takes the item, so its times and routing read them.")]
+        [Tooltip("Labels set on every item that enters, 'name = expression' (e.g. reps = (reps ?? 0) + 1, t_in = now(), " +
+                 "valid = rand() < 0.9). Set once this element has admitted the item, so its times and routing read them " +
+                 "(its own admission does not).")]
+        [SimuLean.Unity.SimuLeanHelp("Set once this element has admitted the item: its process time and routing read them, its own " +
+                                     "admission does not. To admit by a label, set it one step earlier (the sender's entryLabels, a source's createLabels).")]
+        [SimuLean.Unity.SimuLeanExpression("label", Records = true)]
         public List<string> entryLabels = new List<string>();
 
         [Tooltip("Labels set on every item that leaves, 'name = expression' (e.g. dx = pick(0.6, 'diagnosis', 0.4, 'control')). " +
-                 "Set before the next element takes the item.")]
+                 "Set at the hand-over, after this element's routing and the next element's admission have decided.")]
+        [SimuLean.Unity.SimuLeanHelp("Set at the hand-over, after this element's routing and the next element's admission have decided: " +
+                                     "neither reads them (the next element's times and routing do). To route or admit by a label, set it " +
+                                     "earlier: this element's entryLabels, or the source's createLabels.")]
+        [SimuLean.Unity.SimuLeanExpression("label", Records = true)]
         public List<string> exitLabels = new List<string>();
 
         [Tooltip("Values recorded for every item that enters, 'name = expression' (e.g. time_in_system = age, " +
                  "to_decision = t_decision - created, within_30d = age <= 720): mean, std, min, max, P50, P90 in the results.")]
+        [SimuLean.Unity.SimuLeanExpression("tally", Records = true)]
+        [SimuLeanHelp("Each item is 'name = expression', recorded for every item that enters: tallies = time_in_system = age " +
+                      "(several comma-separated). Read as Element.tally:name:mean (std, min, max, p50, p90, count); with tallySplit = " +
+                      "<label>, Element.tally:name[value]:mean, [*] for each value.")]
         public List<string> tallies = new List<string>();
 
         [Tooltip("Split the item statistics by this label (e.g. priority): one set per value as well as the total. Empty = no split.")]
@@ -70,8 +79,13 @@ namespace SimuLean.Unity
         public UnitySimList PullList => receiveFrom == ReceiveMode.List ? pullFromList : null;
 
         [Tooltip("Which items to pull and in which order (empty = everything, in the list's default order). " +
-                 "Fields: item labels, age, pushTime, itemPriority, owner, type.")]
+                 "Fields: the list's fields, age, pushTime, item labels; item.x (type, priority…), origin.x (name, content…).")]
         public SimuLean.Collections.ListQuerySpec pullQuery = new SimuLean.Collections.ListQuerySpec();
+
+        [Tooltip("The longest it waits for a matching entry of the list once it pulls (a time, or an expression); empty or " +
+                 "0 = no limit. A timeout is only recorded and signalled (WaitTimedOut): the pull goes on.")]
+        [SimuLean.Unity.SimuLeanExpression("maxWait")]
+        public string pullMaxWait = "";
 
         // ── resources: what a resource team does for this element ──
         [Tooltip("Resources for the process (stations): team, requirements, when they are released.")]

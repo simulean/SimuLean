@@ -1,0 +1,7 @@
+from,to,time
+,*,4
+A,B,2
+B,A,2.5
+A,C,Triangular~4~5~7
+B,C,Triangular~4~5~7
+C,*,Uniform~3~4

@@ -72,6 +72,22 @@ Tools/FloorPlan/       CAD drawing (DWG/DXF) -> floor-plan texture for FloorPlan
   them. Resources and lists keep their own statistics (state tracker, list stats).
 - **One build path.** A scene run extracts the scene (`SceneExtractor`) and the engine factory builds the model,
   as headless; each component is the view of its engine element and is bound to it (`SElement.Bind` → `OnBound`).
+- **One name per setting.** A config / catalog key is the path of the scene field (`capacity`,
+  `delayStrategy.constantValue`, `processBy.priority`, `setup.time`); a factor is `[scope:]Owner.key`, the owner found by
+  its name. An item has labels; an element and a resource member have properties (architecture §3.3, §3.5).
+- **Resource rules:** a use may take members of several teams, all at once (default) or in order with the
+  earlier ones held (`processBy.acquire`); a station may reserve room downstream before a job (`reserveExit`) and secure
+  its process resources before the part (`processBy.acquireBeforeEntry`) — architecture §3.17.
+  **Max-wait timers**: a limit on a job's wait for resources (`processBy.maxWait`, GiveUp frees what it holds and
+  asks again, Reroute on the Multi-Server), a Queue's items (reneging to `timeoutTarget`) and a list pull (`pullMaxWait`);
+  counted (`timeouts`) and signalled (`WaitTimedOut`) — architecture §3.17.
+- **Operating logic:** a decision is expressed at the lowest rung of the escalation ladder —
+  a field, an expression (`scoreExpression`, `offerSort`, conditions), a query / order (`namedOrders`, list queries), a
+  reaction (`SetElementProperty`, `Retry`, `SetItemLook`) — and a C# **choice rule** (`SimuLean.UserLogic`: routing,
+  release, dispatch; read-only, with a `Why`) is the last rung (`docs/agents/topics/logic.md` *The escalation ladder*). The
+  read-only logic viewer (`ModelLogic`, `simulean_model section=logic`) shows what decides each site; the model card's
+  `scripts` count the decisions by rung and list the rules; `simulean_validate` warns on a rule without a `Why` or used
+  where its primitive would do — architecture §3.24, §3.25.
 - **Headless = no view.** `Element` defaults to a `HeadlessVElement`; a headless run builds the same config without
   components (the scene run passes the components as views).
 - **`timeScale`** on `UnitySimClock` converts real seconds → sim seconds each frame.
@@ -100,7 +116,7 @@ Tools/FloorPlan/       CAD drawing (DWG/DXF) -> floor-plan texture for FloorPlan
   `SimCameraController`, `SimRuntimeHud`, `ElementInspectorPanel`, `FloorPlanUnderlay`,
   the building kit and the 3D models are **opt-in**: nothing is added to scenes and the
   clock defaults keep the legacy behaviour. Guide: `Assets/Docs/Optional_Runtime_Tools.md`.
-  Since 2026-10-05 `SimCameraController` navigates FlexSim-style (left / middle-drag grab pan on
+  Since 2026-10-05 `SimCameraController` navigates map-like (left / middle-drag grab pan on
   the ground, right-drag orbit about the screen centre, zoom to cursor, key speed proportional to
   height; editor check `SimCameraControllerCheck`).
 
@@ -127,6 +143,7 @@ Tools/FloorPlan/       CAD drawing (DWG/DXF) -> floor-plan texture for FloorPlan
 - [architecture.md](architecture.md) — full architecture, diagrams, caveats.
 - Feature guides: `Assets/Docs/Headless_And_Experiments.md`, `Assets/Docs/Downtime_And_Calendar.md`,
   `Assets/Docs/Signals_And_Reactions.md` (reactions: "when an element signals, if…, do…"),
-  `Assets/Docs/Expressions.md`, `Assets/Docs/Optional_Runtime_Tools.md`.
-- The modelling guide [guide/](guide/README.md) and the agents' documentation [agents/](agents/workflow.md).
+  `Assets/Docs/Expressions.md`, `Assets/Docs/Choice_Rules.md` (one decision in C#: routing, release and dispatch rules), `Assets/Docs/Optional_Runtime_Tools.md`.
+- The modelling guide [guide/](guide/README.md) and the agents' documentation [agents/](agents/workflow.md) (a short core,
+  then topic modules read on demand: `agents/topics/`).
 - `Tools/Blender/README.md` (3D asset pipeline), `Tools/FloorPlan/README.md` (floor plans).

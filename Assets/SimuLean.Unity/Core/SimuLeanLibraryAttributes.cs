@@ -31,6 +31,16 @@ namespace SimuLean.Unity
         /// <summary>Sort order inside the module.</summary>
         public int Order { get; set; }
 
+        /// <summary>Shown in the SimuLean window's Library (default). False: placed through presets only — the element
+        /// in the raw is confusing next to them (the Length-Limited Lane behind Conveyor / Accumulation Lane);
+        /// the pipeline commands still list it.</summary>
+        public bool InLibrary { get; set; } = true;
+
+        /// <summary>For an element without a prefab: the library model it shows when placed (a path under
+        /// <c>Art/Models/</c>, as the presets' models: a <see cref="StationModel"/> child); empty = none. Without it the
+        /// Separator and other elements are placed as empty objects.</summary>
+        public string Model { get; set; } = "";
+
         /// <summary>The library pack it belongs to (<see cref="SimuLeanPacks"/>; empty = by its module:
         /// <see cref="SimuLeanPacks.OfModule"/>).</summary>
         public string Pack { get; set; } = "";
@@ -59,6 +69,22 @@ namespace SimuLean.Unity
     public sealed class SimuLeanVisualAttribute : Attribute { }
 
     /// <summary>
+    /// The element a preset is a variant of: the Library draws it folded under that element's tile (its ▾),
+    /// not as a tile of its own; an element left out of the Library (<see cref="SimuLeanElementAttribute.InLibrary"/>)
+    /// is drawn by its first variant. E.g. the CNC Machine and the Paint Booth under the Multi-Server. Pure metadata.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
+    public sealed class SimuLeanVariantOfAttribute : Attribute
+    {
+        public SimuLeanVariantOfAttribute(Type element, string family = null) { Element = element; Family = family; }
+        public Type Element { get; }
+
+        /// <summary>A family among the presets of one type that has no tile of its own (the robots among the resource teams):
+        /// its first preset is the tile, the others fold under it. Empty = the element's own tile.</summary>
+        public string Family { get; }
+    }
+
+    /// <summary>
     /// The SimuLean window's tile icon of a preset (a <c>GameObject/SimuLean/…</c> menu method): an asset path — a model
     /// or prefab (its asset preview is drawn) or a texture (drawn as it is). Presets without it show their initials.
     /// Pure metadata.
@@ -74,7 +100,7 @@ namespace SimuLean.Unity
 
     /// <summary>
     /// A parameterless action of a scene component that an agent may run through <c>simulean_invoke</c> (fill a
-    /// travel matrix, rebuild a floor zone…, which agents ran by reflection through <c>eval</c>). Editor-time actions on
+    /// travel matrix, rebuild a floor zone…, without reflection through <c>eval</c>). Editor-time actions on
     /// the scene; never run by a simulation. Pure metadata.
     /// </summary>
     [AttributeUsage(AttributeTargets.Method, Inherited = true)]

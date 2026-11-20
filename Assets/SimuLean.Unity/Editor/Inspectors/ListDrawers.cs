@@ -43,7 +43,10 @@ namespace SimuLean.Unity.Editor
                 case ListFieldKind.Expression:
                 {
                     source.stringValue = EditorGUI.TextField(rSource, source.stringValue);
-                    string error = Validate(source.stringValue);
+                    // a milk run's request fields read the request (origin, destination), a list's its entry
+                    var check = ExpressionField.Check(source.stringValue,
+                        property.propertyPath.IndexOf("request", System.StringComparison.OrdinalIgnoreCase) >= 0 ? "requestField" : "listField");
+                    string error = check.Severity == ExpressionField.Severity.Error || check.Severity == ExpressionField.Severity.Warning ? check.Message : null;
                     if (string.IsNullOrEmpty(source.stringValue))
                         EditorGUI.LabelField(rSource, "formula, e.g. prio * 10 + age", EditorStyles.centeredGreyMiniLabel);
                     else if (error != null)
@@ -60,12 +63,6 @@ namespace SimuLean.Unity.Editor
             EditorGUI.indentLevel = indent;
         }
 
-        private static string Validate(string formula)
-        {
-            if (string.IsNullOrWhiteSpace(formula)) return null;
-            try { SimuLean.Expressions.Expression.Parse(formula); return null; }
-            catch (System.FormatException e) { return e.Message; }
-        }
     }
 
     /// <summary>
@@ -200,19 +197,23 @@ namespace SimuLean.Unity.Editor
 
         private static List<string> RequestFields()
         {
-            var f = new List<string> { "priority", "requestTime", "count", "station", "taskType", "skill" };
+            var f = new List<string>(SimuLean.Collections.ListFields.Request) { "origin.name" };
             foreach (var b in SimList.BuiltInFields) if (!f.Contains(b)) f.Add(b);
             return f;
         }
 
         private static List<string> MemberFields(UnityResourceTeam team)
         {
-            var f = new List<string> { "idleTime", "utilization", "tasksDone", "capacity", "name", "location" };
+            var f = new List<string>(SimuLean.Collections.ListFields.Member);
             if (team != null)
                 foreach (var m in team.members)
-                    if (m?.labels != null)
-                        foreach (var l in m.labels)
-                            if (l != null && !string.IsNullOrEmpty(l.label) && !f.Contains(l.label)) f.Add(l.label);
+                    if (m?.properties != null)
+                        foreach (var l in m.properties)
+                        {
+                            int eq = l?.IndexOf('=') ?? -1;
+                            string n = eq > 0 ? l.Substring(0, eq).Trim() : null;
+                            if (!string.IsNullOrEmpty(n) && !f.Contains(n)) f.Add(n);
+                        }
             return f;
         }
     }

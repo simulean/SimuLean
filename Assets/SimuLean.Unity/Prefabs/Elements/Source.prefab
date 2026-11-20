@@ -107,7 +107,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   nextElements: []
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
@@ -283,9 +282,8 @@ MonoBehaviour:
   separation: 1
   itemPosition: {fileID: 0}
   mode: 0
-  assignLabels:
-  - label: prio
-    value: 0
+  createLabels:
+  - prio = 0
   demandFactor: 1
   interArrivalDistribution:
     strategyType: 3

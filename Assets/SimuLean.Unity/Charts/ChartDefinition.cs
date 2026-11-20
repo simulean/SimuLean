@@ -19,7 +19,7 @@ namespace SimuLean.Unity
     /// <summary>
     /// A chart saved with the project: an asset holding a <see cref="ChartQuery"/> — kind, the
     /// value(s), categories, filters — and where its results come from. Drawn by the engine
-    /// (<see cref="ChartBuilder"/> → <see cref="ChartRenderer"/>), so the Results tab, a dashboard in Play (G2b) and the
+    /// (<see cref="ChartBuilder"/> → <see cref="ChartRenderer"/>), so the Results tab, a dashboard in Play and the
     /// exported PNG show the same image. Create: SimuLean window ▸ Results ▸ Charts ▸ New, or Assets ▸ Create ▸ SimuLean ▸ Chart.
     /// </summary>
     [CreateAssetMenu(menuName = "SimuLean/Chart", fileName = "Chart")]
@@ -89,10 +89,10 @@ namespace SimuLean.Unity
             var tex = reuse != null && reuse.width == image.Width && reuse.height == image.Height ? reuse
                 : new Texture2D(image.Width, image.Height, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
             if (reuse != null && tex != reuse) Object.DestroyImmediate(reuse);
+            // rows straight into the texture's own memory: no copy of the image per refresh
             int row = image.Width * 4;
-            var flipped = new byte[image.Rgba.Length];
-            for (int y = 0; y < image.Height; y++) System.Buffer.BlockCopy(image.Rgba, y * row, flipped, (image.Height - 1 - y) * row, row);
-            tex.LoadRawTextureData(flipped);
+            var raw = tex.GetPixelData<byte>(0);
+            for (int y = 0; y < image.Height; y++) global::Unity.Collections.NativeArray<byte>.Copy(image.Rgba, y * row, raw, (image.Height - 1 - y) * row, row);
             tex.Apply(false);
             return tex;
         }

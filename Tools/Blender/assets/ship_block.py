@@ -1,5 +1,5 @@
 """
-SimuLean kit: prefabricated hull block ("bloque") for a shipyard model.  Two
+SimuLean kit: prefabricated hull block for a shipyard model.  Two
 variants share one parametric builder:
 
     curved   bilge / side block: bottom shell turning into the side shell

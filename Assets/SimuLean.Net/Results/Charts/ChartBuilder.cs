@@ -48,7 +48,7 @@ namespace SimuLean.Results.Charts
         {
             switch (spec.Kind)
             {
-                case ChartKind.Bar:   // one run: no interval to speak of (review2 #36)
+                case ChartKind.Bar:   // one run: no interval to speak of
                     return data.Series.All(x => x.Low.All(double.IsNaN)) ? "one run"
                          : $"mean ± {spec.Confidence * 100:0.#} % confidence interval over the replications";
                 case ChartKind.Box: return "min, quartiles, median and max over the replications";
@@ -351,7 +351,7 @@ namespace SimuLean.Results.Charts
             return (scenario, replication);
         }
 
-        // ── job Gantt: where each item was (G3d) ──────────────────────────────
+        // ── job Gantt: where each item was ──────────────────────────────
 
         private static void JobGantt(ChartQuery spec, IReadOnlyDictionary<string, ResultTable> tables, ChartData data)
         {

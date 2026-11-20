@@ -13,89 +13,201 @@ using Object = UnityEngine.Object;
 namespace SimuLean.Unity.Editor
 {
     /// <summary>
-    /// Building in bulk through the MCP: an agent built 293
-    /// elements by calling the commands from C# loops through <c>eval</c>; another needed 1,787 <c>simulean_set</c> calls.
+    /// Building in bulk through the MCP, without <c>eval</c> loops or one <c>simulean_set</c> call per field.
     /// <c>simulean_apply</c> runs a list of edits in one call (all or nothing, one undo step), <c>simulean_repeat</c> copies
     /// a group of objects N times with its inner connections, <c>simulean_invoke</c> runs a component action marked for
     /// agents (<see cref="SimuLeanActionAttribute"/>) or a context-menu action.
     /// </summary>
     public static partial class SimuLeanCommands
     {
-        [CliCommand("simulean_apply", "Run a list of edits in one call, all or nothing (one undo step; at the first error every edit " +
-                                      "before it is undone and the error names the operation). JSON array of {\"op\": …}: add " +
-                                      "(type name x y z parent), set (element key value), connect / disconnect (from to), remove " +
-                                      "(object), rename (object name), add_team (name members travel x y z parent), invoke (object " +
-                                      "action), repeat (group count offset names connectFrom connectTo).", Tags = new[] { Tag })]
+        [CliCommand("simulean_apply", "Run a list of edits in one call, all or nothing (one undo step). Every operation is tried: on " +
+                                      "errors nothing is changed and the answer names every bad operation (a later one may fail because " +
+                                      "of an earlier one). validateOnly=true checks the list the same way and changes nothing. JSON array " +
+                                      "of {\"op\": …}: add (type name x y z parent), set (object key value), connect / disconnect (from to), " +
+                                      "reorder (object next), remove (object), rename (object newName), move (object x z: as simulean_move), " +
+                                      "add_team (name members travel kind x y z parent; without x / y / z it is placed once the whole list is " +
+                                      "applied, in front of the model, so it does not stand on an element the list adds later), invoke (object " +
+                                      "action; not run by validateOnly), repeat (group count offset names connectFrom connectTo).", Tags = new[] { Tag })]
         public static object Apply(
             [CliArg("operations", "JSON array, e.g. [{\"op\":\"add\",\"type\":\"UnityQueue\",\"name\":\"Q1\",\"x\":2}, " +
-                                  "{\"op\":\"set\",\"element\":\"Q1\",\"key\":\"capacity\",\"value\":5}, {\"op\":\"connect\",\"from\":\"Src\",\"to\":\"Q1\"}].",
-                    Required = true)] string operations)
-            => AgentReply.Of(() => ApplyOf(operations));
+                                  "{\"op\":\"set\",\"object\":\"Q1\",\"key\":\"capacity\",\"value\":5}, {\"op\":\"connect\",\"from\":\"Src\",\"to\":\"Q1\"}].",
+                    Required = true)] string operations,
+            [CliArg("validateOnly", "Check every operation (each one tried, then all undone) and report all the bad ones; the scene is not changed.")] bool validateOnly = false,
+            [CliArg("detail", "summary (default: the count per kind of operation, the objects created — their names as placed —, the racks rebuilt and every warning) or full (one result per operation).")] string detail = "summary")
+            => AgentReply.Of(() => ApplyOf(operations, validateOnly, detail));
 
-        private static object ApplyOf(string operations)
+        private static object ApplyOf(string operations, bool validateOnly = false, string detail = "summary")
         {
+            if (!string.IsNullOrWhiteSpace(detail) && !string.Equals(detail.Trim(), "full", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(detail.Trim(), "summary", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"detail: '{detail}' is not summary or full.");
             JArray ops;
             try { ops = JArray.Parse(operations ?? ""); }
             catch (Newtonsoft.Json.JsonException e)
             { throw new ArgumentException($"operations: not a JSON array ({e.Message}). Expected e.g. [{{\"op\": \"connect\", \"from\": \"A\", \"to\": \"B\"}}]."); }
             Undo.IncrementCurrentGroup();
             int group = Undo.GetCurrentGroup();
-            var done = new List<object>();
+            var done = new List<JObject>();
+            var failures = new List<string>();
+            var session = new EditSession();
+            // the names this list creates, and where: a set naming one of them before it is created fails with "No object"
+            var createdAt = new Dictionary<string, int>(StringComparer.Ordinal);
+            // the teams added without a position: placed once the whole list stands (a team added first took a spot an
+            // element of the list was given later)
+            var teamsToPlace = new List<string>();
+            for (int k = 0; k < ops.Count; k++)
+                if (ops[k] is JObject c && ((string)c["op"] ?? "").ToLowerInvariant() is string ck
+                    && (ck == "add" || ck == "add_team" || ck == "rename") && (string)(ck == "rename" ? c["newName"] : c["name"]) is string cn
+                    && !createdAt.ContainsKey(cn))
+                    createdAt[cn] = k;
+            // every operation is tried (one bad operation does not make the caller resend the whole list)
             for (int i = 0; i < ops.Count; i++)
             {
-                if (!(ops[i] is JObject op)) throw new ArgumentException($"operation {i + 1}: not an object.");
-                string kind = Text(op, "op", i).ToLowerInvariant();
-                try { done.Add(Brief(kind, RunOperation(kind, op, i))); }
+                string kind = "?";
+                try
+                {
+                    if (!(ops[i] is JObject op)) throw new ArgumentException("not an object.");
+                    kind = Text(op, "op", i).ToLowerInvariant();
+                    if (validateOnly && kind == "invoke")
+                    {
+                        FindObject(Text(op, "object", i)); Text(op, "action", i);
+                        done.Add(new JObject { ["op"] = kind, ["note"] = "not run (validateOnly)" });
+                        continue;
+                    }
+                    var result = RunOperation(kind, op, i, session);
+                    done.Add(Brief(kind, result));
+                    if (kind == "set") session.Edited(FindObject(Text(op, "object", i)).name);
+                    if (kind == "add_team" && result["placedAt"] != null && result["placedAt"].Type == JTokenType.String && result["team"] != null)
+                        teamsToPlace.Add((string)result["team"]);
+                }
                 catch (Exception e)
                 {
                     var inner = e is TargetInvocationException t && t.InnerException != null ? t.InnerException : e;
-                    Undo.RevertAllDownToGroup(group);
-                    throw new ArgumentException($"operation {i + 1} ({kind}{Describe(op)}): {inner.Message} — nothing was changed" +
-                                                (i > 0 ? $" (the {i} operation(s) before it were undone)." : "."));
+                    failures.Add($"operation {i + 1} ({kind}{(ops[i] is JObject o ? Describe(o) : "")}): {inner.Message}" + LaterCreation(inner.Message, i, createdAt));
+                    done.Add(new JObject { ["op"] = kind, ["error"] = inner.Message });
                 }
             }
+            // racks whose layout changed: their lanes rebuilt once, only when the list is kept
+            var racks = session.RacksToRebuild;
+            var rebuilt = new List<string>();
+            if (failures.Count == 0 && !validateOnly)
+                foreach (var rack in racks) rebuilt.Add($"{rack.name}: {RebuildRack(rack)}");
+            var teamsPlaced = new SortedDictionary<string, float[]>(StringComparer.Ordinal);
+            if (failures.Count == 0 && !validateOnly)
+                foreach (string t in teamsToPlace)
+                {
+                    var team = GameObject.Find(t)?.GetComponent<UnityResourceTeam>()
+                               ?? UnityCompat.FindAll<UnityResourceTeam>().FirstOrDefault(x => x != null && x.name == t);
+                    if (team == null) continue;   // removed or renamed further on in the list
+                    var spot = ModelLayout.FreeSpotForTeam(team);
+                    Undo.RecordObject(team.transform, "Place " + t);
+                    team.transform.position = spot;
+                    teamsPlaced[t] = new[] { spot.x, spot.z };
+                }
+            // a label read that nothing sets, once the whole list is applied
+            var labelWarnings = failures.Count == 0 ? LabelWarnings(session.EditedObjects) : new List<string>();
+            // rule parameter lists that change nothing, once the whole list is applied
+            var ruleWarnings = session.RuleWarnings();
+            if (failures.Count == 0) labelWarnings.AddRange(ruleWarnings);
+            if (failures.Count > 0 || validateOnly) TeamMemberPreviews.Revert(group);
+            if (failures.Count > 0)
+                throw new ArgumentException($"{failures.Count} of {ops.Count} operation(s) failed — nothing was changed: " + string.Join(" | ", failures) +
+                                            (failures.Count > 1 ? " (a later operation may fail because an earlier one did)." : ""));
+            // the answer: a summary (134 result lines for 134 operations), each result with detail=full
+            bool full = string.Equals((detail ?? "").Trim(), "full", StringComparison.OrdinalIgnoreCase);
+            var warnings = new List<string>(labelWarnings);
+            var created = new List<string>();
+            var moved = new List<string>();
+            var placed = new SortedDictionary<string, JArray>(StringComparer.Ordinal);   // tools placed beside the model
+            var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            foreach (var j in done)
+            {
+                string kind = (string)j["op"] ?? "?";
+                counts[kind] = counts.TryGetValue(kind, out int n) ? n + 1 : 1;
+                // add answers its object's 'name', add_team its 'team'
+                if ((kind == "add" || kind == "add_team") && (j["name"] ?? j["team"]) != null) created.Add((string)(j["name"] ?? j["team"]));
+                if (kind == "move" && j["moved"] != null && !moved.Contains((string)j["moved"])) moved.Add((string)j["moved"]);
+                if (kind == "add" && j["name"] != null && j["placedAt"] is JArray at) placed[(string)j["name"]] = at;
+                if (j["warnings"] is JArray w)
+                    foreach (var x in w) if (x.Type == JTokenType.String && !warnings.Contains((string)x)) warnings.Add((string)x);
+            }
+            if (validateOnly)
+                return full ? (object)new { valid = true, @checked = ops.Count, results = done, warnings, note = "validateOnly: nothing was changed." }
+                            : new { valid = true, @checked = ops.Count, operations = counts, warnings, note = "validateOnly: nothing was changed." };
             Undo.CollapseUndoOperations(group);
             Undo.SetCurrentGroupName($"SimuLean: {ops.Count} edits");
-            return new { applied = ops.Count, results = done };
+            // the footprints of the objects created and those that overlap one of them (neighbours placed 2 m apart
+            // when a queue is 3 m wide)
+            var sizes = new SortedDictionary<string, float[]>(StringComparer.Ordinal);
+            foreach (string n in created)
+            {
+                var go = GameObject.Find(n) ?? ModelLayout.Elements().FirstOrDefault(e => e.name == n);
+                var size = go != null ? ModelLayout.SizeOf(go) : null;
+                if (size != null) sizes[n] = size;
+            }
+            // the objects created or moved: the footprints they overlap, once the whole list stands
+            var involved = created.Concat(moved).Distinct().ToList();
+            var overlaps = involved.Count > 0 ? ModelLayout.Overlaps(ModelLayout.Elements(), involved) : new List<string>();
+            object placedNote = placed.Count == 0 ? null : new { at = placed, note = "no position given: beside the model, in a row behind it (+Z); their place does not change a run" };
+            object teamsNote = teamsPlaced.Count == 0 ? null
+                : new { at = teamsPlaced, note = "no position given: in front of the model (−Z), once the whole list stood; a Straight team without a " +
+                                                 "home node starts its walks there (simulean_move moves it)" };
+            if (full) return new { applied = ops.Count, results = done, rebuilt, sizes, placed = placedNote, teamsPlaced = teamsNote, overlaps, warnings };
+            return new { applied = ops.Count, operations = counts, created, sizes, placed = placedNote, teamsPlaced = teamsNote, overlaps, rebuilt, warnings };
         }
 
-        private static object RunOperation(string kind, JObject op, int i)
+        // each operation answers as its command does (AgentReply: its own errors / warnings logged); a set belongs to the session
+        private static JObject RunOperation(string kind, JObject op, int i, EditSession session)
         {
             switch (kind)
             {
                 case "add":
-                    return AddElement(Text(op, "type", i), Opt(op, "name"), Num(op, "x"), Num(op, "y"), Num(op, "z"), Opt(op, "parent"));
-                case "set": return Set(Text(op, "element", i), Text(op, "key", i), Text(op, "value", i));
-                case "connect": return Connect(Text(op, "from", i), Text(op, "to", i));
-                case "disconnect": return SimuLeanEditCommands.Disconnect(Text(op, "from", i), Text(op, "to", i));
-                case "remove": return SimuLeanEditCommands.Remove(Text(op, "object", i));
-                case "rename": return SimuLeanEditCommands.Rename(Text(op, "object", i), Text(op, "name", i));
+                    return AgentReply.Run(() => AddElementOf(Text(op, "type", i), Opt(op, "name"), Num(op, "x"), Num(op, "y"), Num(op, "z"), Opt(op, "parent")));
+                case "set": return AgentReply.Run(() => SetOf(Text(op, "object", i), Text(op, "key", i), Text(op, "value", i), session));
+                case "connect": return AgentReply.Run(() => ConnectOf(Text(op, "from", i), Text(op, "to", i)));
+                case "disconnect": return AgentReply.Run(() => SimuLeanEditCommands.DisconnectOf(Text(op, "from", i), Text(op, "to", i)));
+                case "reorder": return AgentReply.Run(() => SimuLeanEditCommands.ReorderOf(Text(op, "object", i), Text(op, "next", i)));
+                case "remove": return AgentReply.Run(() => SimuLeanEditCommands.RemoveOf(Text(op, "object", i)));
+                case "rename": return AgentReply.Run(() => SimuLeanEditCommands.RenameOf(Text(op, "object", i), Text(op, "newName", i)));
                 case "add_team":
-                    return AddTeam(Text(op, "name", i), op["members"] != null ? (int)op["members"] : 1, Opt(op, "travel"),
-                                   Num(op, "x"), Num(op, "y"), Num(op, "z"), Opt(op, "parent"));
-                case "invoke": return Invoke(Text(op, "object", i), Text(op, "action", i));
+                    return AgentReply.Run(() => AddTeamOf(Text(op, "name", i), op["members"] != null ? (int)op["members"] : 1, Opt(op, "travel"),
+                                                          Num(op, "x"), Num(op, "y"), Num(op, "z"), Opt(op, "parent"), Opt(op, "kind")));
+                case "move": return AgentReply.Run(() => SimuLeanEditCommands.MoveOf(Text(op, "object", i), Coordinate(op, "x", i), Coordinate(op, "z", i)));
+                case "invoke": return AgentReply.Run(() => InvokeOf(Text(op, "object", i), Text(op, "action", i)));
                 case "repeat":
-                    return Repeat(Text(op, "group", i), op["count"] != null ? (int)op["count"] : 1, Opt(op, "offset"), Opt(op, "names"),
-                                  Opt(op, "connectFrom"), Opt(op, "connectTo"));
+                    return AgentReply.Run(() => RepeatOf(Text(op, "group", i), op["count"] != null ? (int)op["count"] : 1, Opt(op, "offset"), Opt(op, "names"),
+                                                         Opt(op, "connectFrom"), Opt(op, "connectTo")));
             }
-            throw new ArgumentException($"'{kind}' is not add, set, connect, disconnect, remove, rename, add_team, invoke or repeat.");
+            throw new ArgumentException($"'{kind}' is not add, set, connect, disconnect, reorder, remove, rename, move, add_team, invoke or repeat.");
+        }
+
+        // "No object 'T'" for a name the list creates further on: the operations run in list order
+        private static string LaterCreation(string message, int at, Dictionary<string, int> createdAt)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(message ?? "", @"No object '([^']+)'");
+            return m.Success && createdAt.TryGetValue(m.Groups[1].Value, out int k) && k > at
+                ? $" — '{m.Groups[1].Value}' is created later in this list (operation {k + 1}): the operations run in order, put it before."
+                : "";
         }
 
         // a short result per operation (the full answers would fill the agent's context)
-        private static object Brief(string kind, object answer)
+        private static JObject Brief(string kind, JObject o)
         {
-            var o = JobWait.Json(answer) as JObject;
-            if (o == null) return kind;
             var b = new JObject { ["op"] = kind };
-            foreach (string k in new[] { "name", "element", "from", "to", "removed", "copies" })
+            // a team's speed and where it came from (its kind): the brief asked speed is easy to override silently
+            foreach (string k in new[] { "name", "team", "speed", "speedFrom", "object", "moved", "from", "to", "removed", "copies" })
                 if (o[k] != null) b[k] = o[k];
+            if (kind == "move" && o["at"] != null) b["at"] = o["at"];
             if (o["warnings"] is JArray w && w.Count > 0) b["warnings"] = w;
+            // a tool placed beside the model: where, [x, z]
+            if (o["placedAt"] != null && o["placedAt"].Type == JTokenType.String && o["position"] is JArray pos && pos.Count == 3)
+                b["placedAt"] = new JArray(Math.Round((double)pos[0], 1), Math.Round((double)pos[2], 1));
             return b;
         }
 
         private static string Describe(JObject op)
         {
-            foreach (string k in new[] { "name", "element", "object", "from", "group" })
+            foreach (string k in new[] { "name", "object", "from", "group" })
                 if (op[k] != null) return " " + (string)op[k] + (k == "from" && op["to"] != null ? " → " + (string)op["to"] : "");
             return "";
         }
@@ -110,6 +222,16 @@ namespace SimuLean.Unity.Editor
         private static string Opt(JObject op, string key) => op[key] == null || op[key].Type == JTokenType.Null ? "" : Value(op[key]);
 
         private static float Num(JObject op, string key) => op[key] == null ? 0f : (float)op[key];
+
+        // a coordinate an operation must give (a move without x or z would put the object at 0)
+        private static float Coordinate(JObject op, string key, int i)
+        {
+            var v = op[key];
+            if (v == null || v.Type == JTokenType.Null) throw new ArgumentException($"operation {i + 1}: no \"{key}\".");
+            if (v.Type == JTokenType.Integer || v.Type == JTokenType.Float) return (float)v;
+            if (float.TryParse((string)v, NumberStyles.Float, CultureInfo.InvariantCulture, out float f)) return f;
+            throw new ArgumentException($"operation {i + 1}: \"{key}\" = '{v}' is not a number.");
+        }
 
         private static string Value(JToken v)
         {
@@ -174,12 +296,14 @@ namespace SimuLean.Unity.Editor
                         Pair(original.transform, copy.transform, map);
                         made.Add(copy);
                     }
-                    // names first (unique), then the references inside the group remapped to this copy
+                    // names first (unique), then the references inside the group remapped to this copy: the objects of the
+                    // group itself always (decoration too: its copies kept Unity's "(Clone)" and were not listed),
+                    // the model objects inside them (the decoration's parts keep their names)
                     var renamed = new Dictionary<string, string>();
                     foreach (var copy in made)
                         foreach (var t in copy.GetComponentsInChildren<Transform>(true))
                         {
-                            if (!IsModelObject(t.gameObject)) continue;
+                            if (t != copy.transform && !IsModelObject(t.gameObject)) continue;
                             string original = ((GameObject)map.First(kv => kv.Value == t.gameObject).Key).name;
                             string n = pattern.Replace("{name}", original).Replace("{i}", i.ToString(CultureInfo.InvariantCulture));
                             EnsureFreeName(n, t.gameObject);
@@ -195,7 +319,7 @@ namespace SimuLean.Unity.Editor
             }
             catch
             {
-                Undo.RevertAllDownToGroup(undo);
+                TeamMemberPreviews.Revert(undo);
                 throw;
             }
             Undo.CollapseUndoOperations(undo);

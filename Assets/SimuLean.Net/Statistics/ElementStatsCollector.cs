@@ -32,6 +32,10 @@ namespace SimuLean.Statistics
         private readonly Dictionary<Item, double> _entryTimes
             = new Dictionary<Item, double>();
 
+        /// <summary>The items inside the element now, as the link layer saw them enter (read-only; empty for an element that
+        /// keeps no stay times, e.g. a sink): what <c>count(element, label, value)</c> reads.</summary>
+        public Dictionary<Item, double>.KeyCollection ItemsInside => _entryTimes.Keys;
+
         // Items that left before their entry was recorded, at _passTime: an element that forwards an item inside
         // the Receive that brought it (a queue with a free successor) makes the link call OnExit before OnEntry.
         // The entry that follows at the same time is a zero stay. Kept for one instant only (cleared when the
@@ -51,9 +55,18 @@ namespace SimuLean.Statistics
         /// with it — output count, content and stay time per sub-item — and the compound
         /// itself is not counted. Still driven only by the link layer's <see cref="OnExit"/>,
         /// so the stacked items' input / output / content balance stays exact. With the flag
-        /// off (every other element) <see cref="OnExit"/> behaves exactly as before.
+        /// off (every other element) <see cref="OnExit"/> behaves as an ordinary element does.
         /// </summary>
         public bool CountSubItemsOnExit { get; set; }
+
+        /// <summary>
+        /// Compound entries (opt-in, default false; set by elements that take compound items apart, e.g. an unpacker).
+        /// When true, an item entering through the link also records each of its <see cref="Item.subItems"/> as entering
+        /// (input count, content, entry time), so the contents can later leave one by one through the link with exact
+        /// stay times while the emptied compound leaves on its own. Still driven only by the link layer's
+        /// <see cref="OnEntry"/>.
+        /// </summary>
+        public bool CountSubItemsOnEntry { get; set; }
 
         /// <summary>
         /// Whether this element holds content (default true). Generators (sources) set it to
@@ -65,13 +78,29 @@ namespace SimuLean.Statistics
         public bool TracksContent { get; set; } = true;
 
         /// <summary>Keep each item's entry time for its stay (default). Off for an element its items never leave (a sink):
-        /// it kept every item it received, the memory growing with the run (review2 #19).</summary>
+        /// it kept every item it received, the memory growing with the run.</summary>
         public bool TracksStay { get; set; } = true;
 
         /// <summary>Values recorded for every item that enters (<see cref="ItemTallies"/>): null = none.</summary>
         public ItemTallies Tallies { get; set; }
 
-        // ── raw samples (optional; fitting distributions to a run's times) ──
+        /// <summary>Every stay time kept, for its percentiles (<c>stay_p90</c>), once <see cref="KeepStayValues"/> is on
+        /// (null otherwise). A queue keeps them — its stay is the wait asked about; elsewhere they would only cost memory
+        /// (8 bytes per item that left).</summary>
+        public TallySamples StayValues { get; private set; }
+
+        /// <summary>Starts keeping the stay times (call when the element is made).</summary>
+        public void KeepStayValues() => StayValues = StayValues ?? new TallySamples();
+
+        /// <summary>The time in system of every item that enters — its age, now − its creation time, as the tally
+        /// <c>age</c> reads it — once <see cref="RecordTimeInSystem"/> is on (null otherwise): a sink's <c>tis_*</c>,
+        /// whose stays are 0 since nothing leaves it.</summary>
+        public TallySamples TimeInSystem { get; private set; }
+
+        /// <summary>Starts recording the time in system of the items that enter (call when the element is made).</summary>
+        public void RecordTimeInSystem() => TimeInSystem = TimeInSystem ?? new TallySamples();
+
+        // ── raw samples (optional: fitting distributions to a run's times) ──
 
         /// <summary>Every stay time, entry time and exit time, once <see cref="RecordSamples"/> is on (null otherwise):
         /// the data of a run to fit distributions to (stay = process / waiting times, entries = inter-arrival, exits =
@@ -112,11 +141,25 @@ namespace SimuLean.Statistics
             {
                 VarStayTime.Update(0);          // it already left: passed through without waiting
                 StaySamples?.Add(0);
+                StayValues?.Add(0);
             }
             else if (TracksStay)
                 _entryTimes[theItem] = now;
+            if (theItem != null) TimeInSystem?.Add(now - theItem.GetCreationTime());
             if (theItem != null) Tallies?.Record(theItem, Element);
             Element?.RaiseItemEntered(theItem);
+            Element?.CountAdmittedEntry();   // read-only counter (logic viewer): one per item entered
+
+            if (CountSubItemsOnEntry && theItem != null && theItem.subItems != null)
+                foreach (Item sub in theItem.subItems)
+                {
+                    if (sub == null || sub == theItem || _entryTimes.ContainsKey(sub)) continue;
+                    VarInput.Update(1);
+                    EntryTimes?.Add(now);
+                    if (TracksContent) VarContent.Update(1, now);
+                    if (TracksStay) _entryTimes[sub] = now;
+                    Element?.RaiseItemEntered(sub);
+                }
         }
 
         /// <summary>
@@ -147,6 +190,7 @@ namespace SimuLean.Statistics
                 double stayTime = Clock.GetSimulationTime() - entryTime;
                 VarStayTime.Update(stayTime);
                 StaySamples?.Add(stayTime);
+                StayValues?.Add(stayTime);
             }
             else if (TracksContent && theItem != null)
             {
@@ -166,6 +210,8 @@ namespace SimuLean.Statistics
             VarContent.Reset();
             VarStayTime.Reset();
             ClearSamples();
+            StayValues?.Clear();
+            TimeInSystem?.Clear();
             Tallies?.Reset();
             if (Clock != null) VarContent.Reset(Clock.GetSimulationTime());   // average over the whole run
             _entryTimes.Clear();
@@ -184,6 +230,8 @@ namespace SimuLean.Statistics
             VarOutput.Reset();
             VarStayTime.Reset();
             ClearSamples();
+            StayValues?.Clear();
+            TimeInSystem?.Clear();
             Tallies?.Reset();
             if (TracksContent) VarContent.Restart(Clock.GetSimulationTime());
             else VarContent.Reset();

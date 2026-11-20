@@ -1,5 +1,5 @@
 """
-SimuLean kit: level-luffing portal crane ("grua cigüeña") for a shipyard model -
+SimuLean kit: level-luffing portal crane for a shipyard model -
 a double-link crane: the boom carries a jib at its head, and a tie from the
 top of the A-frame to the jib's tail keeps the jib tip (and the hook) at an
 almost constant height while the boom luffs in and out.

@@ -17,6 +17,8 @@ namespace SimuLean.Unity.Editor
             search = EditorGUILayout.TextField(search, EditorStyles.toolbarSearchField);
             if (GUILayout.Button(new GUIContent("Organize", "Moves the SimuLean objects at the scene root into their groups."), EditorStyles.miniButton, GUILayout.Width(70)))
                 ModelHierarchy.OrganizeOpenScenes();
+            if (GUILayout.Button(new GUIContent("Logic", "Opens Model Logic: every decision of the model (routing, admission, orders, teams, reactions), read-only."), EditorStyles.miniButton, GUILayout.Width(50)))
+                ModelLogicWindow.Open();
             EditorGUILayout.EndHorizontal();
 
             scroll = EditorGUILayout.BeginScrollView(scroll);

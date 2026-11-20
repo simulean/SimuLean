@@ -6,11 +6,8 @@ using UnityEngine;
 
 namespace SimuLean.Unity
 {
-    /// <summary>How a team's members travel: no position (travel takes no time) or on the transport network.</summary>
-    public enum TeamTravel { Abstract, Network, Matrix, Axes, Grid, UnityPhysics }
-
-    /// <summary>Unity Physics travel: the model that estimates distances (nearest rules, calibration, headless).</summary>
-    public enum PhysicsEstimate { Grid, Matrix, Network }
+    // TeamTravel and PhysicsEstimate are in Serialization/Extractors/ExtractionRules.cs (with the travel they map to);
+    // the team's config is built by UnityResourceTeamExtractor
 
     /// <summary>A member of a resource team (an operator, a vehicle…).</summary>
     [Serializable]
@@ -18,8 +15,10 @@ namespace SimuLean.Unity
     {
         [Tooltip("Member name (empty = team name + number).")]
         public string name = "";
-        [Tooltip("Skills / attributes used by the requirements and the order rules, e.g. skill = welding.")]
-        public List<LabelAssignment> labels = new List<LabelAssignment>();
+        [Tooltip("The member's properties (skills, attributes) used by the requirements and the order rules, 'name = expression' " +
+                 "evaluated when the member is built (e.g. skill = 'welding', level = 3); text in quotes.")]
+        [SimuLean.Unity.SimuLeanExpression("memberProperty", Records = true)]
+        public List<string> properties = new List<string>();
         [Tooltip("Its own load / unload times (transport), used unless the element overrides them — seconds with the team's Physical units, else model time units.")]
         [Min(0)] public float loadTime;
         [Min(0)] public float unloadTime;
@@ -29,7 +28,7 @@ namespace SimuLean.Unity
     }
 
     /// <summary>
-    /// A resource team in the scene: its members and the dispatcher ("ordenador") that hands
+    /// A resource team in the scene its members and the dispatcher that hands
     /// them to the elements asking for them — for their process or to carry their items (each element's
     /// <c>Resources</c> section). Priority rule = the request order and the resource order (list orders; empty = FIFO
     /// if available). Driven by <see cref="UnitySimClock"/>: built before the elements initialise, started after them.
@@ -39,10 +38,10 @@ namespace SimuLean.Unity
     /// by <see cref="UnityVehicleAnimator"/> — or, for a prefab with a gantry, <see cref="CraneResourceView"/>, and with a
     /// 6-axis arm, <see cref="RobotArmView"/>.
     /// </summary>
-    [SimuLeanTool(SimuLeanToolCategories.Resources, "Resource Team",
+    [SimuLeanTool(SimuLeanToolCategories.Resources, "Resource Team", Order = 45,
         Description = "Operators (and later vehicles) assigned to stations for their process or to carry their items, by a priority rule")]
     [AddComponentMenu("SimuLean/Resource Team")]
-    [SelectionBase]   // its members' edit-mode preview selects the team (review2 #48)
+    [SelectionBase]   // its members' edit-mode preview selects the team
     public class UnityResourceTeam : MonoBehaviour
     {
         [Tooltip("Name of the team in the model (empty = the GameObject name).")]
@@ -51,15 +50,28 @@ namespace SimuLean.Unity
         [Tooltip("The members of the team (operators, vehicles, cranes) with their skills and load / unload times.")]
         public List<ResourceMemberSpec> members = new List<ResourceMemberSpec>();
 
-        [Tooltip("Which request is served first (order by a request field: priority, age, count…). Empty = first come, first served.")]
+        [Tooltip("Which request is served first (order by a request field: priority, age, count…). Empty = first come, first served: " +
+                 "the jobs' Priority orders the queue only with an order by it (priority desc); preemption uses it always.")]
         public ListQuerySpec requestOrder = new ListQuerySpec();
 
-        [Tooltip("Which free member gets a request (order by a member field: idleTime, utilization, tasksDone, distance, a label…). Empty = longest idle first.")]
+        [Tooltip("Named request orders (name = query text, e.g. Urgent = |priority desc). Request Order Name may name one instead " +
+                 "of the Request Order, which makes the order a choice for the Experimenter / optimiser.")]
+        public List<NamedOrder> namedOrders = new List<NamedOrder>();
+        [Tooltip("Optional: the named order used as the request order (overrides Request Order), or rule:Type - a dispatch rule " +
+                 "(a class implementing IDispatchRule in Assets/SimuLean.UserLogic) that scores each pending request.")]
+        public string requestOrderName = "";
+        [Tooltip("The dispatch rule's parameters (its [RuleParameter] fields) and their values.")]
+        public List<RuleParameterValue> ruleParameters = new List<RuleParameterValue>();
+
+        [Tooltip("Which free member gets a request (order by a member field: idleTime, utilization, tasks, distance, a property…). Empty = longest idle first.")]
         public ListQuerySpec resourceOrder = new ListQuerySpec();
 
         [Header("Travel")]
-        [Tooltip("Abstract: no position, travel takes no time (or the element's defined travel time). Network: the members travel on the transport network.")]
-        public TeamTravel travel = TeamTravel.Abstract;
+        [Tooltip("Straight (default): the members go in straight lines between the elements at the team speed, no obstacles (as " +
+                 "a mobile resource); each element without a location gets a point in front of it. Abstract: no " +
+                 "position, travel takes no time (or the element's defined travel time); the members stand at the team. " +
+                 "Network: on the transport network. Grid: around obstacles (walk grid, A*).")]
+        public TeamTravel travel = TeamTravel.Straight;
         [Tooltip("Network travel: the network (empty = the scene's).")]
         public UnityTransportNetwork network;
         [Tooltip("Network travel under traffic control: one vehicle per track (the network's capacity), vehicles wait at nodes, deadlocks resolved and counted.")]
@@ -78,8 +90,17 @@ namespace SimuLean.Unity
         public Vector3 axisAccel = Vector3.zero;
         [Tooltip("Axes travel: axes move one after the other (else together: the slowest axis decides).")]
         public bool axesSequential;
-        [Tooltip("Spatial travel: node where the members start.")]
+        [Tooltip("Spatial travel: node where the members start (Straight travel: empty = the team's position).")]
+        [SimuLeanHelp("A Transport Node of the scene's network. Straight travel uses it too (the members start there and, with " +
+                      "returnHome, go back there); Straight without one: the team's own position; Network without one: the network's first node.")]
         public UnityTransportNode homeNode;
+        [Tooltip("Spatial travel: after each task a member walks back to the home node and is free only there (a waiting point). " +
+                 "Off: a free member waits where its last task ended.")]
+        public bool returnHome;
+        [Tooltip("A member's breakdown or shift end (an Immediate stop) during work that has a preemption mode: Hand Over = the " +
+                 "work goes back to the queue and any member that meets the requirements takes it (default); Wait For Same = it " +
+                 "waits, paused, for that member. Work without a preemption mode keeps its member through the stop.")]
+        public SimuLean.Resources.ResourceStopPolicy jobOnMemberStop = SimuLean.Resources.ResourceStopPolicy.HandOver;
         [Tooltip("Spatial travel: speed — distance per second with Physical units, else distance per model time unit.")]
         [Min(0.0001f)] public float speed = 1f;
         [Tooltip("Units of the speeds, accelerations and the members' load / unload times. Model: per model time unit (the clock's " +
@@ -96,14 +117,14 @@ namespace SimuLean.Unity
             }
         }
 
-        [Header("Visualization (spatial travel)")]
+        [Header("Visualization")]
         [Tooltip("GameObject of each member. Empty = a box.")]
         public GameObject memberPrefab;
         [Tooltip("Gantries already in the scene driven by the members, in order (e.g. a gantry stacker's own gantry). " +
                  "Members without one get the member prefab; a prefab with a gantry (GantryRig / Head) is fitted to the team's points.")]
         public List<GantryRig> craneRigs = new List<GantryRig>();
         public Vector3 carriedItemOffset = new Vector3(0f, 0.75f, 0f);
-        [Tooltip("Show the members of spatial teams in Play mode.")]
+        [Tooltip("Show the members in Play mode (spatial teams move; abstract ones stand at the team or their spawn point).")]
         public bool showMembers = true;
 
         private readonly List<GameObject> memberViews = new List<GameObject>();
@@ -159,7 +180,7 @@ namespace SimuLean.Unity
         }
 
         // One animated GameObject per spatial member (views only: skipped headless).
-        /// <summary>Where member <paramref name="member"/>'s view appears: its spawn point, else the team's transform (S4).</summary>
+        /// <summary>Where member <paramref name="member"/>'s view appears: its spawn point, else the team's transform.</summary>
         public Transform SpawnPointOf(int member)
             => member >= 0 && member < members.Count && members[member] != null && members[member].spawnPoint != null
                 ? members[member].spawnPoint : transform;
@@ -170,7 +191,8 @@ namespace SimuLean.Unity
             if (preview != null) Destroy(preview.gameObject);
             foreach (var go in memberViews) if (go != null) Destroy(go);
             memberViews.Clear();
-            if (builtNetwork == null || !showMembers) return;
+            if (!showMembers) return;
+            if (builtNetwork == null) { SpawnStandingViews(); return; }
             for (int i = 0; i < executors.Count; i++)
             {
                 var ex = executors[i];
@@ -183,7 +205,7 @@ namespace SimuLean.Unity
                     continue;
                 }
                 GameObject go;
-                // its own spawn point (S4), else the team's transform
+                // its own spawn point, else the team's transform
                 Transform spawn = SpawnPointOf(i);
                 if (memberPrefab != null) go = Instantiate(memberPrefab, spawn.position, spawn.rotation);
                 else
@@ -196,7 +218,7 @@ namespace SimuLean.Unity
                     box.transform.localPosition = new Vector3(0f, 0.25f, 0f);
                     box.transform.localScale = new Vector3(0.8f, 0.5f, 1.2f);
                 }
-                go.name = ex.GetName();
+                go.name = ex.Name;
                 go.transform.SetParent(transform, worldPositionStays: true);
                 memberViews.Add(go);
                 // before the views find the joints; on a child for members that push a carrier (a porter with a bed)
@@ -211,9 +233,14 @@ namespace SimuLean.Unity
                     member.Bind(ex, builtNetwork, SimSpeed);
                     continue;
                 }
-                // a crane: its own rig (Goliath, hall crane…), else the library gantry when it has a Bridge and a Head
-                ICraneRig crane = go.GetComponentInChildren<ICraneRig>();
-                if (crane == null && HasChild(go.transform, "Head") && HasChild(go.transform, "Bridge")) crane = go.AddComponent<GantryRig>();
+                // an AS/RS stacker crane (a carriage with forks on a mast, no forklift mast): runs along its aisle
+                if (StackerCraneView.IsStackerCrane(go.transform))
+                {
+                    var stacker = go.GetComponent<StackerCraneView>();
+                    (stacker != null ? stacker : go.AddComponent<StackerCraneView>()).Bind(ex, builtNetwork);
+                    continue;
+                }
+                ICraneRig crane = CraneRigOf(go);
                 if (crane != null)
                 {
                     crane.FitAround(ReachPoints(), 1f);   // a crane covers the points it works at
@@ -248,6 +275,42 @@ namespace SimuLean.Unity
 
         private void Bind(CraneResourceView view, TaskExecutor ex, ICraneRig rig) => view.Bind(ex, builtNetwork, rig);
 
+        // An abstract team has no positions: each member stands at its spawn point (members sharing the team's transform
+        // side by side along its right), so a team is always seen. View only: nothing follows the engine.
+        private void SpawnStandingViews()
+        {
+            if (memberPrefab == null) return;
+            int shared = 0;
+            for (int i = 0; i < executors.Count; i++)
+            {
+                Transform spawn = SpawnPointOf(i);
+                Vector3 at = spawn.position;
+                if (spawn == transform) at += transform.right * (1.2f * shared++);
+                var go = Instantiate(memberPrefab, at, spawn.rotation);
+                go.name = executors[i].Name;
+                go.transform.SetParent(transform, worldPositionStays: true);
+                memberViews.Add(go);
+                var look = go.GetComponentInChildren<OperatorAppearance>(true);
+                if (look != null) look.ForMember(i);
+            }
+        }
+
+        /// <summary>The crane rig of a member instance: its own (Goliath, hall crane…), else the library gantry
+        /// (<see cref="GantryRig"/>, added) when it has a <c>Bridge</c> and a <c>Head</c>; null when it is not a crane. The
+        /// run fits it around <see cref="ReachPoints"/>, and so does the editor's preview of the members.</summary>
+        public static ICraneRig CraneRigOf(GameObject member)
+        {
+            var crane = member.GetComponentInChildren<ICraneRig>();
+            if (crane == null && IsLibraryGantry(member.transform)) crane = member.AddComponent<GantryRig>();
+            return crane;
+        }
+
+        /// <summary>True when the member prefab is a crane (see <see cref="CraneRigOf"/>), without changing it.</summary>
+        public static bool IsCraneMember(GameObject prefab) =>
+            prefab != null && (prefab.GetComponentInChildren<ICraneRig>(true) != null || IsLibraryGantry(prefab.transform));
+
+        private static bool IsLibraryGantry(Transform root) => HasChild(root, "Head") && HasChild(root, "Bridge");
+
         private static bool HasChild(Transform root, string n)
         {
             if (root.name == n) return true;
@@ -266,71 +329,37 @@ namespace SimuLean.Unity
                 bool uses = (el.processBy != null && el.processBy.team == this) || (el.transportBy != null && el.transportBy.team == this);
                 if (!uses) continue;
                 if (el.location != null) pts.Add(el.location.transform.position);
+                else if (travel == TeamTravel.Straight) pts.Add(AutoPoint(el));   // the extractor's point in front of it
                 if (el is UnityStacker st && st.pickNode != null)
                 {
                     pts.Add(st.pickNode.transform.position);
                     foreach (var n in st.positionNodes) if (n != null) pts.Add(n.transform.position);
                 }
                 foreach (var next in el.nextElements)
-                    if (next != null && next.location != null && el.transportBy != null && el.transportBy.team == this)
-                        pts.Add(next.location.transform.position);
+                    if (next != null && el.transportBy != null && el.transportBy.team == this)
+                    {
+                        if (next.location != null) pts.Add(next.location.transform.position);
+                        else if (travel == TeamTravel.Straight) pts.Add(AutoPoint(next));
+                    }
             }
+            if (homeNode == null && travel == TeamTravel.Straight) pts.Add(transform.position);
             return pts;
         }
 
-        /// <summary>The team for the headless model (<paramref name="id"/> = unique id the elements refer to).</summary>
-        /// <param name="sceneRun">True for a run in the scene: Unity physics times the moves (external travel); false
-        /// (headless): the calibration of the measured times.</param>
-        public SimuLean.Serialization.ResourceTeamConfig ToConfig(string id, string matrixId = null, string gridId = null, bool sceneRun = false)
+        /// <summary>Where a Straight team goes at an element without a location: where a person works at it, on its floor
+        /// (the point the extractor adds).</summary>
+        public static Vector3 AutoPoint(SElement element)
         {
-            var tc = new SimuLean.Serialization.ResourceTeamConfig
-            {
-                Id = id, Name = TeamName,
-                RequestOrder = OrderSpec(requestOrder), ResourceOrder = OrderSpec(resourceOrder),
-                Travel = travel == TeamTravel.Abstract ? "" : travel.ToString(), Speed = speed,
-                HomeNode = travel != TeamTravel.Abstract && homeNode != null ? homeNode.NodeId : null,
-                Matrix = travel == TeamTravel.Matrix || (travel == TeamTravel.UnityPhysics && physicsEstimate == PhysicsEstimate.Matrix) ? matrixId : null,
-                Grid = travel == TeamTravel.Grid || (travel == TeamTravel.UnityPhysics && physicsEstimate == PhysicsEstimate.Grid) ? gridId : null,
-                Traffic = travel == TeamTravel.Network && traffic,
-                AxisSpeed = SimuLean.Serialization.ResourceBuild.TripleSpec(axisSpeed.x, axisSpeed.y, axisSpeed.z),
-                AxisAccel = SimuLean.Serialization.ResourceBuild.TripleSpec(axisAccel.x, axisAccel.y, axisAccel.z),
-                AxesSequential = axesSequential,
-                Units = units == SimuLean.Serialization.ResourceUnits.Physical ? units.ToString() : "",
-            };
-            if (travel == TeamTravel.UnityPhysics && sceneRun)
-            {
-                tc.Travel = "External";
-                tc.CalibrationBase = physicsEstimate.ToString();
-            }
-            else if (travel == TeamTravel.UnityPhysics)
-            {
-                // Unity decides the times: headless runs need the measured times, fitted.
-                if (calibration == null || calibration.IsEmpty)
-                    throw new System.InvalidOperationException(
-                        $"Resource team '{TeamName}' moves with Unity physics and has no calibration: it cannot run headless. " +
-                        "Run the scene, then use Travel Calibration ▸ Fit from this run.");
-                calibration.ApplyTo(tc, physicsEstimate.ToString());
-            }
-            for (int i = 0; i < members.Count; i++)
-            {
-                var m = members[i];
-                var mc = new SimuLean.Serialization.ResourceMemberConfig
-                {
-                    Name = string.IsNullOrEmpty(m?.name) ? $"{TeamName}_{i + 1}" : m.name,
-                    LoadTime = m?.loadTime ?? 0, UnloadTime = m?.unloadTime ?? 0,
-                };
-                if (m?.labels != null)
-                    foreach (var l in m.labels)
-                        if (l != null && !string.IsNullOrEmpty(l.label)) mc.Labels.Add(l.label + "=" + (l.value ?? ""));
-                tc.Members.Add(mc);
-            }
-            return tc;
+            Vector3 p = StationModel.StaffPosition(element, out _);
+            p.y = element.transform.position.y;
+            return p;
         }
 
-        // Only the order part is used (filters make no sense for a team's order).
-        private static string OrderSpec(ListQuerySpec spec)
-            => spec == null || string.IsNullOrEmpty(spec.orderBy) ? "" : new ListQuerySpec { orderBy = spec.orderBy, descending = spec.descending }.Encode();
-
+        /// <summary>True when the members are robot arms (the member prefab has a <see cref="RobotArmRig"/> or the nodes
+        /// A1 … A6): they work at a station's work socket, not in front of it.</summary>
+        public bool MembersAreArms
+            => memberPrefab != null && (memberPrefab.GetComponentInChildren<RobotArmRig>(true) != null
+                                        || (HasChild(memberPrefab.transform, "A1") && HasChild(memberPrefab.transform, "A6")));
 
         /// <summary>Adds <paramref name="n"/> members named <c>Team_k</c> (editor helper).</summary>
         public void AddMembers(int n)

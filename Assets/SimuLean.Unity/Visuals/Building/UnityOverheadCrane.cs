@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace SimuLean.Unity
 {
     /// <summary>
-    /// Single-girder overhead travelling crane ("grúa puente") from the OverheadCrane kit:
+    /// Single-girder overhead travelling crane from the OverheadCrane kit:
     /// two runway beams with rails and end stops (tiling, any length), the bridge (two
     /// end trucks that keep their aspect ratio + a tiling box girder of any span with the
     /// SimuLean logo segment in the middle) and the trolley/hoist with ropes, hook block
@@ -58,6 +59,15 @@ namespace SimuLean.Unity
         [Tooltip("Build the runway beams (turn off if they are modelled separately).")]
         public bool buildRunways = true;
 
+        [Tooltip("Stand the runway beams on steel columns of the building kit (at most 8 m apart, the bracket under " +
+                 "each rail). Turn off when a hall's own columns carry them.")]
+        public bool buildColumns = true;
+
+        /// <summary>The longest bay between two runway columns (m).</summary>
+        public const float MaxColumnSpacing = 8f;
+        /// <summary>The columns' cap above the rail top (m), as the kit's column of a 6 m rail.</summary>
+        public const float ColumnAboveRail = 1.6f;
+
         [Header("Pose")]
         [Tooltip("Bridge position along the runway (local Z, m from the centre).")]
         public float bridgePosition;
@@ -109,6 +119,39 @@ namespace SimuLean.Unity
 
         // ------------------------------------------------------------------ build
 
+        // The runways' columns: the building kit's HEB300 column (as UnitySteelColumn builds it) with its bracket under each
+        // rail, the column axis BracketReach outside it, evenly spaced inside the end stops at most MaxColumnSpacing apart.
+        List<GameObject> BuildColumns(Transform root)
+        {
+            var all = new List<GameObject>();
+            var cp = new UnitySteelColumn.Pieces();
+            ModularKit.ResolvePieces(cp, ModularKit.BuildingKit);
+            if (cp.Column_Base == null || cp.Column_Shaft == null) return all;
+            float height = railHeight + ColumnAboveRail;
+            float shaft = Mathf.Max(0.1f, height - UnitySteelColumn.TopHeight - UnitySteelColumn.BaseHeight);
+            int segments = Mathf.Max(1, Mathf.RoundToInt(shaft));
+            float k = shaft / segments;
+            float usable = Mathf.Max(0f, runwayLength - 1f);
+            int bays = Mathf.Max(1, Mathf.CeilToInt(usable / MaxColumnSpacing));
+            foreach (int sx in new[] { 1, -1 })
+                for (int i = 0; i <= bays; i++)
+                {
+                    var col = new GameObject($"Column_{(sx > 0 ? "R" : "L")}{i}").transform;
+                    col.SetParent(root, false);
+                    col.localPosition = new Vector3(sx * (span * 0.5f + UnitySteelColumn.BracketReach), 0f,
+                                                    -usable * 0.5f + usable * i / bays);
+                    col.localRotation = Quaternion.Euler(0f, sx > 0 ? -90f : 90f, 0f);   // the bracket (+Z) under the rail
+                    all.Add(ModularKit.Place(cp.Column_Base, col, Vector3.zero));
+                    for (int j = 0; j < segments; j++)
+                        all.Add(ModularKit.Place(cp.Column_Shaft, col, new Vector3(0f, UnitySteelColumn.BaseHeight + j * k, 0f),
+                                                 Quaternion.identity, new Vector3(1f, k, 1f)));
+                    all.Add(ModularKit.Place(cp.Column_Top, col, new Vector3(0f, height - UnitySteelColumn.TopHeight, 0f)));
+                    all.Add(ModularKit.Place(cp.Column_Bracket, col, new Vector3(0f, railHeight - UnitySteelColumn.BracketBelowRail, 0f)));
+                }
+            all.RemoveAll(g => g == null);
+            return all;
+        }
+
         [ContextMenu("Rebuild Crane")]
         public override void Rebuild()
         {
@@ -130,6 +173,7 @@ namespace SimuLean.Unity
                     run.localPosition = new Vector3(sx * span * 0.5f, railHeight, -runwayLength * 0.5f);
                     runs.AddRange(ModularKit.Strip(run, Vector3.zero, runwayLength, p.Runway_Segment, p.Runway_EndStop));
                 }
+                if (buildColumns) runs.AddRange(BuildColumns(root));
                 if (combine) ModularKit.Combine(root, runs, chunkLength, 2);
             }
 
@@ -310,7 +354,65 @@ namespace SimuLean.Unity
             runwayLength = Mathf.Max(4f, along + 2f * margin);
             Rebuild();
             runwayLength += 2f * Mathf.Max(0f, runwayLength * 0.5f - BridgeLimit);   // room for the end trucks and stops
+            ClearColumnRows();
             Rebuild();
+        }
+
+        /// <summary>A column's half width (HEB300) plus the free space kept around it (m).</summary>
+        const float ColumnBand = 1.15f;   // 0.15 m half flange + 1 m free
+
+        /// <summary>
+        /// Moves each runway outwards until its row of columns stands clear of the scene's elements and floor zones (the
+        /// footprint of their views) along the runway — a column never stands in a work station or its marked area, the
+        /// ones the crane serves or its neighbours —, then re-centres the crane between the two rails. Nothing to do
+        /// without columns.
+        /// </summary>
+        public void ClearColumnRows()
+        {
+            if (!buildRunways || !buildColumns) return;
+            float half = runwayLength * 0.5f;
+            var footprints = new List<Rect>();
+            // the stations' views (a team is no SElement: its members move about) and the floor zones that mark work areas
+            var areas = UnityCompat.FindAll<SElement>(false).Select(e => e.transform)
+                .Concat(UnityCompat.FindAll<UnityFloorZone>(false).Select(z => z.transform));
+            foreach (var area in areas)
+            {
+                if (area.IsChildOf(transform) || transform.IsChildOf(area)) continue;
+                var renderers = area.GetComponentsInChildren<Renderer>();
+                if (renderers.Length == 0) continue;
+                var b = renderers[0].bounds;
+                foreach (var r in renderers) b.Encapsulate(r.bounds);
+                float x0 = float.MaxValue, x1 = float.MinValue, z0 = float.MaxValue, z1 = float.MinValue;
+                foreach (var corner in new[] { new Vector3(b.min.x, 0f, b.min.z), new Vector3(b.min.x, 0f, b.max.z),
+                                               new Vector3(b.max.x, 0f, b.min.z), new Vector3(b.max.x, 0f, b.max.z) })
+                {
+                    Vector3 l = transform.InverseTransformPoint(corner);
+                    x0 = Mathf.Min(x0, l.x); x1 = Mathf.Max(x1, l.x); z0 = Mathf.Min(z0, l.z); z1 = Mathf.Max(z1, l.z);
+                }
+                if (z1 > -half && z0 < half) footprints.Add(Rect.MinMaxRect(x0, z0, x1, z1));
+            }
+            if (footprints.Count == 0) return;
+            float right = ClearLine(span * 0.5f + UnitySteelColumn.BracketReach, +1, footprints) - UnitySteelColumn.BracketReach;
+            float left = ClearLine(-span * 0.5f - UnitySteelColumn.BracketReach, -1, footprints) + UnitySteelColumn.BracketReach;
+            transform.position += transform.right * ((right + left) * 0.5f);
+            span = right - left;
+        }
+
+        // the first column line outward of x (direction dir) whose band crosses no footprint
+        static float ClearLine(float x, int dir, List<Rect> footprints)
+        {
+            for (int pass = 0; pass < 64; pass++)
+            {
+                bool moved = false;
+                foreach (var f in footprints)
+                    if (x + ColumnBand > f.xMin && x - ColumnBand < f.xMax)
+                    {
+                        x = dir > 0 ? f.xMax + ColumnBand : f.xMin - ColumnBand;
+                        moved = true;
+                    }
+                if (!moved) break;
+            }
+            return x;
         }
 
         // the inverse of DropForSocketHeight

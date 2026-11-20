@@ -7,7 +7,7 @@ namespace SimuLean.Unity
     /// The mechanics of a crane model that <see cref="CraneResourceView"/> drives for a crane resource: the head's plan
     /// position (frame x / z: trolley along the bridge = x, bridge along the runway = z) and its cup height (frame y,
     /// where a load's top hangs). Implemented by the library's gantry portal (<see cref="GantryRig"/>), the hall overhead
-    /// crane (<see cref="UnityOverheadCrane"/>) and the travelling-leg gantries (<see cref="TravellingGantryRig"/>: Goliath crane,
+    /// crane (<see cref="UnityOverheadCrane"/>) and the travelling-leg gantries (<see cref="TravelingGantryRig"/>: Goliath crane,
     /// welding gantry). A member prefab carrying one is driven as a crane (<see cref="UnityResourceTeam"/>). View only.
     /// </summary>
     public interface ICraneRig

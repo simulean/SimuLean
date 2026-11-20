@@ -69,10 +69,59 @@ namespace SimuLean.Downtime
 
         /// <summary>Stops started by this generator since <see cref="Start"/>.</summary>
         public int StopCount { get; private set; }
-        /// <summary>Total duration of the stops this generator has ended, from <see cref="Start"/> or the warm-up (a stop
-        /// running at the warm-up counts from then on).</summary>
-        public double TotalDowntime { get; private set; }
+
+        /// <summary>The time the target actually stood for this generator's stops (<c>downtime_total</c>), from
+        /// <see cref="Start"/> or the warm-up up to now: the time some stop of this generator was in effect — each from the
+        /// moment it took effect (<see cref="StopToken.EffectiveStart"/>: an AfterCurrent stop once the work in hand is
+        /// done; one that never took effect counts nothing) to its end, a stop still running up to now, overlapping stops
+        /// once. It matches the target's time in the stop's state when nothing else stops it.</summary>
+        public double TotalDowntime
+            => endedDowntime + (effectiveOpen > 0 ? Math.Max(0, Now - Math.Max(effectiveSince, statsFrom)) : 0);
+
+        // the stops of this generator in effect now, and since when one has been (the union of their times)
+        private int effectiveOpen;
+        private double effectiveSince;
+
+        /// <summary>The stop time as scheduled (<c>downtime_scheduled</c>), from <see cref="Start"/> or the warm-up up to
+        /// now: each stop from the time it was due for its planned length (a timetable row's or periodic stop's duration,
+        /// a failure's time to repair; with a repair crew the wait for the crew and the repair; a shift's off-shift
+        /// window), whatever the work in hand delayed or cut; overlapping stops each count. Equal to
+        /// <see cref="TotalDowntime"/> for Immediate stops that do not overlap.</summary>
+        public double ScheduledDowntime
+        {
+            get
+            {
+                double t = endedScheduled;
+                foreach (var r in open) if (r.Token.IsActive) t += Scheduled(r, Now);
+                return t;
+            }
+        }
+
+        private double endedDowntime, endedScheduled;
+        // stops started and not ended by this generator, with their due time and planned length
+        private readonly List<OpenStop> open = new List<OpenStop>(1);
         private double statsFrom;
+
+        private sealed class OpenStop
+        {
+            public StopToken Token;
+            public double Due;        // when the stop was due (its start, or the time it was queued)
+            public double Planned;    // its planned length (NaN: until its end, measured from when it took effect)
+            public bool Delayable;    // its length is timed from when it takes effect (false: a calendar stop, ended by the calendar)
+            public bool Ending;       // being ended: the stops queued behind it start
+            public bool Effective;    // took effect (counted in effectiveOpen)
+        }
+
+        private double Scheduled(OpenStop r, double now)
+        {
+            StopToken token = r.Token;
+            double end = token.IsActive ? now : token.EndTime;
+            double length = !r.Delayable ? end - r.Due
+                          : !double.IsNaN(r.Planned) ? r.Planned
+                          : token.IsEffective ? end - token.EffectiveStart : 0;
+            double to = Math.Min(r.Due + Math.Max(0, length), now);
+            return Math.Max(0, to - Math.Max(r.Due, statsFrom));
+        }
 
         /// <summary>Raised after this generator starts / ends a stop.</summary>
         public event Action<DowntimeGenerator, StopToken> StopStarted, StopEnded;
@@ -81,15 +130,19 @@ namespace SimuLean.Downtime
         {
             Target = target ?? throw new ArgumentNullException(nameof(target));
             Clock  = clock ?? target.GetSimClock();
-            Name   = GetType().Name + ":" + target.GetName();
+            Name   = GetType().Name + ":" + target.Name;
         }
 
         /// <summary>Resets counters and schedules the first stop. Call once per run.</summary>
         public void Start()
         {
             CancelPending();
+            Repair?.Reset(Now);
             StopCount = 0;
-            TotalDowntime = 0;
+            endedDowntime = endedScheduled = 0;
+            effectiveOpen = 0;
+            open.Clear();
+            queued.Clear();
             statsFrom = Now;
             OnStart();
         }
@@ -98,8 +151,60 @@ namespace SimuLean.Downtime
         public void ResetStatistics()
         {
             StopCount = 0;
-            TotalDowntime = 0;
+            endedDowntime = endedScheduled = 0;
             statsFrom = Now;
+            Repair?.ResetStatistics(Now);
+        }
+
+        /// <summary>The crew that repairs this generator's stops (null = none: a stop lasts its own time from its start).
+        /// With a crew a stop shows WAITING_FOR_REPAIR until the crew is there, then
+        /// <see cref="State"/> for the repair time; MTBF / MTTR, timetable and periodic stops — a shift needs none.</summary>
+        public DowntimeRepair Repair { get; set; }
+
+        /// <summary>A stop repaired by the <see cref="Repair"/> crew: WAITING_FOR_REPAIR until the crew is there, then
+        /// <paramref name="state"/> for <paramref name="repairTime"/> (drawn when the crew arrives); then
+        /// <paramref name="ended"/> runs (it ends the stop).</summary>
+        protected StopToken BeginRepairedStop(ElementState state, StopMode mode, string code, string reason, Func<double> repairTime,
+                                              Action<StopToken> ended, double due = double.NaN)
+        {
+            StopToken token = BeginStop(ElementState.WAITING_FOR_REPAIR, mode, code, reason, double.NaN, delayable: true, due);
+            // the crew is called when the stop takes effect (an AfterCurrent stop: once the work in hand is done)
+            WhenEffective(token, t => Repair.Begin(Target, Clock, t, state, repairTime, () => ended(t)));
+            return token;
+        }
+
+        /// <summary>Runs <paramref name="action"/> when <paramref name="token"/> takes effect (now if it has), as long as it is
+        /// still this generator's open stop (not after a new <see cref="Start"/>).</summary>
+        protected void WhenEffective(StopToken token, Action<StopToken> action)
+            => token.WhenEffective(t => { if (open.Exists(r => r.Token == t)) action(t); });
+
+        /// <summary>Sets the planned length of an open stop (known only once it started: a failure's time to repair).</summary>
+        protected void PlanLength(StopToken token, double length)
+        {
+            foreach (var r in open) if (r.Token == token) r.Planned = length;
+        }
+
+        /// <summary>Stops that must not overlap (a periodic stop without overlap, a timetable that serialises or merges its
+        /// intervals): a stop due while an earlier one of this generator is still delayed by the work in hand, or running
+        /// past its scheduled end because of it, waits for that one to end and then lasts its whole length.</summary>
+        protected bool QueueBehindDelayed { get; set; }
+
+        private readonly Queue<(double due, Action<double> begin)> queued = new Queue<(double, Action<double>)>();
+
+        /// <summary>Begins a stop due now (<paramref name="begin"/>, given its due time), or queues it behind a delayed one
+        /// (<see cref="QueueBehindDelayed"/>).</summary>
+        protected void BeginOrQueue(Action<double> begin)
+        {
+            if (QueueBehindDelayed && (queued.Count > 0 || HasDelayedStop())) { queued.Enqueue((Now, begin)); return; }
+            begin(Now);
+        }
+
+        // An open stop that has not taken effect yet, or took effect after it was due.
+        private bool HasDelayedStop()
+        {
+            foreach (var r in open)
+                if (r.Token.IsActive && r.Delayable && !r.Ending && (!r.Token.IsEffective || r.Token.EffectiveStart > r.Due)) return true;
+            return false;
         }
 
         protected abstract void OnStart();
@@ -107,13 +212,30 @@ namespace SimuLean.Downtime
         /// <summary>Cancels pending generator events (stops already applied stay until resumed).</summary>
         public virtual void CancelPending() { }
 
-        protected StopToken BeginStop(ElementState state, StopMode mode, string code = null, string reason = null)
+        /// <summary>True while this generator holds a stop that a pending background event will end (a shift's next
+        /// window): the run monitor does not take such a pause for a stall (a stop ended by an ordinary event never
+        /// reaches the monitor, which runs only when no such event is left).</summary>
+        public virtual bool StopEndPending => false;
+
+        /// <summary>Starts a stop on the target. <paramref name="planned"/>: its length when the generator times it (NaN:
+        /// until its end); <paramref name="delayable"/>: the generator times it from when it takes effect
+        /// (<see cref="StopToken.WhenEffective"/>; false: the calendar ends it); <paramref name="due"/>: when it was due
+        /// (NaN: now).</summary>
+        protected StopToken BeginStop(ElementState state, StopMode mode, string code = null, string reason = null,
+                                      double planned = double.NaN, bool delayable = false, double due = double.NaN)
         {
             var request = new StopRequest(state, mode, code, reason)
             {
                 BlockInput = BlockInput, BlockOutput = BlockOutput, Source = this
             };
-            StopToken token = Target.Stop(request);
+            var record = new OpenStop { Due = double.IsNaN(due) ? Now : due, Planned = planned, Delayable = delayable };
+            StopToken token = record.Token = Target.Stop(request);
+            open.Add(record);
+            WhenEffective(token, t =>
+            {
+                record.Effective = true;
+                if (effectiveOpen++ == 0) effectiveSince = t.EffectiveStart;
+            });
             StopCount++;
             StopStarted?.Invoke(this, token);
             return token;
@@ -121,8 +243,26 @@ namespace SimuLean.Downtime
 
         protected void EndStop(StopToken token)
         {
-            if (token == null || !Target.Resume(token)) return;
-            TotalDowntime += token.EndTime - Math.Max(token.StartTime, statsFrom);
+            if (token == null || !token.IsActive) return;
+            OpenStop ending = open.Find(r => r.Token == token);
+            if (ending != null && queued.Count > 0)
+            {
+                // the stops queued behind this one (QueueBehindDelayed) start now, before it ends: the target takes no
+                // new work in between
+                ending.Ending = true;
+                while (queued.Count > 0 && !HasDelayedStop())
+                {
+                    var (dueAt, begin) = queued.Dequeue();
+                    begin(dueAt);
+                }
+            }
+            if (!Target.Resume(token)) return;
+            if (ending != null)
+            {
+                if (ending.Effective && --effectiveOpen == 0) endedDowntime += Math.Max(0, Now - Math.Max(effectiveSince, statsFrom));
+                endedScheduled += Scheduled(ending, Now);
+                open.Remove(ending);
+            }
             StopEnded?.Invoke(this, token);
         }
 
@@ -156,7 +296,8 @@ namespace SimuLean.Downtime
             : base(target, clock)
         {
             this.intervals = Normalize(intervals, overlap);
-            startEvent = new BackgroundActionEvent(OnIntervalStart);   // a stop's start never moves items itself (S2)
+            QueueBehindDelayed = overlap != OverlapPolicy.Allow;   // serialised / merged intervals never overlap, delayed or not
+            startEvent = new BackgroundActionEvent(OnIntervalStart);   // a stop's start never moves items itself
         }
 
         protected override void OnStart()
@@ -171,6 +312,7 @@ namespace SimuLean.Downtime
             pending = null;
             foreach (var h in pendingEnds.Values) h.Cancel();
             pendingEnds.Clear();
+            Repair?.CancelAll();
         }
 
         private void ScheduleNext()
@@ -192,8 +334,21 @@ namespace SimuLean.Downtime
         {
             pending = null;
             DowntimeInterval iv = intervals[next];
-            StopToken token = BeginStop(iv.State.IsNone ? State : iv.State, iv.Mode ?? Mode, iv.Code, iv.Reason);
-            pendingEnds[token] = Clock.Schedule(() => { pendingEnds.Remove(token); EndStop(token); }, pendingDuration);
+            double length = pendingDuration;
+            BeginOrQueue(due =>
+            {
+                if (Repair != null)
+                {
+                    // with a crew: the interval's (remaining) length is the repair time, from the crew's arrival
+                    BeginRepairedStop(iv.State.IsNone ? State : iv.State, iv.Mode ?? Mode, iv.Code, iv.Reason, () => length, EndStop, due);
+                }
+                else
+                {
+                    // its length from when it takes effect: an AfterCurrent stop starts when the work in hand ends, whole
+                    StopToken token = BeginStop(iv.State.IsNone ? State : iv.State, iv.Mode ?? Mode, iv.Code, iv.Reason, length, delayable: true, due);
+                    WhenEffective(token, t => pendingEnds[t] = Clock.Schedule(() => { pendingEnds.Remove(t); EndStop(t); }, length));
+                }
+            });
             next++;
             ScheduleNext();
         }
@@ -273,8 +428,9 @@ namespace SimuLean.Downtime
         {
             Validate(period, duration, first, until, allowOverlap);
             Period = period; Duration = duration; First = first; Until = until; AllowOverlap = allowOverlap;
+            QueueBehindDelayed = !allowOverlap;   // without overlap a stop due while a delayed one runs follows it
             State = ElementState.SCHEDULED_DOWN;
-            startEvent = new BackgroundActionEvent(OnStopStart);   // a stop's start never moves items itself (S2)
+            startEvent = new BackgroundActionEvent(OnStopStart);   // a stop's start never moves items itself
         }
 
         /// <summary>Throws <see cref="ArgumentException"/> when the settings cannot describe a periodic stop.</summary>
@@ -309,6 +465,7 @@ namespace SimuLean.Downtime
             pending = null;
             foreach (var h in pendingEnds.Values) h.Cancel();
             pendingEnds.Clear();
+            Repair?.CancelAll();
         }
 
         private void ScheduleNext()
@@ -330,8 +487,22 @@ namespace SimuLean.Downtime
         private void OnStopStart()
         {
             pending = null;
-            StopToken token = BeginStop(State, Mode, Code, "Periodic stop");
-            pendingEnds[token] = Clock.Schedule(() => { pendingEnds.Remove(token); EndStop(token); }, pendingDuration);
+            double length = pendingDuration;
+            BeginOrQueue(due =>
+            {
+                if (Repair != null)
+                {
+                    // with a crew: the stop's (remaining) length is the repair time, from the crew's arrival; the next
+                    // stop still starts at First + k·Period
+                    BeginRepairedStop(State, Mode, Code, "Periodic stop", () => length, EndStop, due);
+                }
+                else
+                {
+                    // its length from when it takes effect: an AfterCurrent stop starts when the work in hand ends, whole
+                    StopToken token = BeginStop(State, Mode, Code, "Periodic stop", length, delayable: true, due);
+                    WhenEffective(token, t => pendingEnds[t] = Clock.Schedule(() => { pendingEnds.Remove(t); EndStop(t); }, length));
+                }
+            });
             next++;
             ScheduleNext();
         }
@@ -374,7 +545,7 @@ namespace SimuLean.Downtime
         {
             TimeToFailure = timeToFailure ?? throw new ArgumentNullException(nameof(timeToFailure));
             TimeToRepair  = timeToRepair  ?? throw new ArgumentNullException(nameof(timeToRepair));
-            failEvent   = new BackgroundActionEvent(OnFailure);   // the next failure: background (S2); the repair is not
+            failEvent   = new BackgroundActionEvent(OnFailure);   // the next failure: background; the repair is not
             repairEvent = new ActionEvent(OnRepair);
         }
 
@@ -398,13 +569,14 @@ namespace SimuLean.Downtime
         {
             pendingFail?.Cancel();   pendingFail = null;
             pendingRepair?.Cancel(); pendingRepair = null;
+            Repair?.CancelAll();
         }
 
         private double DrawTimeToFailure()
         {
             IRandomSampler s = firstDraw && FirstFailure != null ? FirstFailure : TimeToFailure;
             firstDraw = false;
-            return Math.Max(0.0, SimuLean.Expressions.Samplers.Sample(s, null, Target));   // expressions: the target's stream (review2 #3)
+            return Math.Max(0.0, SimuLean.Expressions.Samplers.Sample(s, null, Target));   // expressions: the target's stream
         }
 
         private void Arm()
@@ -434,9 +606,23 @@ namespace SimuLean.Downtime
         {
             pendingFail = null;
             remainingBusy = 0;
-            current = BeginStop(State, Mode, Code);
-            pendingRepair = Clock.ScheduleEvent(repairEvent, Math.Max(0.0, SimuLean.Expressions.Samplers.Sample(TimeToRepair, null, Target)));
+            if (Repair != null)
+            {
+                // with a crew: the time to repair is drawn when the crew arrives and counts from then; the next time to
+                // failure from the end of the repair, as without one
+                current = BeginRepairedStop(State, Mode, Code, null, repairTime ?? (repairTime = DrawTimeToRepair), RepairedByCrew);
+                return;
+            }
+            current = BeginStop(State, Mode, Code, null, double.NaN, delayable: true);
+            double ttr = Math.Max(0.0, SimuLean.Expressions.Samplers.Sample(TimeToRepair, null, Target));   // drawn after the stop, as always
+            PlanLength(current, ttr);
+            // the repair time counts from when the stop takes effect: an AfterCurrent failure waits for the work in hand
+            WhenEffective(current, t => { if (t == current) pendingRepair = Clock.ScheduleEvent(repairEvent, ttr); });
         }
+
+        private Func<double> repairTime;
+        private double DrawTimeToRepair() => Math.Max(0.0, SimuLean.Expressions.Samplers.Sample(TimeToRepair, null, Target));
+        private void RepairedByCrew(StopToken token) { if (token == current) OnRepair(); }
 
         private void OnRepair()
         {
@@ -484,16 +670,16 @@ namespace SimuLean.Downtime
         public const double CloseToleranceSeconds = 0.01;
 
         /// <summary>How early (model time units) a window's end at <paramref name="changeTime"/> is applied: the larger of
-        /// <see cref="CloseToleranceSeconds"/> of calendar time and 1e-9 of the change time (double-precision drift).</summary>
+        /// <see cref="CloseToleranceSeconds"/> of calendar time and <see cref="SimTime.ToleranceAt"/> the change time (double-precision drift).</summary>
         public static double CloseTolerance(double changeTime, double secondsPerUnit)
-            => Math.Max(CloseToleranceSeconds / (secondsPerUnit > 0 ? secondsPerUnit : 1.0), 1e-9 * Math.Max(1.0, Math.Abs(changeTime)));
+            => Math.Max(CloseToleranceSeconds / (secondsPerUnit > 0 ? secondsPerUnit : 1.0), SimTime.ToleranceAt(changeTime));
 
         public ShiftDowntime(Element target, WeeklyShiftPattern pattern, SimClock clock = null) : base(target, clock)
         {
             Pattern = pattern ?? throw new ArgumentNullException(nameof(pattern));
             State = ElementState.OFF_SHIFT;
             Mode  = StopMode.AfterCurrent;
-            tick  = new BackgroundActionEvent(OnTick);   // calendar tick (S2)
+            tick  = new BackgroundActionEvent(OnTick);   // calendar tick
         }
 
         protected override void OnStart()
@@ -509,6 +695,9 @@ namespace SimuLean.Downtime
             pending = null;
             due = null;
         }
+
+        /// <summary>Off shift with the next window's tick pending (a background event): the stop will end.</summary>
+        public override bool StopEndPending => current != null && pending != null;
 
         private void OnTick()
         {

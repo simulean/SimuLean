@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e81bb16ba40385c4bb6dac73ed24daa7, type: 3}
+  m_Name: ModelCard
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SimuLeanModelCard
+  displayName: "Setup changeover \u2014 setup matrix and grouping by type"
+  description: 'Three product types share one press that changes over on a type change; the changeover times depend on the pair (a setup matrix) and a setter does them.
+
+    The buffer groups items of the type the press is set up for, so it changes over less.'
+  author: SimuLean
+  scenePath: Assets/Scenes/LibraryExamples/Setup_Changeover.unity
+  copiedFrom: 
+  created: 2026-11-05 12:00:00
+  modified: 2026-11-05 12:00:00
+  represents: "A press fed by three product types (Source A, Source B: every 5 min; Source C: every 10 min, exponential) through one Buffer into the Press (one slot, triangular 0.6 / 1 / 1.6 min) and out to Exit. The press changes over when the label type differs from the previous item's (Setup, Label Change, first item included), done by the team Setters (1 setter); the changeover time per from \u2192 to pair is the data table 'Press setup matrix' (file Setup_Changeover/changeovers.csv: first setup 3; A\u2192B 1; B\u2192A 1.5; A or B \u2192 C triangular 3 / 4 / 6; C \u2192 any uniform 2..3); the pairs it does not list take the setup time 2. The Buffer groups by setup (Group by setup, at most 5 in a row ahead of the oldest)."
+  kpis: "Throughput out=Exit.input; changeovers setups=Press.setups, Press.setup_time, Press.setup_time_avg, Press.state:SETUP; Press.utilization; waiting wait=Buffer.stay_avg, waitMax=Buffer.stay_max (min); team:Setters.utilization.\nSeeds 1..3, 40 h: grouped 1186 out, 399 setups, wait 5.8 min (max 23); FIFO (Buffer.groupBySetup=false) 883 out, 625 setups, wait 207 min \u2014 the press cannot keep up without grouping."
+  parameters: "Grouping: Buffer.groupBySetup (true / false, one scenario each), Buffer.groupLimit (0 = no limit; 5) \u2014 the most items that may overtake the oldest.\nChangeovers: the matrix's file (data:Press setup matrix.file), Press.setup.time.constantValue (2, the pairs not in the matrix), Press.setup.when (None / EachItem / LabelChange), Press.setup.setupFirst.\nSetters: team:Setters.members=1..2.\nArrivals: Source A / B / C.interArrivalDistribution.exponentialRate (0.2 / 0.2 / 0.1 per min); process Press.delayStrategy.triangularMin / Mode / Max."
+  assumptions: Time unit min, horizon 2400 min (40 h), no warm-up, fixed seed 1. The setter's travel is a straight line on the floor at the team's default speed. The buffer holds 100; without grouping it fills and the sources wait. Illustrative times, not calibrated to any plant.

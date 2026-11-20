@@ -29,6 +29,20 @@ namespace SimuLean
         /// <summary>Sampled duration of the current / last job.</summary>
         public double lastDelay = 0.0;
 
+        // ── setup (StationSetup) ─────────────────────────────────
+        /// <summary>True while the slot sets up (or waits for its setup crew) before its job's process.</summary>
+        public bool InSetup => setup != null;
+        /// <summary>When the current / last setup started, and its sampled duration (progress views; shifted by pauses).</summary>
+        public double SetupStart { get; internal set; }
+        public double SetupDuration { get; internal set; }
+        internal StationSetup.SetupRun setup;
+        // the last label value set up here (SetupWhen.LabelChange)
+        internal string setupKey;
+        internal bool hasSetupKey;
+        // the value before it, for the setup being decided (the setup matrix's from; none for the slot's first)
+        internal string setupFrom;
+        internal bool hasSetupFrom;
+
         /// <param name="index">Position of the slot in its station (0-based), for reports.</param>
         public ServerProcess(IWorkStation myServer, IRandomSampler randomDelay, SimClock clock, int index = 0)
         {
@@ -36,7 +50,7 @@ namespace SimuLean
             this.clock = clock;
             delay = randomDelay;
             Index = index;
-            tracker = new ElementStateTracker(ElementState.IDLE, clock.GetSimulationTime(), keepLog: false);   // totals only (#42)
+            tracker = new ElementStateTracker(ElementState.IDLE, clock.GetSimulationTime(), keepLog: false);   // totals only
         }
 
         /// <summary>Position of the slot in its station.</summary>
@@ -62,7 +76,7 @@ namespace SimuLean
         internal int WaitIndex = -1;
 
         // The slot's own state (what the station's logic reads), and the stop state its station shows, if any: while the
-        // station's stop is effective the slot accounts the stop state, like the element (benchmark C2).
+        // station's stop is effective the slot accounts the stop state, like the element.
         private ElementState state = ElementState.IDLE;
         private ElementState? stopShown;
 

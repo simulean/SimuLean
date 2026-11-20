@@ -13,7 +13,7 @@ using Object = UnityEngine.Object;
 namespace SimuLean.Unity.Editor.Tests
 {
     /// <summary>
-    /// Naval library N1 in the scene: a <see cref="UnityBlockBreakdown"/> points its sources at the breakdown's parts in the
+    /// Naval library in the scene: a <see cref="UnityBlockBreakdown"/> points its sources at the breakdown's parts in the
     /// project database; a run reads the current table (not the preview copy) and the extractor hands the spec to the
     /// engine, so the scene, headless runs and studies read the same data. The engine side is covered by the standalone
     /// suite <c>navaltests</c>.
@@ -79,9 +79,9 @@ namespace SimuLean.Unity.Editor.Tests
 
             // the extractor hands the spec to the engine, which reads it when the model is built
             var config = SceneExtractor.ExtractElement(bd.blockOrderSource);
-            Assert.AreEqual("naval:blocks;interval=10:block_breakdown", config.GetParameter<string>("tableSource"));
-            Assert.AreEqual(dbPath, config.GetParameter<string>("tableDatabase"));
-            Assert.IsNull(config.GetParameter<Dictionary<string, List<string>>>("arrivalsTable"), "no copy in the config: the handler reads the table");
+            Assert.AreEqual("naval:blocks;interval=10:block_breakdown", config.Get<string>("tableSource"));
+            Assert.AreEqual(dbPath, config.Get<string>("tableDatabase"));
+            Assert.IsNull(config.Get<Dictionary<string, List<string>>>("arrivalsTable"), "no copy in the config: the handler reads the table");
         }
 
         [Test]
@@ -106,7 +106,7 @@ namespace SimuLean.Unity.Editor.Tests
             bd.ApplyToSources();
             var yard = Make<UnityQueue>("Yard");
             yard.capacity = 10;
-            yard.releaseMode = SimuLean.ReleaseMode.AnyAccepted;
+            yard.offerOrder = SimuLean.OfferOrder.AnyAccepted;
             var slipway = Make<UnityErectionDock>("Slipway");
             slipway.erectionRule = ErectionDock.ErectionRule.Sequence;
             slipway.expectedBlocks = 3;
@@ -118,8 +118,8 @@ namespace SimuLean.Unity.Editor.Tests
             slipway.nextElements = new List<SElement> { launch };
 
             var cfg = SceneExtractor.Extract(root).Config;
-            Assert.AreEqual("Sequence", cfg.Elements.Find(e => e.Type == "UnityErectionDock").GetParameter<string>("erectionRule"));
-            Assert.IsTrue(cfg.Elements.Find(e => e.Type == "UnitySink").GetParameter<bool>("keepItems"));
+            Assert.AreEqual("Sequence", cfg.Elements.Find(e => e.Type == "ErectionDock").Get<string>("erectionRule"));
+            Assert.IsTrue(cfg.Elements.Find(e => e.Type == "Sink").Get<bool>("keepItems"));
             cfg.MaxSimulationTime = 100;
             var clock = new SimClock(1);
             var model = new SimuLean.Headless.HeadlessModelFactory(clock);

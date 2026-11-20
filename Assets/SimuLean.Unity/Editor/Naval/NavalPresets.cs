@@ -12,10 +12,13 @@ namespace SimuLean.Unity.Editor.Naval
     /// The naval library's ready-made objects (GameObject → SimuLean → Shipbuilding, the window's Presets), built on the
     /// existing elements: the shop stations of a block process (plate cutting, panel line, sub-assembly,
     /// sub-block welding, turning, block assembly, outfitting, blasting and painting), the yards, the erection docks and
-    /// the launch, each visible in the scene when placed. The <i>Panel Line</i> and the <i>Block Process (IJPR)</i> are
+    /// the launch, each visible in the scene when placed. The <i>Panel Line</i> and the <i>Block Process</i> are
     /// composite presets: several elements placed already connected under one parent. The block workspace stands in for
-    /// the station models still to come (N6).
+    /// the station models still to come.
     /// </summary>
+    // The Library folds them in families: Steel (Steel Stockyard ▾ Profile Rack), Workshops (Plate Cutting ▾
+    // Sub-Assembly Cell, Turning, Outfitting, Blasting & Painting), Assembly (Block Assembly Bay ▾ Sub-Block Welding),
+    // Yards (Block Yard ▾ Sub-Block Yard), the docks under the Erection Dock element, Templates (Block Process ▾ Panel Line).
     public static class NavalPresets
     {
         private const string Menu = "GameObject/SimuLean/Shipbuilding/";
@@ -26,16 +29,18 @@ namespace SimuLean.Unity.Editor.Naval
         private const string RackBay = "ASRS/Rack_Bay.fbx";
         private const string SinkModel = "SinkStation/SinkStation.fbx";
         private const string Icon = LibraryPresets.Models + Workspace;
+        private const string Icons = LibraryIconRenderer.Folder;   // the Shipbuilding icons (rendered, LibraryIconRenderer)
         private const string ShipItems = "Assets/SimuLean.Unity/Prefabs/Items/Shipbuilding/";
 
-        /// <summary>The project database table the IJPR composite reads (the generic sample hull when it is missing).</summary>
+        /// <summary>The project database table the Block Process composite reads (the generic sample hull when it is missing).</summary>
         public const string SampleHullTable = "sample_hull";
 
         private static readonly (string, string) WorkspaceModel = ("Block workspace", Workspace);
 
         // ------------------------------------------------------------------ steel preparation
 
-        [SimuLeanPresetIcon(LibraryPresets.Models + RackBay)]
+        [SimuLeanPresetIcon(Icons + "SteelStockyard.png")]
+        [SimuLeanVariantOf(typeof(UnityStorageRack), "Steel")]
         [MenuItem(Menu + "Steel Stockyard", false, 1)]
         private static void SteelStockyard(MenuCommand cmd)
         {
@@ -51,20 +56,23 @@ namespace SimuLean.Unity.Editor.Naval
             Selection.activeObject = go;
         }
 
-        [SimuLeanPresetIcon(LibraryPresets.Models + RackBay)]
+        [SimuLeanPresetIcon(Icons + "ProfileRack.png")]
+        [SimuLeanVariantOf(typeof(UnityStorageRack), "Steel")]
         [MenuItem(Menu + "Profile Rack", false, 2)]
         private static void ProfileRack(MenuCommand cmd) =>
-            LibraryPresets.Station<UnityQueue>(cmd, "Profile Rack", q => { q.capacity = 40; q.releaseMode = ReleaseMode.AnyAccepted; },
+            LibraryPresets.Station<UnityQueue>(cmd, "Profile Rack", q => { q.capacity = 40; q.offerOrder = OfferOrder.AnyAccepted; },
                                                ("Profile rack", RackBay));
 
-        [SimuLeanPresetIcon(LibraryPresets.Models + Workstation)]
+        [SimuLeanPresetIcon(Icons + "PlateCutting.png")]
+        [SimuLeanVariantOf(typeof(UnityMultiServer), "Workshops")]
         [MenuItem(Menu + "Plate Cutting", false, 3)]
         private static void PlateCutting(MenuCommand cmd) =>
             LibraryPresets.Station<UnityMultiServer>(cmd, "Plate Cutting", s => Time(s.delayStrategy, "has(t_cut) ? t_cut : 2"),
                                                      ("Cutting table", Workstation));
 
-        [SimuLeanPresetIcon(LibraryPresets.Models + Positioner)]
-        [MenuItem(Menu + "Panel Line", false, 4)]
+        [SimuLeanPresetIcon(Icons + "PanelLine.png")]
+        [SimuLeanVariantOf(typeof(SElement), "Templates")]
+        [MenuItem(Menu + "Panel Line", false, 41)]
         private static void PanelLine(MenuCommand cmd)
         {
             var line = Group(cmd, "Panel Line");
@@ -83,13 +91,15 @@ namespace SimuLean.Unity.Editor.Naval
 
         // ------------------------------------------------------------------ sub-blocks and blocks
 
-        [SimuLeanPresetIcon(Icon)]
+        [SimuLeanPresetIcon(Icons + "SubAssemblyCell.png")]
+        [SimuLeanVariantOf(typeof(UnityMultiServer), "Workshops")]
         [MenuItem(Menu + "Sub-Assembly Cell", false, 10)]
         private static void SubAssemblyCell(MenuCommand cmd) =>
             LibraryPresets.Station<UnityMultiServer>(cmd, "Sub-Assembly Cell", SubAssembly, WorkspaceModel);
 
-        [SimuLeanPresetIcon(LibraryPresets.Models + Positioner)]
-        [MenuItem(Menu + "Sub-Block Welding", false, 11)]
+        [SimuLeanPresetIcon(Icons + "SubBlockWelding.png")]
+        [SimuLeanVariantOf(typeof(UnityCombiner), "Assembly")]
+        [MenuItem(Menu + "Sub-Block Welding", false, 14)]
         private static void SubBlockWelding(MenuCommand cmd) =>
             LibraryPresets.Station<UnityCombiner>(cmd, "Sub-Block Welding", c =>
             {
@@ -99,85 +109,99 @@ namespace SimuLean.Unity.Editor.Naval
                 c.processBy.requirements.Add(Skill(1, "welder"));
             }, WorkspaceModel, ("Weld positioner", Positioner));
 
-        [SimuLeanPresetIcon(LibraryPresets.Models + "ShipBlock/ShipBlockCurved.fbx")]
+        [SimuLeanPresetIcon(Icons + "TurningStation.png")]
+        [SimuLeanVariantOf(typeof(UnityMultiServer), "Workshops")]
         [MenuItem(Menu + "Turning Station", false, 12)]
         private static void TurningStation(MenuCommand cmd) =>
             Turning(LibraryPresets.Station<UnityMultiServer>(cmd, "Turning Station", s => Time(s.delayStrategy, "2"), WorkspaceModel));
 
-        [SimuLeanPresetIcon(Icon)]
-        [MenuItem(Menu + "Sub-Block Yard", false, 13)]
+        [SimuLeanPresetIcon(Icons + "SubBlockYard.png")]
+        [SimuLeanVariantOf(typeof(UnityQueue), "Yards")]
+        [MenuItem(Menu + "Sub-Block Yard", false, 17)]
         private static void SubBlockYard(MenuCommand cmd) =>
             LibraryPresets.Station<UnityQueue>(cmd, "Sub-Block Yard", q => Yard(q, 8), WorkspaceModel);
 
-        [SimuLeanPresetIcon(Icon)]
-        [MenuItem(Menu + "Block Assembly Bay", false, 14)]
+        [SimuLeanPresetIcon(Icons + "BlockAssemblyBay.png")]
+        [SimuLeanVariantOf(typeof(UnityCombiner), "Assembly")]
+        [MenuItem(Menu + "Block Assembly Bay", false, 11)]
         private static void BlockAssemblyBay(MenuCommand cmd) =>
             LibraryPresets.Station<UnityCombiner>(cmd, "Block Assembly Bay", c => BlockBays(c, 3), WorkspaceModel);
 
-        [SimuLeanPresetIcon(Icon)]
+        [SimuLeanPresetIcon(Icons + "OutfittingStation.png")]
+        [SimuLeanVariantOf(typeof(UnityMultiServer), "Workshops")]
         [MenuItem(Menu + "Outfitting Station", false, 15)]
         private static void OutfittingStation(MenuCommand cmd) =>
             LibraryPresets.Station<UnityMultiServer>(cmd, "Outfitting Station", s => { s.capacity = 2; Time(s.delayStrategy, "has(t_out) ? t_out : 8"); },
                                                      WorkspaceModel);
 
-        [SimuLeanPresetIcon(LibraryPresets.Models + PaintBooth)]
+        [SimuLeanPresetIcon(Icons + "BlastingPaintingHall.png")]
+        [SimuLeanVariantOf(typeof(UnityMultiServer), "Workshops")]
         [MenuItem(Menu + "Blasting & Painting Hall", false, 16)]
         private static void PaintingHall(MenuCommand cmd) =>
             LibraryPresets.Station<UnityMultiServer>(cmd, "Blasting & Painting Hall", Painting, ("Paint hall", PaintBooth));
 
-        [SimuLeanPresetIcon(Icon)]
-        [MenuItem(Menu + "Block Yard", false, 17)]
+        [SimuLeanPresetIcon(Icons + "BlockYard.png")]
+        [SimuLeanVariantOf(typeof(UnityQueue), "Yards")]
+        [MenuItem(Menu + "Block Yard", false, 13)]
         private static void BlockYard(MenuCommand cmd) =>
             LibraryPresets.Station<UnityQueue>(cmd, "Block Yard", q => Yard(q, 6), WorkspaceModel);
 
         // ------------------------------------------------------------------ erection and launch
 
-        [SimuLeanPresetIcon(Icon)]
+        [SimuLeanPresetIcon(Icons + "Slipway.png")]
+        [SimuLeanVariantOf(typeof(UnityErectionDock))]
         [MenuItem(Menu + "Slipway", false, 20)]
         private static void Slipway(MenuCommand cmd) =>
             LibraryPresets.Station<UnityErectionDock>(cmd, "Slipway", d => { d.erectionRule = ErectionDock.ErectionRule.Sequence; d.capacity = 1; },
                                                      WorkspaceModel);
 
-        [SimuLeanPresetIcon(Icon)]
+        [SimuLeanPresetIcon(Icons + "BuildingDock.png")]
+        [SimuLeanVariantOf(typeof(UnityErectionDock))]
         [MenuItem(Menu + "Building Dock", false, 21)]
         private static void BuildingDock(MenuCommand cmd) =>
             LibraryPresets.Station<UnityErectionDock>(cmd, "Building Dock", d => { d.erectionRule = ErectionDock.ErectionRule.Precedence; d.capacity = 2; },
                                                      WorkspaceModel);
 
-        [SimuLeanPresetIcon(LibraryPresets.Models + SinkModel)]
+        [SimuLeanPresetIcon(Icons + "Launch.png")]
         [MenuItem(Menu + "Launch", false, 22)]
         private static void Launch(MenuCommand cmd) =>
             LibraryPresets.Station<UnitySink>(cmd, "Launch", s => s.keepItems = true, ("Launch", SinkModel));
 
-        // ------------------------------------------------------------------ teams (resources of the yard, N4)
+        // ------------------------------------------------------------------ teams (resources of the yard)
 
         private const string Teams = Menu + "Teams/";
 
         [SimuLeanPresetIcon(LibraryPresets.Members + "GoliathCrane.prefab")]
+        [SimuLeanVariantOf(typeof(UnityResourceTeam), "Cranes")]
         [MenuItem(Teams + "Goliath Crane", false, 60)]
-        private static void GoliathCrane(MenuCommand cmd) => LibraryPresets.Team(cmd, "Goliath Crane", "GoliathCrane.prefab");
+        private static void GoliathCrane(MenuCommand cmd) => LibraryPresets.Team(cmd, "Goliath Crane", "goliath crane");
 
         [SimuLeanPresetIcon(LibraryPresets.Models + "OverheadCrane/Trolley.fbx")]
-        [MenuItem("GameObject/SimuLean/Teams/Hall Crane", false, 50)]   // a general crane: core resources, not the naval pack
-        private static void HallCrane(MenuCommand cmd) => LibraryPresets.Team(cmd, "Hall Crane", "HallCrane.prefab");
+        [SimuLeanVariantOf(typeof(UnityResourceTeam), "Cranes")]
+        [MenuItem("GameObject/SimuLean/Teams/Hall Crane", false, 22)]   // a general crane: core resources, not the naval pack
+        private static void HallCrane(MenuCommand cmd) => LibraryPresets.Team(cmd, "Hall Crane", "hall crane");
 
         [SimuLeanPresetIcon(LibraryPresets.Members + "LevelLuffingCrane.prefab")]
+        [SimuLeanVariantOf(typeof(UnityResourceTeam), "Cranes")]
         [MenuItem(Teams + "Level-Luffing Crane", false, 62)]
-        private static void LuffingCrane(MenuCommand cmd) => LibraryPresets.Team(cmd, "Level-Luffing Crane", "LevelLuffingCrane.prefab");
+        private static void LuffingCrane(MenuCommand cmd) => LibraryPresets.Team(cmd, "Level-Luffing Crane", "level luffing crane");
 
         [SimuLeanPresetIcon(LibraryPresets.Members + "SPMT.prefab")]
+        [SimuLeanVariantOf(typeof(UnityResourceTeam), "Vehicles")]
         [MenuItem(Teams + "SPMT Transporters", false, 63)]
-        private static void Spmt(MenuCommand cmd) => LibraryPresets.Team(cmd, "SPMT Transporters", "SPMT.prefab");
+        private static void Spmt(MenuCommand cmd) => LibraryPresets.Team(cmd, "SPMT Transporters", "spmt");
 
         [SimuLeanPresetIcon(LibraryPresets.Members + "WeldingGantry.prefab")]
+        [SimuLeanVariantOf(typeof(UnityResourceTeam), "Robots")]
         [MenuItem(Teams + "Welding Gantry", false, 64)]
-        private static void WeldingGantry(MenuCommand cmd) => LibraryPresets.Team(cmd, "Welding Gantry", "WeldingGantry.prefab");
+        private static void WeldingGantry(MenuCommand cmd) => LibraryPresets.Team(cmd, "Welding Gantry", "welding gantry");
 
         [SimuLeanPresetIcon(LibraryPresets.Members + "IndustrialRobot_Welder.prefab")]
+        [SimuLeanVariantOf(typeof(UnityResourceTeam), "Robots")]
         [MenuItem(Teams + "Welding Robots", false, 65)]
-        private static void WeldingRobots(MenuCommand cmd) => LibraryPresets.Team(cmd, "Welding Robots", "IndustrialRobot_Welder.prefab");
+        private static void WeldingRobots(MenuCommand cmd) => LibraryPresets.Team(cmd, "Welding Robots", "welding robot");
 
-        // ------------------------------------------------------------------ the IJPR block process (composite)
+        // ------------------------------------------------------------------ the block process (composite)
 
         /// <summary>
         /// The whole block process of the naval library (the flow of <c>ReferenceModels.NavalBlockProcess</c>): the
@@ -186,8 +210,9 @@ namespace SimuLean.Unity.Editor.Naval
         /// reads the project database's <see cref="SampleHullTable"/>, which is filled with the generic sample hull when
         /// missing; point the breakdown at your own table to model a ship.
         /// </summary>
-        [SimuLeanPresetIcon(LibraryPresets.Models + "ShipBlock/ShipBlockFlat.fbx")]
-        [MenuItem(Menu + "Block Process (IJPR)", false, 40)]
+        [SimuLeanPresetIcon(Icons + "BlockProcess.png")]
+        [SimuLeanVariantOf(typeof(SElement), "Templates")]
+        [MenuItem(Menu + "Block Process", false, 40)]
         private static void BlockProcess(MenuCommand cmd) => BlockProcess(cmd, null);
 
         /// <summary>The composite with its breakdown on <paramref name="databasePath"/> (null = the project database).</summary>
@@ -328,7 +353,7 @@ namespace SimuLean.Unity.Editor.Naval
         private static void Yard(UnityQueue q, int places)
         {
             q.capacity = places;
-            q.releaseMode = ReleaseMode.AnyAccepted;                    // whichever block the next station takes
+            q.offerOrder = OfferOrder.AnyAccepted;                    // whichever block the next station takes
         }
 
         private static void RouteOnTurn(SElement e)
@@ -392,7 +417,7 @@ namespace SimuLean.Unity.Editor.Naval
             team.memberPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(LibraryPresets.Members + memberPrefab);
             team.AddMembers(members);
             if (skill != null)
-                foreach (var m in team.members) m.labels.Add(new LabelAssignment { label = "skill", value = skill });
+                foreach (var m in team.members) m.properties.Add($"skill = '{skill}'");
             return team;
         }
     }

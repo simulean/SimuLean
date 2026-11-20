@@ -9,7 +9,7 @@ namespace SimuLean.Unity.Editor
     /// Prepares a scene for modelling: one <see cref="UnitySimClock"/> with the default runtime views
     /// on the same object (<see cref="SimRuntimeHud"/>, <see cref="ElementInspectorPanel"/>,
     /// <see cref="SimVisualDetail"/>) and a <see cref="SimCameraController"/> on the main camera, all
-    /// wired to each other. Editor-only (nothing is added at run time); the views never change
+    /// wired to each other, and a 100 × 100 m floor when the scene has no ground (<see cref="SceneFloor"/>). Editor-only (nothing is added at run time); the views never change
     /// simulation results.
     /// <para>Runs: from <i>Tools ▸ SimuLean ▸ Set Up Scene</i>; when the clock is created from the
     /// SimuLean window or added by hand; automatically in every new scene and, once per project, in the
@@ -91,6 +91,7 @@ namespace SimuLean.Unity.Editor
                 if (ModelHierarchy.AutoOrganize) ModelHierarchy.Place(go);   // Runtime group, now (not at the next editor tick)
             }
             AddDefaultViews(clock);
+            SceneFloor.Ensure(scene);   // a ground to drag the elements onto (none added when the scene has one)
             if (scene.IsValid()) EditorSceneManager.MarkSceneDirty(scene);
             return clock;
         }
@@ -113,14 +114,19 @@ namespace SimuLean.Unity.Editor
             var panel = InScene<ElementInspectorPanel>(scene) ?? Undo.AddComponent<ElementInspectorPanel>(host);
             if (InScene<SimVisualDetail>(scene) == null) Undo.AddComponent<SimVisualDetail>(host);
 
+            // wired inside this scene only: a reference to another open scene's clock or camera (a model made beside an
+            // open scene, simulean_models action=new open=false) is dropped by Unity on save
             Undo.RecordObjects(new Object[] { hud, panel }, "Wire SimuLean views");
-            if (hud.simClock == null) hud.simClock = clock;
-            if (hud.cameraController == null) hud.cameraController = cam;
-            if (panel.simClock == null) panel.simClock = clock;
-            if (panel.cameraController == null) panel.cameraController = cam;
+            if (!InThisScene(hud.simClock, scene)) hud.simClock = clock;
+            if (!InThisScene(hud.cameraController, scene)) hud.cameraController = cam;
+            if (!InThisScene(panel.simClock, scene)) panel.simClock = clock;
+            if (!InThisScene(panel.cameraController, scene)) panel.cameraController = cam;
             EditorUtility.SetDirty(hud);
             EditorUtility.SetDirty(panel);
         }
+
+        /// <summary>True when <paramref name="c"/> is set and lives in <paramref name="scene"/>.</summary>
+        private static bool InThisScene(Component c, Scene scene) => c != null && c.gameObject.scene == scene;
 
         /// <summary>The first <typeparamref name="T"/> of <paramref name="scene"/> (optionally matching), or null.</summary>
         private static T InScene<T>(Scene scene, System.Func<T, bool> match = null) where T : Component

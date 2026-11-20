@@ -8,7 +8,7 @@ namespace SimuLean.Unity
 {
     /// <summary>
     /// The project's SimuLean settings (<c>ProjectSettings/SimuLeanSettings.json</c>, shared through version control):
-    /// scene set-up, the project database and results (folder, confidence level, default export formats). Edited in the SimuLean window ▸
+    /// scene set-up, the models folder, the project database and results (folder, confidence level, default export formats). Edited in the SimuLean window ▸
     /// Settings; read wherever needed (also at run time in the editor; a player without the file gets the defaults).
     /// </summary>
     [Serializable]
@@ -19,6 +19,12 @@ namespace SimuLean.Unity
         // scene set-up (SimuLeanSceneSetup)
         public bool autoSetUpNewScenes = true;
         public bool initialSetUpDone;
+
+        // models (SimuLeanModels): every model is a folder <modelsFolder>/<Name>/ with its scene <Name>.unity,
+        // its model card (ModelCard.asset), its thumbnail and its own data
+        [Tooltip("Folder of the project's models (one subfolder per model: its scene, model card and data), under Assets.")]
+        public string modelsFolder = DefaultModelsFolder;
+        public const string DefaultModelsFolder = "Assets/SimuLeanModels";
 
         // data: the project database every data table, timetable, pick list and export uses
         [Tooltip("The project database (SQLite): relative to the project, or absolute.")]
@@ -35,6 +41,15 @@ namespace SimuLean.Unity
         [Tooltip("Keep every experiment, study and optimisation (with all its candidates) in the project database — " +
                  "the Results tab lists them; delete them there. Off by default: results are kept only with a Save button.")]
         public bool storeResults = false;
+
+        [Tooltip("Run experiments, studies and optimisations outside the editor, on .NET (the runner built in Library/SimuLeanRunner; " +
+                 "about 10x faster per run). Off, or when there is no runner, they run in the editor as before.")]
+        public bool runOutsideEditor = true;
+
+        [Tooltip("When there is no runner, download the release's prebuilt one (once, about 35 MB, from the SimuLean " +
+                 "repository on GitHub) into SimuLeanRunner/ — only while the project's engine is the release's own. Off: a .NET 10 " +
+                 "SDK builds it, or the work runs in the editor.")]
+        public bool downloadRunner = true;
 
         /// <summary>The library packs shown in the SimuLean window (<see cref="SimuLeanPacks.Optional"/>; core is always shown).</summary>
         public List<string> shownPacks = new List<string>(SimuLeanPacks.DefaultShown);
@@ -65,6 +80,8 @@ namespace SimuLean.Unity
         {
             s = s ?? new SimuLeanProjectSettings();
             if (string.IsNullOrWhiteSpace(s.resultsFolder)) s.resultsFolder = "SimuLeanResults";
+            if (string.IsNullOrWhiteSpace(s.modelsFolder)) s.modelsFolder = DefaultModelsFolder;   // also an older file
+            s.modelsFolder = s.modelsFolder.Trim().Replace('\\', '/').TrimEnd('/');
             if (string.IsNullOrWhiteSpace(s.databasePath)) s.databasePath = DefaultDatabase;   // also an older file
             if (!(s.confidence > 0 && s.confidence < 1)) s.confidence = 0.95;   // also an older file without the field (0)
             if (s.shownPacks == null) s.shownPacks = new List<string>(SimuLeanPacks.DefaultShown);   // an older file

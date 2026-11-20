@@ -9,7 +9,8 @@ namespace SimuLean.Unity.Editor
     [CustomEditor(typeof(SElement), true, isFallback = true)]
     public class GenericElementInspector : SElementInspector
     {
-        protected override void DrawParameters() => DrawRemaining(false);
-        protected override void DrawVisual() => DrawRemaining(true);
+        // every field is drawn by the base's DrawRemaining (Parameters / Visual by kind)
+        protected override void DrawParameters() { }
+        protected override void DrawVisual() { }
     }
 }

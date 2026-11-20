@@ -1,4 +1,4 @@
-# ALGLIB 4.07 reference values (generated once, 2026-10-07; D1). name\ta\tb\tc\tvalue. Inverses: CDF(x) = p.
+# ALGLIB 4.07 reference values (generated once, 2026-10-07). name\ta\tb\tc\tvalue. Inverses: CDF(x) = p.
 lngamma	1E-08	0	0	18.42068073818021
 lngamma	1E-06	0	0	13.81550998074943
 lngamma	0.001	0	0	6.907178885383853

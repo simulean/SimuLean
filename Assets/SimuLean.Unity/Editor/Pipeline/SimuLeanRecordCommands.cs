@@ -26,8 +26,8 @@ namespace SimuLean.Unity.Editor
                                             "values (a single space clears a text). Without 'shot': the list. Undoable.", Tags = new[] { Tag })]
         public static object RecordShot(
             [CliArg("shot", "Shot name: changed when it exists, added otherwise; empty = list the shots.")] string shot = "",
-            [CliArg("framing", "fixed | pose | element | orbit (empty = element when a target is given, else unchanged / fixed).")] string framing = "",
-            [CliArg("target", "Element / orbit: the framed GameObject (name or path).")] string target = "",
+            [CliArg("framing", "fixed | pose | element | orbit (empty = element when an object is given, else unchanged / fixed).")] string framing = "",
+            [CliArg("object", "Element / orbit: the framed GameObject (name or path).")] string @object = "",
             [CliArg("distance", "Element / orbit: metres from the framed point.")] string distance = "",
             [CliArg("elevation", "Element / orbit: degrees above the horizon.")] string elevation = "",
             [CliArg("azimuth", "Element / orbit: compass direction the camera looks along (degrees, 0 = +Z, 90 = +X).")] string azimuth = "",
@@ -46,7 +46,7 @@ namespace SimuLean.Unity.Editor
             [CliArg("index", "Position in the list (0 = first) to insert or move the shot to; empty = keep / append.")] string index = "",
             [CliArg("remove", "Remove the shot.")] bool remove = false,
             [CliArg("recorder", "The Recorder (name or path; empty = the scene's).")] string recorder = "")
-            => AgentReply.Of(() => RecordShotOf(shot, framing, target, distance, elevation, azimuth, orbit, lookHeight, position, rotation,
+            => AgentReply.Of(() => RecordShotOf(shot, framing, @object, distance, elevation, azimuth, orbit, lookHeight, position, rotation,
                                                 pose, fromView, seconds, glide, glideSeconds, fov, title, subtitle, index, remove, recorder));
 
         private static object RecordShotOf(string shot, string framing, string target, string distance, string elevation, string azimuth,
@@ -64,7 +64,7 @@ namespace SimuLean.Unity.Editor
                 r.shots.RemoveAt(at);
                 return Saved(r);
             }
-            // a copy, put in place only when every argument is valid: a failing call leaves the shot as it was (review2 #12)
+            // a copy, put in place only when every argument is valid: a failing call leaves the shot as it was
             var sh = at >= 0 ? CopyOf(r.shots[at]) : new SimRecorder.Shot { name = shot.Trim(), glide = r.shots.Count > 0 };
 
             if (!string.IsNullOrWhiteSpace(framing))
@@ -102,7 +102,7 @@ namespace SimuLean.Unity.Editor
             if (!string.IsNullOrEmpty(title)) sh.title = title.Trim();
             if (!string.IsNullOrEmpty(subtitle)) sh.subtitle = subtitle.Trim();
             if ((sh.framing == SimRecorder.ShotFraming.Element || sh.framing == SimRecorder.ShotFraming.Orbit) && sh.target == null)
-                throw new ArgumentException($"Shot '{sh.name}' frames an element: give a target.");
+                throw new ArgumentException($"Shot '{sh.name}' frames an element: give its object.");
             if (sh.framing == SimRecorder.ShotFraming.Pose && sh.pose == null)
                 throw new ArgumentException($"Shot '{sh.name}' is a pose shot: give a pose GameObject.");
 
@@ -145,7 +145,7 @@ namespace SimuLean.Unity.Editor
             [CliArg("wait", "Seconds to wait for the job to end (0 = answer at once; at most 55): the answer comes as soon as it ends, so poll with wait instead of sleeping.")] double wait = 0)
         {
             if (cancel) return System.Threading.Tasks.Task.FromResult<object>(AgentReply.Of(() => RecorderSession.Status(true)));
-            return JobWait.Until(() => JobWait.Json(AgentReply.Of(() => RecorderSession.Status(false))), wait);
+            return JobWait.Until(() => AgentReply.Run(() => RecorderSession.Status(false)), wait);
         }
 
         // ── helpers ──────────────────────────────────────────────────────────

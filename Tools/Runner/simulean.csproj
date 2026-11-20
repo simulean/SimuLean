@@ -1,0 +1,24 @@
+<!-- The out-of-editor runner `simulean`: the engine (Assets/SimuLean.Net, compiled from source like the
+     standalone tests) + RunnerCli. Build: dotnet build Tools/Runner/simulean.csproj -c Release
+     (self-contained builds per OS). -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>simulean</AssemblyName>
+    <RootNamespace>SimuLean.Runner</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- server GC: a run allocates ~140 MB; with the workstation collector parallel runs stop each other on every collection
+         (on a large model, 8 threads no faster than 4); with it 16 runs take 0.57 s on 8 threads instead of 2.7 s -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+  <Import Project="..\..\StandaloneTests\Engine.props" />
+  <Import Project="Fingerprint.targets" />
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="RunnerCli.cs" />
+  </ItemGroup>
+</Project>

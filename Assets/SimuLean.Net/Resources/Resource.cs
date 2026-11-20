@@ -14,8 +14,8 @@ namespace SimuLean.Resources
     /// <summary>States of resources (on top of the common ones: IDLE, PROCESSING, SETUP, the stop states).</summary>
     public static class ResourceStates
     {
-        public static readonly ElementState TRAVELLING_EMPTY = ElementState.Of("TRAVELLING_EMPTY");
-        public static readonly ElementState TRAVELLING_LOADED = ElementState.Of("TRAVELLING_LOADED");
+        public static readonly ElementState TRAVELING_EMPTY = ElementState.Of("TRAVELING_EMPTY");
+        public static readonly ElementState TRAVELING_LOADED = ElementState.Of("TRAVELING_LOADED");
         public static readonly ElementState LOADING = ElementState.Of("LOADING");
         public static readonly ElementState UNLOADING = ElementState.Of("UNLOADING");
         /// <summary>Assigned but waiting for its task to let it go (e.g. an operator kept by a blocked station).</summary>
@@ -24,11 +24,16 @@ namespace SimuLean.Resources
         public static readonly ElementState WAITING = ElementState.Of("WAITING");
         /// <summary>Travelling, but stopped at a node until the next segment has room (traffic).</summary>
         public static readonly ElementState TRAFFIC_WAIT = ElementState.Of("TRAFFIC_WAIT");
+        /// <summary>Reserved by a vehicle with nothing to do yet: a milk-run train waiting, empty, for its departure rule
+        /// (or a dynamic train for its next request). The member keeps its task, so it is not available, but it is
+        /// <b>not busy</b>: the wait does not count as utilisation.</summary>
+        public static readonly ElementState WAITING_DEPARTURE = ElementState.Of("WAITING_DEPARTURE");
 
-        /// <summary>States in which the resource is working for a task (they count as utilisation).</summary>
+        /// <summary>States in which the resource is working for a task (they count as utilisation).
+        /// <see cref="WAITING_DEPARTURE"/> is assigned but not busy.</summary>
         public static readonly ElementState[] Busy =
         {
-            ElementState.PROCESSING, ElementState.SETUP, TRAVELLING_EMPTY, TRAVELLING_LOADED, LOADING, UNLOADING, HELD, WAITING, TRAFFIC_WAIT,
+            ElementState.PROCESSING, ElementState.SETUP, TRAVELING_EMPTY, TRAVELING_LOADED, LOADING, UNLOADING, HELD, WAITING, TRAFFIC_WAIT,
         };
     }
 
@@ -56,8 +61,14 @@ namespace SimuLean.Resources
         /// <summary>Items it can carry at once (vehicles, cranes); 1 for operators.</summary>
         public int Capacity { get; set; } = 1;
 
-        /// <summary>Node it starts from and returns to (spatial resources).</summary>
+        /// <summary>Node it starts from (spatial resources); with <see cref="ReturnHome"/> it walks back there after each
+        /// task (it stays where its last task ended).</summary>
         public string HomeNode { get; set; }
+
+        /// <summary>Spatial executors: after each task, travel back to <see cref="HomeNode"/> and become free only there (a
+        /// waiting point: "operators walk back before the next task"). Off by default: a free member waits where its
+        /// last task ended.</summary>
+        public bool ReturnHome { get; set; }
 
         /// <summary>The task it is doing (null when free).</summary>
         public TaskSequence CurrentTask { get; protected set; }
@@ -77,7 +88,7 @@ namespace SimuLean.Resources
             get
             {
                 // a dispatching rule reads it for every free member at every request: computed once per time and state
-                // (the same sum, so the same value; review2 #15)
+                // (the same sum, so the same value)
                 double now = simClock.GetSimulationTime();
                 if (now == utilizationAt && StateVersion == utilizationVersion) return utilization;
                 double u = 0;
@@ -95,25 +106,25 @@ namespace SimuLean.Resources
         /// <summary>Raised when it becomes free for a new task (task finished, stop ended).</summary>
         public event Action<Resource> BecameAvailable;
 
-        // ── labels (skills, attributes) ──────────────────────────────────────
+        // ── properties (skills, attributes) ──────────────────────────────────
 
-        // Labels are the resource's Properties (SimEntity), like items' and elements'.
+        // A member's values are its properties (SimEntity), like an element's; an item's are its labels.
 
-        public void SetLabelValue(string label, double value) => Properties.SetDouble(label, value);
+        public void SetProperty(string name, double value) => Properties.SetDouble(name, value);
 
-        /// <summary>Numeric text is stored as a number, like item labels.</summary>
-        public void SetLabelValue(string label, string value) => Properties.SetParsed(label, value);
+        /// <summary>Numeric text is stored as a number.</summary>
+        public void SetProperty(string name, string value) => Properties.SetParsed(name, value);
 
-        public double? GetLabelValue(string label) => Properties.TryGetDouble(label, out double v) ? v : (double?)null;
+        public double? GetProperty(string name) => Properties.TryGetDouble(name, out double v) ? v : (double?)null;
 
-        public string GetLabelText(string label) => Properties.GetText(label);
+        public string GetPropertyText(string name) => Properties.GetText(name);
 
-        public IEnumerable<string> LabelNames => Properties.Names;
+        public IEnumerable<string> PropertyNames => Properties.Names;
 
         // ── fields for lists (dispatching rules) ─────────────────────────────
 
         /// <summary>Fields a dispatcher's resource list reads live: <c>idleTime</c> (time free so far, 0 when
-        /// busy), <c>utilization</c>, <c>tasksDone</c>, <c>capacity</c>, <c>distance</c> (to the location of the
+        /// busy), <c>utilization</c>, <c>tasks</c>, <c>capacity</c>, <c>distance</c> (to the location of the
         /// request being matched — "nearest resource" rules), text <c>name</c> / <c>location</c>, and every label
         /// (skills, attributes).</summary>
         public double GetListNumber(string field)
@@ -122,11 +133,11 @@ namespace SimuLean.Resources
             {
                 case "idleTime": return IsAvailable ? simClock.GetSimulationTime() - IdleSince : 0;
                 case "utilization": return Utilization;
-                case "tasksDone": return TasksDone;
+                case "tasks": return TasksDone;   // the ResultMetrics name
                 case "capacity": return Capacity;
                 case "distance": return MatchLocation == null ? 0 : DistanceTo(MatchLocation);
             }
-            return GetLabelValue(field) ?? double.NaN;
+            return GetProperty(field) ?? double.NaN;
         }
 
         /// <summary>Location of the request a dispatcher is matching (its <c>distance</c> field is measured to it).</summary>
@@ -139,10 +150,10 @@ namespace SimuLean.Resources
         {
             switch (field)
             {
-                case "name": return GetName();
+                case "name": return Name;
                 case "location": return Location;
             }
-            return GetLabelText(field);
+            return GetPropertyText(field);
         }
 
         // ── bookkeeping for subclasses ───────────────────────────────────────

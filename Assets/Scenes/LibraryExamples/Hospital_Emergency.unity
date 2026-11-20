@@ -184,7 +184,14 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.ElementInspectorPanel
   simClock: {fileID: 7282093}
   cameraController: {fileID: 326177657}
-  elements: []
+  elements:
+  - {fileID: 984873148}
+  - {fileID: 1515987716}
+  - {fileID: 1356926504}
+  - {fileID: 1598227248}
+  - {fileID: 1082950743}
+  - {fileID: 200393407}
+  - {fileID: 2001422742}
   autoCollectElements: 1
   contributors: []
   excludedElements: []
@@ -255,6 +262,7 @@ MonoBehaviour:
   stopAt: []
   stopAtCount: 0
   stopWhenEmpty: 0
+  stopWhenNoProgressFor: 0
   exportOnFinish: 0
   seriesInterval: 0
   recordTimeline: 0
@@ -1015,7 +1023,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: HospitalFloor
-  m_Shader: {fileID: 46, guid: 0000000000000000f000000000000000, type: 0}
+  m_Shader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
@@ -1025,12 +1033,18 @@ Material:
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
-  stringTagMap: {}
-  disabledShaderPasses: []
+  stringTagMap:
+    RenderType: Opaque
+  disabledShaderPasses:
+  - MOTIONVECTORS
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _BaseMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _BumpMap:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
@@ -1075,14 +1089,41 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _SpecGlossMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - unity_Lightmaps:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - unity_LightmapsInd:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - unity_ShadowMasks:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _AddPrecomputedVelocity: 0
+    - _AlphaClip: 0
     - _AlphaTestRef: 0.5
+    - _AlphaToMask: 0
+    - _Blend: 0
+    - _BlendModePreserveSpecular: 1
     - _BumpScale: 1
+    - _ClearCoatMask: 0
+    - _ClearCoatSmoothness: 0
+    - _Cull: 2
     - _Cutoff: 0.5
+    - _DetailAlbedoMapScale: 1
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
+    - _DstBlendAlpha: 0
     - _EmissionScaleUI: 1
+    - _EnvironmentReflections: 1
     - _GlossMapScale: 1
     - _Glossiness: 0.5
     - _GlossyReflections: 1
@@ -1091,16 +1132,27 @@ Material:
     - _Mode: 0
     - _OcclusionStrength: 1
     - _Parallax: 0.02
+    - _QueueOffset: 0
+    - _ReceiveShadows: 1
+    - _ScreenSpaceReflections: 1
+    - _ScreenSpaceReflectionsContributeTransparent: 1
+    - _Smoothness: 0.5
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
     - _SrcBlend: 1
+    - _SrcBlendAlpha: 1
+    - _Surface: 0
     - _UVSec: 0
+    - _WorkflowMode: 1
+    - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
-    - _Color: {r: 0.86, g: 0.85, b: 0.82, a: 1}
+    - _BaseColor: {r: 0.86, g: 0.85, b: 0.82, a: 1}
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 0.99999994}
     - _EmissionColorUI: {r: 0, g: 0, b: 0, a: 1}
     - _EmissionColorWithMapUI: {r: 1, g: 1, b: 1, a: 1}
+    - _SpecColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
 --- !u!1 &145361723
@@ -1619,7 +1671,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 200393402}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 1, z: -0, w: -0.00000004371139}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 8, y: 0, z: 1.6}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -1659,6 +1711,7 @@ MonoBehaviour:
     model: {fileID: 919132149155446097, guid: df370c490c97d914b82b475b71737486, type: 3}
   selected: 0
   custom: {fileID: 0}
+  modelYaw: 0
   look: 0
   virtualSize: {x: 1.6, y: 1.2}
   virtualCaption: 
@@ -1692,12 +1745,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityMultiServer
   nextElements:
   - {fileID: 1515987716}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
     routingExpression: 
     weights: []
+    scoreExpression: 
+    whenBestFull: 0
+    rule: 
+    ruleParameters: []
   inputStrategy:
     strategyType: 0
     singleLabelName: 
@@ -1716,10 +1772,16 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  pullMaxWait: 
   processBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
+    acquire: 0
+    maxWait: 
+    onTimeout: 0
     release: 0
     releaseAt: {fileID: 0}
     holdForOwnTime: 0
@@ -1755,12 +1817,16 @@ MonoBehaviour:
       binomialP: 0.5
       discreteUniformMin: 3
       discreteUniformMax: 7
+    acquireBeforeEntry: 0
+    timeoutTarget: {fileID: 0}
   location: {fileID: 0}
   workNodes: []
   transportBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
     travelTime:
       strategyType: 0
       constantValue: 0
@@ -1864,6 +1930,53 @@ MonoBehaviour:
     grid: {fileID: 0}
     matrix: {fileID: 0}
     waitAtDoor: 0
+  setup:
+    when: 0
+    label: type
+    setupFirst: 1
+    time:
+      strategyType: 0
+      constantValue: 1
+      uniformMin: 3
+      uniformMax: 7
+      normalMean: 5
+      normalStdDev: 1
+      exponentialRate: 0.2
+      triangularMin: 3
+      triangularMode: 5
+      triangularMax: 8
+      expression: 
+      gammaShape: 2
+      gammaScale: 2.5
+      weibullShape: 1.5
+      weibullScale: 5
+      logNormalMu: 1.5
+      logNormalSigma: 0.5
+      betaAlpha: 2
+      betaBeta: 5
+      betaMin: 0
+      betaMax: 1
+      chiSquareDf: 5
+      studentTDf: 10
+      studentTClamp: 1
+      fDistD1: 5
+      fDistD2: 10
+      poissonLambda: 3
+      binomialN: 10
+      binomialP: 0.5
+      discreteUniformMin: 3
+      discreteUniformMax: 7
+    matrix: {fileID: 0}
+    setupBy:
+      team: {fileID: 0}
+      requirements: []
+      priority: 1
+      preemption: 0
+      preemptable: 1
+      acquire: 0
+      maxWait: 
+      onTimeout: 0
+    keepForProcess: 0
   inItemPosition: {fileID: 586996539}
   outItemPosition: {fileID: 0}
   separation: 0
@@ -1901,8 +2014,9 @@ MonoBehaviour:
     discreteUniformMax: 7
   capacity: 1
   outputItemPrefab: {fileID: 0}
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerScan: 0
+  reserveExit: 0
   serverAnimator: {fileID: 0}
 --- !u!1 &202345238
 GameObject:
@@ -2169,68 +2283,6 @@ Transform:
   - {fileID: 1614595720}
   m_Father: {fileID: 259200600}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1001 &289145964
-PrefabInstance:
-  m_ObjectHideFlags: 0
-  serializedVersion: 2
-  m_Modification:
-    serializedVersion: 3
-    m_TransformParent: {fileID: 1082950740}
-    m_Modifications:
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalPosition.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalPosition.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalRotation.w
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalRotation.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalRotation.y
-      value: -0
-      objectReference: {fileID: 0}
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalRotation.z
-      value: -0
-      objectReference: {fileID: 0}
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 919132149155446097, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-      propertyPath: m_Name
-      value: Model
-      objectReference: {fileID: 0}
-    m_RemovedComponents: []
-    m_RemovedGameObjects: []
-    m_AddedGameObjects: []
-    m_AddedComponents: []
-  m_SourcePrefab: {fileID: 100100000, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
---- !u!4 &289145965 stripped
-Transform:
-  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
-  m_PrefabInstance: {fileID: 289145964}
-  m_PrefabAsset: {fileID: 0}
 --- !u!1 &305108657
 GameObject:
   m_ObjectHideFlags: 0
@@ -2594,8 +2646,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 326177656}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0.9638636, z: -0.26639637, w: 0}
-  m_LocalPosition: {x: 2.5, y: 8.5, z: 13.5}
+  m_LocalRotation: {x: 0.26639733, y: 0, z: 0, w: 0.9638633}
+  m_LocalPosition: {x: 2.5, y: 8.5, z: -13.5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -3584,11 +3636,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: df370c490c97d914b82b475b71737486, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0
+      value: 1.2457599e-22
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: df370c490c97d914b82b475b71737486, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: -7.892648e-25
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: df370c490c97d914b82b475b71737486, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -3980,6 +4032,73 @@ Transform:
   - {fileID: 850782830}
   m_Father: {fileID: 1721372496}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &660928963
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 1082950740}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.00000002669254
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: -0.00000002669254
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_Name
+      value: Model
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+--- !u!4 &660928964 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+  m_PrefabInstance: {fileID: 660928963}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &660928965 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 1806849546662407908, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+  m_PrefabInstance: {fileID: 660928963}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &682837449
 GameObject:
   m_ObjectHideFlags: 0
@@ -4075,11 +4194,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: aeb54798c3dd871439c91e3c4a21f141, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0
+      value: 1.2457599e-22
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: aeb54798c3dd871439c91e3c4a21f141, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: -7.892648e-25
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: aeb54798c3dd871439c91e3c4a21f141, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -5409,7 +5528,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 984873143}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 1, z: -0, w: -0.00000004371139}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 11.2, y: 0, z: 1.6}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -5449,6 +5568,7 @@ MonoBehaviour:
     model: {fileID: 919132149155446097, guid: df370c490c97d914b82b475b71737486, type: 3}
   selected: 0
   custom: {fileID: 0}
+  modelYaw: 0
   look: 0
   virtualSize: {x: 1.6, y: 1.2}
   virtualCaption: 
@@ -5482,12 +5602,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityMultiServer
   nextElements:
   - {fileID: 1515987716}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
     routingExpression: 
     weights: []
+    scoreExpression: 
+    whenBestFull: 0
+    rule: 
+    ruleParameters: []
   inputStrategy:
     strategyType: 0
     singleLabelName: 
@@ -5506,10 +5629,16 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  pullMaxWait: 
   processBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
+    acquire: 0
+    maxWait: 
+    onTimeout: 0
     release: 0
     releaseAt: {fileID: 0}
     holdForOwnTime: 0
@@ -5545,12 +5674,16 @@ MonoBehaviour:
       binomialP: 0.5
       discreteUniformMin: 3
       discreteUniformMax: 7
+    acquireBeforeEntry: 0
+    timeoutTarget: {fileID: 0}
   location: {fileID: 0}
   workNodes: []
   transportBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
     travelTime:
       strategyType: 0
       constantValue: 0
@@ -5654,6 +5787,53 @@ MonoBehaviour:
     grid: {fileID: 0}
     matrix: {fileID: 0}
     waitAtDoor: 0
+  setup:
+    when: 0
+    label: type
+    setupFirst: 1
+    time:
+      strategyType: 0
+      constantValue: 1
+      uniformMin: 3
+      uniformMax: 7
+      normalMean: 5
+      normalStdDev: 1
+      exponentialRate: 0.2
+      triangularMin: 3
+      triangularMode: 5
+      triangularMax: 8
+      expression: 
+      gammaShape: 2
+      gammaScale: 2.5
+      weibullShape: 1.5
+      weibullScale: 5
+      logNormalMu: 1.5
+      logNormalSigma: 0.5
+      betaAlpha: 2
+      betaBeta: 5
+      betaMin: 0
+      betaMax: 1
+      chiSquareDf: 5
+      studentTDf: 10
+      studentTClamp: 1
+      fDistD1: 5
+      fDistD2: 10
+      poissonLambda: 3
+      binomialN: 10
+      binomialP: 0.5
+      discreteUniformMin: 3
+      discreteUniformMax: 7
+    matrix: {fileID: 0}
+    setupBy:
+      team: {fileID: 0}
+      requirements: []
+      priority: 1
+      preemption: 0
+      preemptable: 1
+      acquire: 0
+      maxWait: 
+      onTimeout: 0
+    keepForProcess: 0
   inItemPosition: {fileID: 2008221260}
   outItemPosition: {fileID: 0}
   separation: 0
@@ -5691,8 +5871,9 @@ MonoBehaviour:
     discreteUniformMax: 7
   capacity: 1
   outputItemPrefab: {fileID: 0}
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerScan: 0
+  reserveExit: 0
   serverAnimator: {fileID: 0}
 --- !u!1 &987340846
 GameObject:
@@ -5874,6 +6055,68 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 995548547}
   m_Mesh: {fileID: 4863373830590064607, guid: ce8666b13afe5ca45a51e8ad2df19723, type: 3}
+--- !u!1001 &1051204799
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 1515987715}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.00000002669254
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0.00000002669254
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+      propertyPath: m_Name
+      value: Model
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+--- !u!4 &1051204800 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+  m_PrefabInstance: {fileID: 1051204799}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1054197015
 GameObject:
   m_ObjectHideFlags: 0
@@ -6004,6 +6247,7 @@ GameObject:
   - component: {fileID: 1082950743}
   - component: {fileID: 1082950742}
   - component: {fileID: 1082950741}
+  - component: {fileID: 1082950744}
   m_Layer: 0
   m_Name: Arrivals
   m_TagString: Untagged
@@ -6024,7 +6268,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 289145965}
+  - {fileID: 660928964}
   m_Father: {fileID: 167957372}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1082950741
@@ -6040,15 +6284,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.StationModel
   options:
-  - name: Entrance
-    model: {fileID: 919132149155446097, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
+  - name: Hospital door
+    model: {fileID: 919132149155446097, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
   selected: 0
   custom: {fileID: 0}
+  modelYaw: -90
   look: 0
   virtualSize: {x: 1.6, y: 1.2}
   virtualCaption: 
   virtualColor: {r: 0.2, g: 0.55, b: 0.75, a: 0.22}
-  shownSource: {fileID: 919132149155446097, guid: 606c6e1cd9845a54198f56c2b0c766a4, type: 3}
+  shownSource: {fileID: 919132149155446097, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
   hidOwn: 0
 --- !u!114 &1082950742
 MonoBehaviour:
@@ -6077,12 +6322,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnitySource
   nextElements:
   - {fileID: 1356926504}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
     routingExpression: 
     weights: []
+    scoreExpression: 
+    whenBestFull: 0
+    rule: 
+    ruleParameters: []
   inputStrategy:
     strategyType: 0
     singleLabelName: 
@@ -6101,10 +6349,16 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  pullMaxWait: 
   processBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
+    acquire: 0
+    maxWait: 
+    onTimeout: 0
     release: 0
     releaseAt: {fileID: 0}
     holdForOwnTime: 0
@@ -6140,12 +6394,16 @@ MonoBehaviour:
       binomialP: 0.5
       discreteUniformMin: 3
       discreteUniformMax: 7
+    acquireBeforeEntry: 0
+    timeoutTarget: {fileID: 0}
   location: {fileID: 0}
   workNodes: []
   transportBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
     travelTime:
       strategyType: 0
       constantValue: 0
@@ -6250,13 +6508,14 @@ MonoBehaviour:
     matrix: {fileID: 0}
     waitAtDoor: 0
   itemPrefab: {fileID: 1867961506062920684, guid: ead02d799955be5438a4613f400762aa, type: 3}
+  sizeFromModel: 1
   separation: 0.7
-  itemPosition: {fileID: 0}
+  itemPosition: {fileID: 660928965}
   mode: 0
-  assignLabels:
-  - label: prio
-    value: 0
+  createLabels:
+  - prio = 0
   demandFactor: 1
+  arrivalsOnStop: 0
   interArrivalDistribution:
     strategyType: 0
     constantValue: 3
@@ -6289,12 +6548,29 @@ MonoBehaviour:
     binomialP: 0.5
     discreteUniformMin: 3
     discreteUniformMax: 7
+  ratePeriods: []
   dataTable: {fileID: 0}
   tableSource: 
   tableDatabase: 
   serializedData:
     columnNames: []
     columnData: []
+--- !u!114 &1082950744
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1082950739}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3077967779ab7564d96e027ff2c3cc27, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SlidingDoorView
+  openDistance: 0.9
+  holdOpen: 1.5
+  speed: 1.2
+  openWhenNear: 2.5
 --- !u!43 &1105906456
 Mesh:
   m_ObjectHideFlags: 0
@@ -7402,8 +7678,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1307837614}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 1.86, y: 0, z: 0}
+  m_LocalRotation: {x: 0, y: 0.7071069, z: 0, w: 0.70710677}
+  m_LocalPosition: {x: -1.86, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -7951,12 +8227,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityQueue
   nextElements:
   - {fileID: 2001422742}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
     routingExpression: 
     weights: []
+    scoreExpression: 
+    whenBestFull: 0
+    rule: 
+    ruleParameters: []
   inputStrategy:
     strategyType: 0
     singleLabelName: 
@@ -7975,10 +8254,16 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  pullMaxWait: 
   processBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
+    acquire: 0
+    maxWait: 
+    onTimeout: 0
     release: 0
     releaseAt: {fileID: 0}
     holdForOwnTime: 0
@@ -8014,12 +8299,16 @@ MonoBehaviour:
       binomialP: 0.5
       discreteUniformMin: 3
       discreteUniformMax: 7
+    acquireBeforeEntry: 0
+    timeoutTarget: {fileID: 0}
   location: {fileID: 0}
   workNodes: []
   transportBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
     travelTime:
       strategyType: 0
       constantValue: 0
@@ -8124,8 +8413,17 @@ MonoBehaviour:
     matrix: {fileID: 0}
     waitAtDoor: 0
   capacity: 6
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerSort: 
+  offerRule: 
+  ruleParameters: []
+  offerScan: 0
+  groupBySetup: 0
+  groupLimit: 0
+  maxWait: 
+  onTimeout: 0
+  timeoutTarget: {fileID: 0}
+  gated: 0
   layoutMode: 2
   separation: 0
   gridArea: {x: 0, y: 0}
@@ -8974,6 +9272,18 @@ PrefabInstance:
     m_TransformParent: {fileID: 167957372}
     m_Modifications:
     - target: {fileID: 4962398743244605962, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4962398743244605962, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4962398743244605962, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4962398743244605962, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
       propertyPath: m_LocalPosition.x
       value: 15
       objectReference: {fileID: 0}
@@ -9017,10 +9327,21 @@ PrefabInstance:
       propertyPath: m_Name
       value: Discharge
       objectReference: {fileID: 0}
-    m_RemovedComponents: []
+    m_RemovedComponents:
+    - {fileID: 6095296098382868837, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
+    - {fileID: 8318747505927882159, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
     m_RemovedGameObjects: []
-    m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {fileID: 4962398743244605962, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1051204800}
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 5734819493587243184, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1515987719}
+    - targetCorrespondingSourceObject: {fileID: 5734819493587243184, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1515987718}
   m_SourcePrefab: {fileID: 100100000, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
 --- !u!4 &1515987715 stripped
 Transform:
@@ -9032,12 +9353,57 @@ MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 4231203606793543075, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
   m_PrefabInstance: {fileID: 1515987714}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 1515987717}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1710d1e47eaeba847918170dac7535a6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!1 &1515987717 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 5734819493587243184, guid: e20fb4bacd64d3947a2f923aa85859c5, type: 3}
+  m_PrefabInstance: {fileID: 1515987714}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1515987718
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1515987717}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3077967779ab7564d96e027ff2c3cc27, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.SlidingDoorView
+  openDistance: 0.9
+  holdOpen: 1.5
+  speed: 1.2
+  openWhenNear: 2.5
+--- !u!114 &1515987719
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1515987717}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 28fa7d00852cc0e43ab33005aa58de9b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.StationModel
+  options:
+  - name: Hospital door
+    model: {fileID: 919132149155446097, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+  selected: 0
+  custom: {fileID: 0}
+  modelYaw: 90
+  look: 0
+  virtualSize: {x: 1.6, y: 1.2}
+  virtualCaption: 
+  virtualColor: {r: 0.2, g: 0.55, b: 0.75, a: 0.22}
+  shownSource: {fileID: 919132149155446097, guid: 2829f0a154b231e4bbf9f7cd115dcba3, type: 3}
+  hidOwn: 0
 --- !u!1 &1517886358
 GameObject:
   m_ObjectHideFlags: 0
@@ -9468,12 +9834,15 @@ MonoBehaviour:
   nextElements:
   - {fileID: 200393407}
   - {fileID: 984873148}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
     routingExpression: 
     weights: []
+    scoreExpression: 
+    whenBestFull: 0
+    rule: 
+    ruleParameters: []
   inputStrategy:
     strategyType: 0
     singleLabelName: 
@@ -9492,10 +9861,16 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  pullMaxWait: 
   processBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
+    acquire: 0
+    maxWait: 
+    onTimeout: 0
     release: 0
     releaseAt: {fileID: 0}
     holdForOwnTime: 0
@@ -9531,12 +9906,16 @@ MonoBehaviour:
       binomialP: 0.5
       discreteUniformMin: 3
       discreteUniformMax: 7
+    acquireBeforeEntry: 0
+    timeoutTarget: {fileID: 0}
   location: {fileID: 0}
   workNodes: []
   transportBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
     travelTime:
       strategyType: 0
       constantValue: 0
@@ -9641,8 +10020,17 @@ MonoBehaviour:
     matrix: {fileID: 0}
     waitAtDoor: 0
   capacity: 6
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerSort: 
+  offerRule: 
+  ruleParameters: []
+  offerScan: 0
+  groupBySetup: 0
+  groupLimit: 0
+  maxWait: 
+  onTimeout: 0
+  timeoutTarget: {fileID: 0}
+  gated: 0
   layoutMode: 2
   separation: 0
   gridArea: {x: 0, y: 0}
@@ -10489,8 +10877,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1721372495}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: 1.86, y: 0, z: 0}
+  m_LocalRotation: {x: 0, y: 0.7071069, z: 0, w: 0.70710677}
+  m_LocalPosition: {x: -1.86, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -11223,6 +11611,7 @@ MonoBehaviour:
     model: {fileID: 919132149155446097, guid: aeb54798c3dd871439c91e3c4a21f141, type: 3}
   selected: 0
   custom: {fileID: 0}
+  modelYaw: 0
   look: 0
   virtualSize: {x: 1.6, y: 1.2}
   virtualCaption: 
@@ -11256,12 +11645,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SimuLean.Unity.UnityMultiServer
   nextElements:
   - {fileID: 1598227248}
-  outputStrategyAsset: {fileID: 0}
   outputStrategy:
     strategyType: 0
     parameterKey: routing_mode
     routingExpression: 
     weights: []
+    scoreExpression: 
+    whenBestFull: 0
+    rule: 
+    ruleParameters: []
   inputStrategy:
     strategyType: 0
     singleLabelName: 
@@ -11280,10 +11672,16 @@ MonoBehaviour:
     conditions: []
     orderBy: 
     descending: 0
+  pullMaxWait: 
   processBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
+    acquire: 0
+    maxWait: 
+    onTimeout: 0
     release: 0
     releaseAt: {fileID: 0}
     holdForOwnTime: 0
@@ -11319,12 +11717,16 @@ MonoBehaviour:
       binomialP: 0.5
       discreteUniformMin: 3
       discreteUniformMax: 7
+    acquireBeforeEntry: 0
+    timeoutTarget: {fileID: 0}
   location: {fileID: 0}
   workNodes: []
   transportBy:
     team: {fileID: 0}
     requirements: []
     priority: 
+    preemption: 0
+    preemptable: 1
     travelTime:
       strategyType: 0
       constantValue: 0
@@ -11428,6 +11830,53 @@ MonoBehaviour:
     grid: {fileID: 0}
     matrix: {fileID: 0}
     waitAtDoor: 0
+  setup:
+    when: 0
+    label: type
+    setupFirst: 1
+    time:
+      strategyType: 0
+      constantValue: 1
+      uniformMin: 3
+      uniformMax: 7
+      normalMean: 5
+      normalStdDev: 1
+      exponentialRate: 0.2
+      triangularMin: 3
+      triangularMode: 5
+      triangularMax: 8
+      expression: 
+      gammaShape: 2
+      gammaScale: 2.5
+      weibullShape: 1.5
+      weibullScale: 5
+      logNormalMu: 1.5
+      logNormalSigma: 0.5
+      betaAlpha: 2
+      betaBeta: 5
+      betaMin: 0
+      betaMax: 1
+      chiSquareDf: 5
+      studentTDf: 10
+      studentTClamp: 1
+      fDistD1: 5
+      fDistD2: 10
+      poissonLambda: 3
+      binomialN: 10
+      binomialP: 0.5
+      discreteUniformMin: 3
+      discreteUniformMax: 7
+    matrix: {fileID: 0}
+    setupBy:
+      team: {fileID: 0}
+      requirements: []
+      priority: 1
+      preemption: 0
+      preemptable: 1
+      acquire: 0
+      maxWait: 
+      onTimeout: 0
+    keepForProcess: 0
   inItemPosition: {fileID: 717452807}
   outItemPosition: {fileID: 0}
   separation: 0
@@ -11465,8 +11914,9 @@ MonoBehaviour:
     discreteUniformMax: 7
   capacity: 2
   outputItemPrefab: {fileID: 0}
-  releaseMode: 0
-  releaseScan: 0
+  offerOrder: 0
+  offerScan: 0
+  reserveExit: 0
   serverAnimator: {fileID: 0}
 --- !u!1 &2003914585
 GameObject:
@@ -11531,11 +11981,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: df370c490c97d914b82b475b71737486, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0
+      value: 1.2457599e-22
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: df370c490c97d914b82b475b71737486, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0
+      value: -7.892648e-25
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: df370c490c97d914b82b475b71737486, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x

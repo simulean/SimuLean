@@ -29,7 +29,7 @@ static class Program
         Run("Random search: finds a good point, reproducible with the seed", TestRandomSearch);
         Run("Genetic algorithm: mixed space reaches the optimum; same seed = same search, also in parallel", TestGenetic);
         Run("Plug-in: an algorithm written outside the engine uses the same services", TestPlugIn);
-        // R-5b: the model as an optimisation problem
+        // the model as an optimisation problem
         Run("SimulationConfig.Clone: deep copy of every reference model (no field forgotten)", TestClone);
         Run("Catalog: every key of elements, teams and downtimes, by type or by the schema", TestCatalog);
         Run("Catalog: no key of any reference model is undecided (new types / keys must be declared)", TestEveryKeyDecided);
@@ -39,8 +39,11 @@ static class Program
         Run("A candidate's text is exact: stored values re-run as they were", TestExactCandidateText);
         Run("Mixed space with choices and vectors: random search and GA find the optimum; text round trip", TestChoicesAndVectors);
         Run("Model parameters: element key, team members, schedule sequence and binary column", TestModelParameters);
+        Run("Declared text settings (a priority expression, a request order written in place) are study factors by their texts", TestTextSettingFactors);
+        Run("The catalog lists text settings as a text kind (current text, no range); structural keys stay out", TestTextSettingsInTheCatalog);
         Run("Simulation objective: metrics, fitness expression, replications, same candidate = same result", TestObjective);
         Run("Team size: the optimiser finds the best number of operators (= exhaustive search)", TestTeamSize);
+        Run("Simulation objective: downtime metrics (repair crews) and preemption metrics in the fitness", TestDowntimeMetricsObjective);
         Console.WriteLine($"\n{passed} passed, {failed} failed");
         return failed == 0 ? 0 : 1;
     }
@@ -194,22 +197,34 @@ static class Program
 
     static void TestStopInsideABatch()
     {
-        // one batch of 40 candidates, 50 ms each: a 0.3 s limit / a cancellation after 0.3 s must stop it after a few
+        // One batch of 20 candidates. What matters is that a stop ends the batch where it is, not at its end: counted in
+        // evaluations, not in wall-clock time (a shared CI runner can stall a thread for longer than any time margin).
         var xs = Enumerable.Range(0, 20).ToArray();
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        var r = OptimizationEngine.Run(MixedSpace(), new Slow(), new Fixed(xs, repeat: 1), new OptimizationSettings { MaxSeconds = 0.3, Parallelism = 1 });
-        Check(r.Evaluations < 20 && watch.Elapsed.TotalSeconds < 0.8, $"time limit inside the batch ({r.Evaluations} evaluations, {watch.Elapsed.TotalSeconds:F2} s)");
 
-        var cts = new CancellationTokenSource(300);
-        watch.Restart();
-        r = OptimizationEngine.Run(MixedSpace(), new Slow(), new Fixed(xs, repeat: 1), new OptimizationSettings { Parallelism = 2 }, null, cts.Token);
-        Check(r.Evaluations < 20 && watch.Elapsed.TotalSeconds < 0.8, $"cancellation inside the batch ({r.Evaluations} evaluations, {watch.Elapsed.TotalSeconds:F2} s)");
+        // A 0.3 s limit with evaluations of at least 50 ms (Thread.Sleep never returns early): at most 0.3 / 0.05 = 6
+        // evaluations start before the limit, + 1 for the one running when it is reached. A slow runner evaluates fewer.
+        var r = OptimizationEngine.Run(MixedSpace(), new Slow(), new Fixed(xs, repeat: 1), new OptimizationSettings { MaxSeconds = 0.3, Parallelism = 1 });
+        Check(r.Evaluations >= 1 && r.Evaluations <= 7, $"time limit inside the batch ({r.Evaluations} evaluations of 20, at most 7)");
+
+        // A cancellation requested by the third evaluation: the batch stops there, with at most one more evaluation per
+        // other worker already running (Parallelism 2), whatever the timing.
+        var cts = new CancellationTokenSource();
+        r = OptimizationEngine.Run(MixedSpace(), new Slow(cancelAfter: 3, cts), new Fixed(xs, repeat: 1), new OptimizationSettings { Parallelism = 2 }, null, cts.Token);
+        Check(r.Evaluations >= 3 && r.Evaluations <= 3 + 2, $"cancellation inside the batch ({r.Evaluations} evaluations of 20, at most 5)");
         Check(r.Best != null, "the candidates evaluated before the stop are kept");
     }
 
+    /// <summary>An evaluation of at least 50 ms; optionally cancels a token when its n-th evaluation ends.</summary>
     sealed class Slow : IObjective
     {
-        public Evaluation Evaluate(Candidate c) { Thread.Sleep(50); return new Evaluation { Fitness = -Math.Abs(c.Number("x") - 7) }; }
+        private readonly int cancelAfter; private readonly CancellationTokenSource cts; private int done;
+        public Slow(int cancelAfter = 0, CancellationTokenSource cts = null) { this.cancelAfter = cancelAfter; this.cts = cts; }
+        public Evaluation Evaluate(Candidate c)
+        {
+            Thread.Sleep(50);
+            if (cts != null && Interlocked.Increment(ref done) == cancelAfter) cts.Cancel();
+            return new Evaluation { Fitness = -Math.Abs(c.Number("x") - 7) };
+        }
     }
 
     sealed class NaNFirst : IObjective
@@ -284,7 +299,7 @@ static class Program
         }
     }
 
-    // ── R-5b: the model as an optimisation problem ──────────────────────────
+    // ── the model as an optimisation problem ──────────────────────────
 
     static string Fingerprint(object o)
     {
@@ -362,32 +377,50 @@ static class Program
     {
         var line = ReferenceModels.BasicLine();
         var server = ModelParameterCatalog.ForElement(line.Elements.Find(e => e.Id == "srv"));
-        var cap = Find(server, "capacity"); var rate = Find(server, "exponentialRate"); var dist = Find(server, "delayStrategyType");
+        var cap = Find(server, "capacity"); var rate = Find(server, "delayStrategy.exponentialRate"); var dist = Find(server, "delayStrategy.strategyType");
         Check(cap != null && cap.Kind == VariableKind.Integer && cap.Min >= 1 && cap.Label == "Servers", "a server offers its slots (integer, at least 1)");
         Check(rate != null && rate.Kind == VariableKind.Real && dist != null && dist.Kind == VariableKind.Choice && dist.CurrentText == "Exponential",
               "its service-time parameter (real) and its distribution (a choice)");
         var src = ModelParameterCatalog.ForElement(line.Elements.Find(e => e.Id == "src"));
-        var srcRate = Find(src, "exponentialRate");
-        Check(srcRate != null && Math.Abs(srcRate.Current - 1.0) < 1e-12 && Find(src, "sourceMode")?.Kind == VariableKind.Choice,
+        var srcRate = Find(src, "interArrivalDistribution.exponentialRate");
+        Check(srcRate != null && Math.Abs(srcRate.Current - 1.0) < 1e-12 && Find(src, "mode")?.Kind == VariableKind.Choice,
               "an inter-arrival source offers its rate and its mode");
         var q = Find(ModelParameterCatalog.ForElement(line.Elements.Find(e => e.Id == "q")), "capacity");
         Check(q != null && q.Current == 100 && q.Max >= 200, "a queue offers its capacity with a range around it");
         Check(rate.Label == "Service time — Exponential rate" && srcRate.Label == "Inter-arrival time — Exponential rate",
               "a sampler's parameters are labelled by its role (service / inter-arrival time)");
-        Check(Find(server, "uniformMin") == null && Find(server, "constantValue") == null,
+        Check(Find(server, "delayStrategy.uniformMin") == null && Find(server, "delayStrategy.constantValue") == null,
               "only the chosen distribution's parameters are offered");
         var teamConfig = ReferenceModels.ResourceSharedTeam().ResourceTeams[0];
         var team = ModelParameterCatalog.ForTeam(teamConfig);
-        Check(team[0].Key == ModelParameterCatalog.TeamMembers && team[0].Current == 2 && Find(team, "Speed") == null && Find(team, "AxisSpeed") == null,
+        Check(team[0].Key == ModelParameterCatalog.TeamMembers && team[0].Current == 2 && Find(team, "speed") == null && Find(team, "axisSpeed") == null,
               "an abstract team offers its members, not the travel properties it does not use");
-        teamConfig.Travel = "Network";
+        teamConfig.Travel = TravelKind.Network;
         team = ModelParameterCatalog.ForTeam(teamConfig);
-        Check(Find(team, "Speed") != null && Find(team, "Traffic")?.Kind == VariableKind.Binary && Find(team, "AxisSpeed") == null,
+        Check(Find(team, "speed") != null && Find(team, "traffic")?.Kind == VariableKind.Binary && Find(team, "axisSpeed") == null,
               "a network team offers its speed and its traffic control (not the axes')");
-        Check(Find(team, "Id") == null && Find(team, "Name") == null, "names and references are not parameters");
+        Check(Find(team, "id") == null && Find(team, "name") == null, "names and references are not parameters");
+
+        // a resource use's priority is an expression: a number parameter while it is a constant
+        {
+            var prio = ReferenceModels.BasicLine();
+            var srvCfg = prio.Elements.Find(e => e.Id == "srv");
+            srvCfg.Set("processBy.priority", "5");
+            var offered = Find(ModelParameterCatalog.ForElement(srvCfg), "processBy.priority");
+            Check(offered != null && offered.Kind == VariableKind.Real && offered.Current == 5, "a constant priority is a number parameter");
+            var pp = ConfigParameter.Of(prio, ParameterScope.Element, "srv", "processBy.priority", 1, 9);
+            var psp = new SearchSpace(); psp.Add(pp.Variable);
+            var applied = prio.Clone(); pp.Apply(applied, new Candidate(psp).SetNumber(0, 7), 0);
+            Check(applied.Elements.Find(e => e.Id == "srv").Get<string>("processBy.priority") == "7", "a level is written as the expression's text");
+            srvCfg.Set("processBy.priority", "item.prio");
+            var reads = Find(ModelParameterCatalog.ForElement(srvCfg), "processBy.priority");
+            Check(reads != null && reads.IsText && !reads.IsNumber && reads.CurrentText == "item.prio"
+                  && !System.Linq.Enumerable.Any(ModelParameterCatalog.Undecided(prio), u => u.Contains("processBy.priority")),
+                  "a priority that reads the item is a text setting with its current text (and not undecided)");
+        }
         ParameterInfo ttf = null;
-        foreach (var (name, model) in ReferenceModels.All()) foreach (var d in model.Downtimes) ttf = ttf ?? Find(ModelParameterCatalog.ForDowntime(d), "ttf~1");
-        Check(ttf != null && ttf.Encoding == ValueEncoding.SamplerPart && ttf.Label.Contains("mean"), "a failure's time to failure is a number of its sampler spec");
+        foreach (var (name, model) in ReferenceModels.All()) foreach (var d in model.Downtimes) ttf = ttf ?? Find(ModelParameterCatalog.ForDowntime(d), "timeToFailure.exponentialMean");
+        Check(ttf != null && ttf.Encoding == ValueEncoding.Real && ttf.Label.Contains("mean"), "a failure's time to failure is a number of its distribution");
     }
 
     static void TestEveryKeyDecided()
@@ -400,20 +433,37 @@ static class Program
             Check(undecided.Count == 0, $"{name}: every key decided{(undecided.Count > 0 ? " - undecided: " + string.Join(", ", undecided) : "")}");
         }
         Check(models == ReferenceModels.All().Count && models >= 28, $"all reference models ({models})");
-        var odd = new SimulationConfig();
-        var e = new ElementConfig("x", "UnityQueue", "x");
-        e.Parameters["capacity"] = 3; e.Parameters["newTextKey"] = "abc";
-        odd.Elements.Add(e);
-        var u = ModelParameterCatalog.Undecided(odd);
-        Check(u.Count == 1 && u[0] == "UnityQueue.newTextKey", "a new undeclared text key is reported");
+        // the settings classes are the one declaration — every declared setting of every element type is decided
+        // (a text or a list declares its role), whatever a model happens to set
+        foreach (string type in ElementSettings.TypeNames)
+        {
+            var open = ParameterSchema.Undecided(ElementSettings.TypeFor(type));
+            Check(open.Count == 0, $"{type}: every declared setting decided{(open.Count > 0 ? " - undecided: " + string.Join(", ", open) : "")}");
+        }
+        var e = new ElementConfig("x", "Queue", "x");
+        e.Set("capacity", 3);
+        bool refused = false;
+        try { e.Set("newTextKey", "abc"); } catch (ArgumentException x) { refused = x.Message.Contains("newTextKey"); }
+        Check(refused, "a key the type's settings do not declare cannot be written");
+        // an element type has only the shared groups it uses
+        string sinkError = null;
+        try { new ElementConfig("k", "Sink", "k").Set("processBy.team", "ops"); } catch (ArgumentException x) { sinkError = x.Message; }
+        Check(sinkError != null && sinkError.Contains("processBy") && sinkError.Contains("inputStrategy") && !sinkError.Contains("outputStrategy"),
+              "a Sink has no processBy, and the error lists the groups it has: " + sinkError);
+        string sourceError = null;
+        try { new ElementConfig("s", "Source", "s").Set("inputStrategy.strategyType", "SingleLabel"); } catch (ArgumentException x) { sourceError = x.Message; }
+        Check(sourceError != null && sourceError.Contains("outputStrategy"), "a Source has no inputStrategy: " + sourceError);
+        Check(SettingsPaths.Declares(typeof(MultiServerSettings), "processBy.team") && SettingsPaths.Declares(typeof(MultiServerSettings), "reserveExit")
+              && !SettingsPaths.Declares(typeof(QueueSettings), "reserveExit") && !SettingsPaths.Declares(typeof(QueueSettings), "processBy.team"),
+              "a Multi-Server has processBy and reserveExit, a Queue neither");
     }
 
     static void TestOptionsParameters()
     {
         var cfg = new SimulationConfig();
-        var st = new ElementConfig("stk", "UnityStacker", "stk");
-        st.Parameters["selectionRule"] = "FirstNotFull";
-        st.Parameters[PropertyRecords.Key] = new List<string> { "d|beds|2", "s|tag|x" };
+        var st = new ElementConfig("stk", "Stacker", "stk");
+        st.Set("selectionRule", "FirstNotFull");
+        st.Set(PropertyRecords.Key, new List<PropertySettings> { PropertySettings.Number("beds", 2), PropertySettings.OfText("tag", "x") });
         cfg.Elements.Add(st);
         var beds = new OptionsParameter(ConfigParameter.Of(cfg, ParameterScope.Element, "stk", PropertyRecords.Key + ".beds", 1, 3),
                                         new[] { "1", "2", "3" }, "stk.properties.beds");
@@ -425,13 +475,14 @@ static class Program
         var copy = cfg.Clone();
         var c = new Candidate(space).SetText(0, "3").SetText(1, "RoundRobin");
         beds.Apply(copy, c, 0); rule.Apply(copy, c, 1);
-        Check(string.Join(";", (List<string>)copy.Elements[0].Parameters[PropertyRecords.Key]) == "d|beds|3;s|tag|x", "the option written as the property's number");
-        Check((string)copy.Elements[0].Parameters["selectionRule"] == "RoundRobin", "the choice written as its option");
+        var bp = copy.Elements[0].Get<List<PropertySettings>>(PropertyRecords.Key);
+        Check(bp[0].Value == 3 && bp[1].Text == "x", "the option written as the property's number");
+        Check(copy.Elements[0].Get<string>("selectionRule") == "RoundRobin", "the choice written as its option");
         bool whole = true;
         for (int k = 0; k < 3; k++)
         {
             var cc = cfg.Clone(); beds.Apply(cc, new Candidate(space).SetNumber(0, k), 0);
-            whole &= ((List<string>)cc.Elements[0].Parameters[PropertyRecords.Key])[0] == "d|beds|" + (k + 1);
+            whole &= (cc.Elements[0].Get<List<PropertySettings>>(PropertyRecords.Key))[0].Value == k + 1;
         }
         Check(whole, "each value of the choice is one of the options (never 1.25)");
         bool threw = false;
@@ -450,27 +501,27 @@ static class Program
     static void TestEncodings()
     {
         var cfg = new SimulationConfig();
-        var st = new ElementConfig("stk", "UnityStacker", "stk");
-        st.Parameters["selectionRule"] = "FirstNotFull";
-        st.Parameters["cycleTime"] = "Uniform~1~3";
-        st.Parameters["positionCapacities"] = new List<string> { "4", "6" };
-        st.Parameters["acceptOversize"] = true;
-        st.Parameters[PropertyRecords.Key] = new List<string> { "d|batch|12", "s|tag|x", "arr-d|weights|1,2" };
+        var st = new ElementConfig("stk", "Stacker", "stk");
+        st.Set("selectionRule", "FirstNotFull");
+        st.Set("cycleTime", "Uniform~1~3");
+        st.Set("positionCapacities", new[] { 4, 6 });
+        st.Set("acceptOversizeOnEmpty", true);
+        st.Set(PropertyRecords.Key, new List<PropertySettings> { PropertySettings.Number("batch", 12), PropertySettings.OfText("tag", "x"), PropertySettings.OfNumbers("weights", 1, 2) });
         cfg.Elements.Add(st);
-        var cb = new ElementConfig("cmb", "UnityCombiner", "cmb");
-        cb.Parameters["requirements"] = new[] { 2, 1 };
+        var cb = new ElementConfig("cmb", "Combiner", "cmb");
+        cb.Set("requirements", new[] { 2, 1 });
         cfg.Elements.Add(cb);
-        cfg.ResourceTeams.Add(new ResourceTeamConfig { Id = "crane", Name = "crane", Travel = "Axes", AxisSpeed = "1|2|0.5",
+        cfg.ResourceTeams.Add(new ResourceTeamConfig { Id = "crane", Name = "crane", Travel = TravelKind.Axes, AxisSpeed = new[] { 1, 2, 0.5 },
                                                        Members = new List<ResourceMemberConfig> { new ResourceMemberConfig { Name = "c1", LoadTime = 2 } } });
         var ps = new ModelParameter[]
         {
             ConfigParameter.Of(cfg, ParameterScope.Element, "stk", "selectionRule"),
-            ConfigParameter.Of(cfg, ParameterScope.Element, "stk", "cycleTime~2", 1, 10),
+            ConfigParameter.Of(cfg, ParameterScope.Element, "stk", "cycleTime.uniformMax", 1, 10),
             ConfigParameter.Of(cfg, ParameterScope.Element, "stk", "positionCapacities", 1, 20),
-            ConfigParameter.Of(cfg, ParameterScope.Element, "stk", "acceptOversize"),
+            ConfigParameter.Of(cfg, ParameterScope.Element, "stk", "acceptOversizeOnEmpty"),
             ConfigParameter.Of(cfg, ParameterScope.Element, "cmb", "requirements", 1, 5),
-            ConfigParameter.Of(cfg, ParameterScope.Team, "crane", "AxisSpeed", 0, 4),
-            ConfigParameter.Of(cfg, ParameterScope.Team, "crane", "LoadTime", 0, 10),
+            ConfigParameter.Of(cfg, ParameterScope.Team, "crane", "axisSpeed", 0, 4),
+            ConfigParameter.Of(cfg, ParameterScope.Team, "crane", "loadTime", 0, 10),
             ConfigParameter.Of(cfg, ParameterScope.Team, "crane", ModelParameterCatalog.TeamMembers, 1, 5),
             ConfigParameter.Of(cfg, ParameterScope.Element, "stk", PropertyRecords.Key + ".batch", 1, 50),
             ConfigParameter.Of(cfg, ParameterScope.Element, "stk", PropertyRecords.Key + ".weights", 0, 9),
@@ -483,25 +534,26 @@ static class Program
                                     .SetText(4, "3, 4").SetText(5, "2, 2, 1").SetNumber(6, 4).SetNumber(7, 3).SetNumber(8, 20).SetText(9, "3, 4");
         var copy = cfg.Clone();
         for (int i = 0; i < ps.Length; i++) ps[i].Apply(copy, c, i);
-        var s2 = copy.Elements[0].Parameters; var t = copy.ResourceTeams[0];
-        Check((string)s2["selectionRule"] == "RoundRobin", "choice written as its option");
-        Check((string)s2["cycleTime"] == "Uniform~1~7.5", $"sampler number replaced in its spec ({s2["cycleTime"]})");
-        Check(string.Join(",", (List<string>)s2["positionCapacities"]) == "8,12", "list of numbers written as texts");
-        Check((bool)s2["acceptOversize"] == false, "bool written");
-        Check(string.Join(",", (int[])copy.Elements[1].Parameters["requirements"]) == "3,4", "integer vector written as int[]");
-        Check(t.AxisSpeed == "2|2|1", $"number list written into its text ({t.AxisSpeed})");
+        var s2 = copy.Elements[0]; var t = copy.ResourceTeams[0];
+        Check(s2.Get<string>("selectionRule") == "RoundRobin", "choice written as its option");
+        Check(s2.Get<SamplerSettings>("cycleTime")?.ToString() == "Uniform~1~7.5", $"a distribution's number written ({s2.Get<SamplerSettings>("cycleTime")})");
+        Check(string.Join(",", s2.Get<int[]>("positionCapacities")) == "8,12", "per-position capacities written as int[]");
+        Check(s2.Get<bool>("acceptOversizeOnEmpty") == false, "bool written");
+        Check(string.Join(",", copy.Elements[1].Get<int[]>("requirements")) == "3,4", "integer vector written as int[]");
+        Check(string.Join("|", t.AxisSpeed) == "2|2|1", $"axis speeds written as numbers ({string.Join("|", t.AxisSpeed)})");
         Check(t.Members.Count == 3 && t.Members.TrueForAll(m => m.LoadTime == 4), "members resized; every member's load time set");
-        Check(string.Join(";", (List<string>)s2[PropertyRecords.Key]) == "d|batch|20;s|tag|x;arr-d|weights|3,4", "user properties: numbers and number arrays rewritten, texts kept");
+        var sp2 = s2.Get<List<PropertySettings>>(PropertyRecords.Key);
+        Check(sp2[0].Value == 20 && sp2[1].Text == "x" && string.Join(",", sp2[2].Numbers) == "3,4", "user properties: numbers and number arrays rewritten, texts kept");
         Check(Find(ModelParameterCatalog.ForElement(cfg.Elements[0]), PropertyRecords.Key + ".tag") == null, "a text property is not a parameter");
-        Check((string)cfg.Elements[0].Parameters["cycleTime"] == "Uniform~1~3", "the original config is untouched");
+        Check(cfg.Elements[0].Get<SamplerSettings>("cycleTime")?.ToString() == "Uniform~1~3", "the original config is untouched");
 
-        // Added members never take the name of a member already there
+        // added members never take the name of a member already there
         var named = new SimulationConfig();
         named.ResourceTeams.Add(new ResourceTeamConfig { Id = "crew", Name = "crew", Members = new List<ResourceMemberConfig>
-            { new ResourceMemberConfig { Name = "crew_3", Labels = new List<string> { "skill=weld" } },
-              new ResourceMemberConfig { Name = "crew_2", Labels = new List<string> { "skill=weld" } } } });
+            { new ResourceMemberConfig { Name = "crew_3", Properties = new List<string> { "skill = 'weld'" } },
+              new ResourceMemberConfig { Name = "crew_2", Properties = new List<string> { "skill='weld'" } } } });
         var sizeP = ConfigParameter.Of(named, ParameterScope.Team, "crew", ModelParameterCatalog.TeamMembers, 1, 6);
-        var labelP = new TeamLabelMembersParameter("crew", "skill", "weld", 0, 6);
+        var labelP = new TeamPropertyMembersParameter("crew", "skill", "weld", 0, 6);
         var sp = new SearchSpace(); sp.Add(sizeP.Variable); sp.Add(labelP.Variable);
         var bySize = named.Clone(); sizeP.Apply(bySize, new Candidate(sp).SetNumber(0, 4).SetNumber(1, 0), 0);
         var byLabel = named.Clone(); labelP.Apply(byLabel, new Candidate(sp).SetNumber(0, 1).SetNumber(1, 4), 1);
@@ -522,19 +574,20 @@ static class Program
 
     static void TestSamplerIntegerParts()
     {
-        foreach (var (spec, part, integer) in new[] { ("Binomial~10~0.5", 1, true), ("Binomial~10~0.5", 2, false), ("DiscreteUniform~1~6", 2, true),
-                                                       ("ChiSquare~4", 1, true), ("FDistribution~5~20", 2, true), ("Normal~5~1", 1, false) })
+        foreach (var (spec, part, integer) in new[] { ("Binomial~10~0.5", "binomialN", true), ("Binomial~10~0.5", "binomialP", false),
+                                                       ("DiscreteUniform~1~6", "discreteUniformMax", true), ("ChiSquare~4", "chiSquareDf", true),
+                                                       ("FDistribution~5~20", "fDistD2", true), ("Normal~5~1", "normalMean", false) })
         {
             var cfg = new SimulationConfig();
-            var st = new ElementConfig("stk", "UnityStacker", "stk");
-            st.Parameters["cycleTime"] = spec;
+            var st = new ElementConfig("stk", "Stacker", "stk");
+            st.Set("cycleTime", spec);
             cfg.Elements.Add(st);
-            var p = ConfigParameter.Of(cfg, ParameterScope.Element, "stk", "cycleTime~" + part, 1, 30);
+            var p = ConfigParameter.Of(cfg, ParameterScope.Element, "stk", "cycleTime." + part, 1, 30);
             Check((p.Variable.Kind == VariableKind.Integer) == integer, $"{spec} part {part}: {(integer ? "integer" : "real")} ({p.Variable.Kind})");
             var space = new SearchSpace().Add(p.Variable);
             var copy = cfg.Clone();
             p.Apply(copy, new Candidate(space).SetNumber(0, integer ? 7.3 : 0.3), 0);
-            string written = (string)copy.Elements[0].Parameters["cycleTime"];
+            string written = copy.Elements[0].Get<SamplerSettings>("cycleTime")?.ToString();
             bool decodes = true;
             try { SamplerSpec.Decode(written, new SimuLean.SimClock(1), "stk", "cycleTime"); } catch (Exception) { decodes = false; }
             Check(decodes, $"{spec} part {part} (7.3 / 0.3) gives a valid spec ({written})");
@@ -574,6 +627,113 @@ static class Program
         Check(rs.Best.Option(0) == "b", $"random search samples choices and vectors ({rs.Best})");
     }
 
+    static void TestTextSettingFactors()
+    {
+        var model = ReferenceModels.ResourceRequestPriority();
+        Check(ModelParameterCatalog.IsTextSetting(model, ParameterScope.Element, "high", "processBy.priority")
+              && ModelParameterCatalog.IsTextSetting(model, ParameterScope.Team, "ops", "requestOrder"), "a priority expression and a request order are text settings");
+        Check(!ModelParameterCatalog.IsTextSetting(model, ParameterScope.Element, "high", "capacity")
+              && !ModelParameterCatalog.IsTextSetting(model, ParameterScope.Element, "high", "processBy.priorty")
+              && !ModelParameterCatalog.IsTextSetting(model, ParameterScope.Element, "nobody", "processBy.priority"), "a number, a misspelt key or owner is not");
+
+        Study Make() => new Study(ReferenceModels.ResourceRequestPriority()) { Threads = 1 }.WithRunTime(200)
+            .Factor("high.processBy.priority", "prio", "1").Factor("team:ops.requestOrder", "|priority desc", "")
+            .Metric("out", "sink.input");
+        var study = Make();
+        var plan = study.Plan();
+        Check(plan.Count == 4, "the texts are the levels: 2 × 2 scenarios, " + plan.Count);
+        Check(study.Validate() == null, "the study plans: " + study.Validate());
+        var check = study.Check();
+        Check(check.Ok, "the study checks on the built model (simulean_validate): " + string.Join(" | ", check.Errors));
+        Check(study.CurrentLevel("high.processBy.priority") == "prio" && study.CurrentLevel("team:ops.requestOrder") == "|priority desc",
+              "the model's current texts are the current levels");
+
+        var fifo = plan.Find(s => s.Values[0] == "1" && s.Values[1] == "");
+        var cfg = ReferenceModels.ResourceRequestPriority();
+        study.Apply(cfg, fifo.Name);
+        Check(cfg.Elements.Find(e => e.Name == "high").Get<string>("processBy.priority") == "1"
+              && cfg.ResourceTeams.Find(t => t.Name == "ops").RequestOrder == "", "Study.Apply writes the texts to the config");
+        var set = Make().Run();
+        Check(set.Runs.Count == 4 && set.Runs.All(r => r.Error == null), "every scenario runs: " + string.Join(" | ", set.Runs.Select(r => r.Error)));
+
+        // a text with quotes, commas and parentheses reaches the study whole from a JSON factors object
+        var spec = new StudySpec
+        {
+            Factors = "{\"high.processBy.priority\": \"max(prio, 2) + (prio == 5 ? 1 : 0)\", \"team:ops.requestOrder\": \"|priority desc\"}",
+            Metrics = "{\"out\": \"sink.input\"}", Horizon = 200,
+        };
+        var fromJson = new Study(ReferenceModels.ResourceRequestPriority()) { Threads = 1 };
+        spec.ApplyTo(fromJson);
+        var one = fromJson.Plan();
+        Check(one.Count == 1 && one[0].Values[0] == "max(prio, 2) + (prio == 5 ? 1 : 0)" && one[0].Values[1] == "|priority desc",
+              "a JSON factor's text is one level, intact: " + string.Join(" ; ", one[0].Values));
+        var applied = ReferenceModels.ResourceRequestPriority();
+        fromJson.Apply(applied, one[0].Name);
+        Check(applied.Elements.Find(e => e.Name == "high").Get<string>("processBy.priority") == "max(prio, 2) + (prio == 5 ? 1 : 0)",
+              "and is written as given");
+        var built = fromJson.Run();
+        Check(built.Runs.Count == 1 && built.Runs[0].Error == null, "and the run builds and runs with it: " + built.Runs[0].Error);
+
+        // expression levels with '/' keep distinct scenario names (a file path level is shortened to its name)
+        var names = new Study(ReferenceModels.ResourceRequestPriority()).Factor("high.processBy.priority", "prio / 2", "prio * 2 / 2").Plan();
+        Check(names.Select(s => s.Name).Distinct().Count() == 2 && names[0].Name.Contains("prio / 2"), "expression levels name their scenarios whole: " + string.Join(" ; ", names.Select(s => s.Name)));
+
+        // an optimiser's options a|b over a text setting search those texts
+        var options = Make().OptionsOf("team:ops.requestOrder", "|priority desc", "|priority asc");
+        Check(options is TextSettingParameter && options.Variable.Kind == VariableKind.Choice && options.Variable.Options.Count == 2,
+              "options over a text setting are its texts");
+        // a constant priority is still a number; a text among the levels makes it a text factor
+        var preempt = new Study(ReferenceModels.ResourcePreemption()) { Threads = 1 };
+        Check(preempt.ParameterOf("urgent.processBy.priority", "3", "8") is ConfigParameter, "a constant priority given numbers stays a number");
+        Check(preempt.ParameterOf("urgent.processBy.priority", "5", "item.prio") is TextSettingParameter, "given a text it is a text factor");
+
+        string error = new Study(ReferenceModels.ResourceRequestPriority()).Factor("high.processBy.priorty", "prio").Validate();
+        Check(error != null && error.Contains("has no parameter"), "a misspelt key still fails with 'has no parameter': " + error);
+        error = new Study(ReferenceModels.ResourceRequestPriority()).Factor("team:ops.requestOrdr", "priority desc").Validate();
+        Check(error != null && error.Contains("has no parameter"), "and a misspelt team key: " + error);
+    }
+
+    static void TestTextSettingsInTheCatalog()
+    {
+        var model = ReferenceModels.ResourceRequestPriority();
+        var prio = ModelParameterCatalog.ForElement(model.Elements.Find(e => e.Name == "high")).FirstOrDefault(p => p.Key == "processBy.priority");
+        Check(prio != null && prio.IsText && prio.CurrentText == "prio" && !prio.IsNumber && prio.Options.Count == 0,
+              "a priority expression is listed as a text setting with its current text, no range and no options");
+        var order = ModelParameterCatalog.ForTeam(model.ResourceTeams[0]).FirstOrDefault(p => p.Key == "requestOrder");
+        Check(order != null && order.IsText && order.CurrentText == "|priority desc", "a request order written in place is listed as a text setting");
+
+        // a station with a process team and no priority: its priority is listed, empty
+        var preempt = ReferenceModels.ResourcePreemption();
+        var unset = ModelParameterCatalog.ForElement(preempt.Elements.Find(e => e.Name == "routine")).FirstOrDefault(p => p.Key == "processBy.priority");
+        Check(unset != null && unset.IsText && unset.CurrentText == "", "an unset priority of a station with a process team is listed, empty");
+        Check(!ModelParameterCatalog.ForElement(preempt.Elements.Find(e => e.Name == "sink")).Any(p => p.IsText && p.Key.StartsWith("processBy.")),
+              "an element without the group lists none of its texts");
+
+        // the numeric search never builds a variable of it; only given texts vary it
+        bool threw = false;
+        try { prio.Variable("x", 0, 1); } catch (ArgumentException e) { threw = e.Message.Contains("give the texts"); }
+        Check(threw, "a text setting has no variable of its own");
+        string error = null;
+        try { ConfigParameter.Of(model, ParameterScope.Element, "high", "processBy.priority", 1, 9); } catch (ArgumentException e) { error = e.Message; }
+        Check(error != null && error.Contains("is a text setting (now 'prio')"), "ConfigParameter.Of refuses it, naming its current text: " + error);
+        Check(TextSettingParameter.Applies(model, ParameterScope.Element, "high", "processBy.priority")
+              && TextSettingParameter.Applies(preempt, ParameterScope.Element, "routine", "processBy.priority")
+              && !TextSettingParameter.Applies(preempt, ParameterScope.Element, "urgent", "processBy.priority"),
+              "a text, or unset, priority is varied by texts; a constant one stays a number");
+
+        // a structural key (a name, a reference) is never a factor
+        Check(!ModelParameterCatalog.IsTextSetting(model, ParameterScope.Element, "high", "processBy.team"), "a team reference is not a text setting");
+        Check(!ModelParameterCatalog.IsTextSetting(model, ParameterScope.Element, "high", "processBy.requirements[0].priority"),
+              "nor a record's expression (a list's records are not factors)");
+        error = new Study(ReferenceModels.ResourceRequestPriority()).Factor("high.processBy.team", "ops", "other").Validate();
+        Check(error != null && error.Contains("has no parameter"), "a structural key is refused as a factor: " + error);
+        Check(!ModelParameterCatalog.ForElement(model.Elements.Find(e => e.Name == "high")).Any(p => p.Key == "processBy.team"),
+              "and is not in the catalog");
+
+        // every key stays decided, and the listing adds no undecided key
+        Check(ModelParameterCatalog.Undecided(model).Count == 0 && ModelParameterCatalog.Undecided(preempt).Count == 0, "every key decided");
+    }
+
     static void TestModelParameters()
     {
         var cfg = ReferenceModels.ResourceSharedTeam();
@@ -587,7 +747,7 @@ static class Program
         var cand = new Candidate(space).SetNumber(0, 7).SetNumber(1, 4);
         var copy = cfg.Clone();
         for (int i = 0; i < ps.Length; i++) ps[i].Apply(copy, cand, i);
-        Check(copy.Elements.Find(e => e.Id == "q").GetParameter<int>("capacity") == 7, "element key set (int)");
+        Check(copy.Elements.Find(e => e.Id == "q").Get<int>("capacity") == 7, "element key set (int)");
         var t = copy.ResourceTeams[0];
         Check(t.Members.Count == 4 && t.Members[3].Name == "team_4", "team grown to 4 members, new ones named");
         cand.SetNumber(1, 1);
@@ -597,22 +757,45 @@ static class Program
 
         // schedule tables: the jobs move, the time slots stay
         var sched = new SimulationConfig();
-        var src = new ElementConfig("s", "UnitySource", "s");
-        src.Parameters["arrivalsTable"] = new Dictionary<string, List<string>>
+        var src = new ElementConfig("s", "Source", "s");
+        src.Set("arrivalsTable", new Dictionary<string, List<string>>
         {
             ["Time"] = new List<string> { "0", "10", "20" }, ["Name"] = new List<string> { "A", "B", "C" }, ["due"] = new List<string> { "5", "6", "7" },
-        };
+        });
         sched.Elements.Add(src);
         var seq = new ScheduleSequenceParameter("s", 3);
         var bin = new ScheduleBinaryParameter("s", "urgent", 3);
         var sp = new SearchSpace().Add(seq.Variable).Add(bin.Variable);
         var c2 = new Candidate(sp).SetVector(0, new[] { 2, 0, 1 }).SetVector(1, new[] { 1, 0, 1 });
         seq.Apply(sched, c2, 0); bin.Apply(sched, c2, 1);
-        var table = sched.Elements[0].GetParameter<Dictionary<string, List<string>>>("arrivalsTable");
+        var table = sched.Elements[0].Get<Dictionary<string, List<string>>>("arrivalsTable");
         Check(string.Join(",", table["Name"]) == "C,A,B" && string.Join(",", table["due"]) == "7,5,6", "rows reordered with their columns");
         Check(string.Join(",", table["Time"]) == "0,10,20", "the time slots stay in place");
         Check(string.Join(",", table["urgent"]) == "1,0,1", "binary decisions written as a column");
         Check(ModelParameterCatalog.ScheduleRows(sched.Elements[0]) == 3, "rows of the table");
+    }
+
+    static void TestDowntimeMetricsObjective()
+    {
+        var model = ReferenceModels.RepairCrew();
+        var mechanics = ConfigParameter.Of(model, ParameterScope.Team, "mech", ModelParameterCatalog.TeamMembers, 1, 2, "mechanics");
+        var obj = new SimulationObjective(model, new ModelParameter[] { mechanics },
+            new[] { new ModelMetric("wait", MetricScope.Downtime, "machineFail@m1", "repair_wait_avg"),
+                    new ModelMetric("repairs", MetricScope.Downtime, "machineFail@m1", "repairs"),
+                    new ModelMetric("pre", MetricScope.Team, "mech", "preemptions"),
+                    new ModelMetric("jobs", MetricScope.Element, "m1", "interruptions") },
+            "-wait - 10 * mechanics") { RunTime = 3000 };
+        var space = obj.BuildSpace();
+        var one = obj.Evaluate(new Candidate(space).SetNumber(0, 1));
+        var two = obj.Evaluate(new Candidate(space).SetNumber(0, 2));
+        Check(one.Metrics["repairs"] > 0 && one.Metrics["wait"] > 0, $"the downtime's repairs and wait read ({one.Metrics["repairs"]}, {one.Metrics["wait"]})");
+        Check(two.Metrics["wait"] < one.Metrics["wait"], $"a second mechanic shortens the wait for the repair ({one.Metrics["wait"]} → {two.Metrics["wait"]})");
+        Check(Math.Abs(one.Fitness - (-one.Metrics["wait"] - 10)) < 1e-9, "the fitness over a downtime metric");
+        Check(one.Metrics["pre"] >= 0 && one.Metrics["jobs"] > 0, "team preemptions and a station's interruptions read");
+        // a team without a preemption use: its preemption statistics are 0, not an error
+        var plain = new SimulationObjective(ReferenceModels.ResourceSharedTeam(), new ModelParameter[] { Members() },
+            new[] { new ModelMetric("pre", MetricScope.Team, "team", "preemptions") }, "pre") { RunTime = 200 };
+        Check(plain.Evaluate(new Candidate(plain.BuildSpace()).SetNumber(0, 2)).Metrics["pre"] == 0, "no preemption use: 0");
     }
 
     static ModelParameter Members(string name = null)
@@ -651,6 +834,13 @@ static class Program
             new[] { new ModelMetric("done", MetricScope.Element, "sink", "input") }, "done - 100 * operators") { RunTime = 1000 };
         var n = named.Evaluate(new Candidate(named.BuildSpace()).SetNumber(0, 2));
         Check(Math.Abs(n.Fitness - (a.Metrics["done"] - 200)) < 1e-9, "a numeric parameter is a variable of the fitness");
+        // a study's parameters are named by their paths (simulean_optimize_start): the fitness reads the path written as
+        // `where` writes it — the docs promise it, so `B1_capacity` must be accepted
+        var byPath = new SimulationObjective(ReferenceModels.ResourceSharedTeam(),
+            new ModelParameter[] { Members("team:team.members") },
+            new[] { new ModelMetric("done", MetricScope.Element, "sink", "input") }, "done - 100 * team_team_members") { RunTime = 1000 };
+        var p = byPath.Evaluate(new Candidate(byPath.BuildSpace()).SetNumber(0, 2));
+        Check(Math.Abs(p.Fitness - (a.Metrics["done"] - 200)) < 1e-9, "a parameter named by its path is read as team_team_members");
         threw = false;
         try { new SimulationObjective(ReferenceModels.ResourceSharedTeam(),
                   new ModelParameter[] { Members("done") },

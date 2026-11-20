@@ -4,13 +4,18 @@
 <Project>
   <PropertyGroup>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <!-- net8.0 + RollForward=Major: builds with any SDK >= 8 and runs on the newest installed runtime. -->
-    <TargetFramework>net8.0</TargetFramework>
-    <RollForward>Major</RollForward>
+    <!-- .NET 10 LTS (.NET 8 support ends 2026-11-10): the runner's runtime. The C# version is Unity's
+         (C# 9, Unity 6.6), so code that compiles here but not in the editor cannot get into the engine. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
     <EngineRoot>$(MSBuildThisFileDirectory)..\Assets\SimuLean.Net</EngineRoot>
-    <NoWarn>$(NoWarn);CS0162;CS0168;CS0219;CS0067;CS8632;CS0618</NoWarn>
+    <!-- the choice rules (assembly SimuLean.UserLogic in Unity): compiled with the engine here and in the
+         runner, so a headless run outside the editor has them; the runner's fingerprint covers them -->
+    <UserLogicRoot>$(MSBuildThisFileDirectory)..\Assets\SimuLean.UserLogic</UserLogicRoot>
+    <NoWarn>$(NoWarn);CS8632;CS0618</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(EngineRoot)\**\*.cs" />
+    <Compile Include="$(UserLogicRoot)\**\*.cs" Condition="Exists('$(UserLogicRoot)')" />
   </ItemGroup>
 </Project>

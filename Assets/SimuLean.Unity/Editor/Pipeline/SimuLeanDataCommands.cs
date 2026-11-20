@@ -105,6 +105,8 @@ namespace SimuLean.Unity.Editor
                     {
                         rank = f.Rank, family = f.Distribution.Family,
                         parameters = f.Distribution.ParameterNames.Zip(f.Distribution.Parameters, (k, v) => new { k, v }).ToDictionary(p => p.k, p => p.v),
+                        // what the parameters mean in the data's units (a LogNormal's mu / sigma are of ln x)
+                        mean = Finite(f.Distribution.Mean), std = Finite(f.Distribution.StdDev),
                         spec = f.Spec, verdict = f.VerdictText, adP = Finite(f.ADP), ksP = Finite(f.KSP), aic = Finite(f.AIC),
                     }).ToList(),
                     written,

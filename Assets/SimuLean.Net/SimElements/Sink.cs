@@ -22,6 +22,7 @@
         public Sink(string name, SimClock state, IVElement vElement = null) : base(name, state, vElement)
         {
             StatsCollector.TracksStay = false;   // nothing leaves a sink: no stay to measure, no entry times kept
+            StatsCollector.RecordTimeInSystem(); // its items' time in system instead (tis_*)
         }
 
         /// <summary>Items received since the last <see cref="Start"/>.</summary>

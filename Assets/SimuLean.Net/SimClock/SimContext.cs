@@ -91,6 +91,50 @@ namespace SimuLean
             }
         }
 
+        private readonly Dictionary<string, SimuLean.Resources.ResourceDispatcher> teams = new Dictionary<string, SimuLean.Resources.ResourceDispatcher>();
+
+        /// <summary>Registers a resource team under <paramref name="name"/> (its name and its config id): expressions read it
+        /// with <c>team('Welders', 'free')</c>.</summary>
+        public void RegisterTeam(string name, SimuLean.Resources.ResourceDispatcher team)
+        {
+            if (string.IsNullOrEmpty(name) || team == null) return;
+            lock (sync) if (!teams.ContainsKey(name)) teams[name] = team;
+        }
+
+        /// <summary>The resource team called <paramref name="name"/>, or null.</summary>
+        public SimuLean.Resources.ResourceDispatcher FindTeam(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            lock (sync) return teams.TryGetValue(name, out var d) ? d : null;
+        }
+
+        /// <summary>The names of the registered teams.</summary>
+        public IReadOnlyList<string> TeamNames { get { lock (sync) return new List<string>(teams.Keys); } }
+
+        /// <summary>Forgets the teams (a model built again on this context).</summary>
+        public void ClearTeams() { lock (sync) teams.Clear(); }
+
+        private readonly List<string> modelWarnings = new List<string>();
+
+        /// <summary>What the model warned about while it ran (a routing index that names no output, an
+        /// expression that read an item label the item did not have...), in order, at most <see cref="MaxModelWarnings"/>; each
+        /// is also logged through <see cref="SimLog.Warning"/>. The diagnosis reports them.</summary>
+        public IReadOnlyList<string> ModelWarnings { get { lock (sync) return modelWarnings.ToArray(); } }
+
+        /// <summary>The warnings a model keeps (<see cref="ModelWarnings"/>); the next ones are still logged.</summary>
+        public const int MaxModelWarnings = 200;
+
+        /// <summary>Logs <paramref name="message"/> as a warning of this model (<see cref="ModelWarnings"/>). Callers warn once
+        /// per cause, so it never repeats per item.</summary>
+        public void Warn(string message)
+        {
+            lock (sync) { if (modelWarnings.Count < MaxModelWarnings) modelWarnings.Add(message); }
+            SimLog.Warning(message);
+        }
+
+        /// <summary>Forgets the warnings (a model built again on this context).</summary>
+        public void ClearWarnings() { lock (sync) modelWarnings.Clear(); }
+
         /// <summary>Registers an element with this model (called by the Element constructor).</summary>
         internal void Register(Element element)
         {
@@ -111,7 +155,7 @@ namespace SimuLean
                     byName = new Dictionary<string, Element>();
                     foreach (var e in elements)
                     {
-                        string n = e.GetName();
+                        string n = e.Name;
                         if (n != null && !byName.ContainsKey(n)) byName[n] = e;
                     }
                 }
@@ -127,10 +171,12 @@ namespace SimuLean
 
         internal void RegisterList(SimList list)
         {
-            lock (sync) lists.Add(list);
+            lock (sync) { lists.Add(list); listsByName = null; }
         }
 
-        /// <summary>The model's lists, in creation order.</summary>
+        private Dictionary<string, SimList> listsByName;
+
+        /// <summary>The model's lists in creation order.</summary>
         public IReadOnlyList<SimList> Lists
         {
             get { lock (sync) return lists.ToArray(); }
@@ -139,7 +185,17 @@ namespace SimuLean
         /// <summary>The list called <paramref name="name"/>, or null.</summary>
         public SimList GetList(string name)
         {
-            lock (sync) return lists.Find(l => l.Name == name);
+            if (name == null) return null;
+            lock (sync)
+            {
+                // indexed on first use (no search, no allocation per call: an expression's computed list name)
+                if (listsByName == null)
+                {
+                    listsByName = new Dictionary<string, SimList>();
+                    foreach (var l in lists) if (l.Name != null && !listsByName.ContainsKey(l.Name)) listsByName[l.Name] = l;
+                }
+                return listsByName.TryGetValue(name, out var found) ? found : null;
+            }
         }
 
         /// <summary>
@@ -238,5 +294,43 @@ namespace SimuLean
                 return count;
             }
         }
-    }
+    
+        // ── admission wake-up ───────────────────────────
+
+        private Dictionary<string, List<Element>> admissionWatch;
+        private List<Element> admissionWatchAll;
+
+        /// <summary>Watches the element properties the admission conditions of <paramref name="elements"/> read: a write of one
+        /// of them (any element's: a reaction's Set Element Property, code) wakes the elements whose condition reads it
+        /// (<see cref="Element.WakeInput"/>), so the items it refused are offered again at once. Known at build, so writes of
+        /// other properties cost one dictionary miss; a condition that reads a computed property name wakes on every write.
+        /// Called by the model build once every element exists.</summary>
+        public void WatchAdmissions(IEnumerable<Element> elements)
+        {
+            admissionWatch = null; admissionWatchAll = null;
+            var all = new List<Element>(elements);
+            foreach (var e in all)
+            {
+                if (!(e.GetInputStrategy() is ConditionStrategy cs)) continue;
+                var names = cs.Condition.ElementPropertiesRead();
+                if (names == null) { (admissionWatchAll ?? (admissionWatchAll = new List<Element>())).Add(e); continue; }
+                foreach (string n in names)
+                {
+                    if (admissionWatch == null) admissionWatch = new Dictionary<string, List<Element>>(System.StringComparer.Ordinal);
+                    if (!admissionWatch.TryGetValue(n, out var l)) admissionWatch[n] = l = new List<Element>();
+                    if (!l.Contains(e)) l.Add(e);
+                }
+            }
+            bool any = admissionWatch != null || admissionWatchAll != null;
+            foreach (var e in all) e.Properties.Changed = any ? PropertyWritten : (System.Action<string>)null;
+        }
+
+        private void PropertyWritten(string name)
+        {
+            if (admissionWatch != null && admissionWatch.TryGetValue(name, out var l))
+                foreach (var e in l) e.WakeInput();
+            if (admissionWatchAll != null)
+                foreach (var e in admissionWatchAll) e.WakeInput();
+        }
+}
 }

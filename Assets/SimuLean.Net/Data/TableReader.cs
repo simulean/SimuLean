@@ -52,7 +52,7 @@ namespace SimuLean.Data
         }
 
         /// <summary>CSV rows (RFC 4180 quoting). The separator is ',' unless the header line has more ';' (Excel in a
-        /// decimal-comma locale) or only tabs (such a file became one column named "a;b;c").</summary>
+        /// decimal-comma locale) or only tabs (else such a file is one column named "a;b;c").</summary>
         public static List<List<string>> ParseCsv(string text) => ParseCsv(text, DetectSeparator(text));
 
         /// <summary>The separator of a CSV text, from its first line (outside quotes): ',' / ';' / tab.</summary>

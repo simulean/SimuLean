@@ -16,39 +16,21 @@ namespace SimuLean.Unity.Editor.Tests
     /// database and distribution fitting through the MCP. Each test builds its model in a scene of its own, closed at the
     /// end; the files, stored sets and tables it makes are removed.
     /// </summary>
-    public class AgentDataCommandsTests
+    public class AgentDataCommandsTests : SceneTestFixture
     {
-        private Scene active, scene;
-        private bool temporary;
-        private GameObject root;
-        private int undoGroup;
         private const string Root = "DataModel";
+        protected override string RootName => Root;
 
         [SetUp]
         public void SetUp()
         {
-            active = SceneManager.GetActiveScene();
-            temporary = !string.IsNullOrEmpty(active.path);
-            scene = temporary ? EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive) : active;
-            if (temporary) SceneManager.SetActiveScene(scene);
-            root = new GameObject(Root);
-            SceneManager.MoveGameObjectToScene(root, scene);
             ResultsOutput.StoreOverride = Path.GetFullPath($"Temp/simulean_store_test_{Guid.NewGuid():N}.db");
-            UnityEditor.Undo.IncrementCurrentGroup();
-            undoGroup = UnityEditor.Undo.GetCurrentGroup();
         }
 
         [TearDown]
         public void TearDown()
         {
             ResultsOutput.StoreOverride = null;
-            UnityEditor.Undo.RevertAllDownToGroup(undoGroup);
-            if (temporary)
-            {
-                if (active.IsValid()) SceneManager.SetActiveScene(active);
-                EditorSceneManager.CloseScene(scene, true);
-            }
-            else Object.DestroyImmediate(root);
         }
 
         private static JObject J(object answer) => (JObject)answer;
@@ -70,16 +52,16 @@ namespace SimuLean.Unity.Editor.Tests
             Assert.AreEqual(2, read["scenarios"].Count());
             Assert.IsNotNull(read["scenarios"][0]["metrics"]["out"]["mean"]);
 
-            var saved = J(SimuLeanCommands.Results("save", name: "cs2-test"));
+            var saved = J(SimuLeanCommands.Results("save", name: "study-test"));
             int id = (int)saved["saved"];
             var stored = J(SimuLeanCommands.Results("list"))["stored"];
-            Assert.IsTrue(stored.Any(s => (int)s["id"] == id && (string)s["name"] == "cs2-test"), stored.ToString());
+            Assert.IsTrue(stored.Any(s => (int)s["id"] == id && (string)s["name"] == "study-test"), stored.ToString());
             var byId = J(SimuLeanCommands.Results("read", id.ToString()));
-            Assert.AreEqual("cs2-test", (string)byId["name"]);
-            var byName = J(SimuLeanCommands.Results("read", "cs2-test"));
+            Assert.AreEqual("study-test", (string)byId["name"]);
+            var byName = J(SimuLeanCommands.Results("read", "study-test"));
             Assert.AreEqual(2, byName["scenarios"].Count());
             var e = Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("read", "no such set"));
-            StringAssert.Contains("cs2-test", e.Message, "the stored sets are named");
+            StringAssert.Contains("study-test", e.Message, "the stored sets are named");
             Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("paint"));
         }
 
@@ -94,16 +76,19 @@ namespace SimuLean.Unity.Editor.Tests
                 Assert.IsNotEmpty(exported);
                 Assert.IsTrue(exported.All(p => File.Exists(p) || Directory.Exists(p)), string.Join(", ", exported));
 
-                var bar = J(SimuLeanCommands.Results("chart", kind: "bar", y: "metric:out", path: chart));
+                // the axes are written as the study writes its metrics and factors (one grammar)
+                var bar = J(SimuLeanCommands.Results("chart", kind: "bar", yAxis: "out", path: chart));
                 Assert.IsTrue(File.Exists(chart));
                 StringAssert.Contains("<svg", File.ReadAllText(chart));
                 Assert.AreEqual(2, (int)bar["categories"], "one bar per scenario");
-                SimuLeanCommands.Results("chart", kind: "bar", y: "stat:element:ESrv:utilization", path: chart);
-                SimuLeanCommands.Results("chart", kind: "scatter", y: "metric:out", x: "param:ESrv.capacity", path: chart);
+                SimuLeanCommands.Results("chart", kind: "bar", yAxis: "ESrv.utilization", path: chart);
+                SimuLeanCommands.Results("chart", kind: "bar", yAxis: "*.utilization", groupBy: "object", path: chart);
+                SimuLeanCommands.Results("chart", kind: "scatter", yAxis: "out", xAxis: "ESrv.capacity", path: chart);
 
-                Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("chart", kind: "pie", y: "metric:out", path: chart));
-                Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("chart", kind: "bar", y: "out", path: chart), "y needs its source");
-                Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("chart", kind: "bar", y: "metric:nothing", path: chart), "no data");
+                Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("chart", kind: "pie", yAxis: "out", path: chart));
+                Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("chart", kind: "bar", yAxis: "metric:out", path: chart), "the old prefixes are gone");
+                Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("chart", kind: "bar", yAxis: "nothing", path: chart), "neither a metric, a factor nor a path");
+                Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("chart", kind: "bar", yAxis: "ESrv.nothing", path: chart), "no data");
                 Assert.Throws<ArgumentException>(() => SimuLeanCommands.Results("export", formats: "pdf"));
             }
             finally
@@ -125,6 +110,9 @@ namespace SimuLean.Unity.Editor.Tests
             Assert.AreEqual(300, (int)fit["n"]);
             Assert.AreEqual(3, fit["fits"].Count());
             Assert.IsNotEmpty((string)fit["fits"][0]["spec"]);
+            var exponential = fit["fits"].First(f => (string)f["family"] == "Exponential");
+            Assert.AreEqual(2.0, (double)exponential["mean"], 0.1, "each fit gives its mean: " + exponential);
+            Assert.AreEqual((double)exponential["mean"], (double)exponential["std"], 1e-9, "and its standard deviation (an exponential's is its mean)");
             var srv = GameObject.Find("FSrv").GetComponent<UnityMultiServer>();
             Assert.AreEqual((string)fit["fits"][0]["family"], srv.delayStrategy.strategyType.ToString(), "the best fit written into the field");
             Assert.AreEqual((string)fit["written"]["family"], (string)fit["fits"][0]["family"]);

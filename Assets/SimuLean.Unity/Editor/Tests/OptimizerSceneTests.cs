@@ -22,7 +22,7 @@ namespace SimuLean.Unity.Editor.Tests
         {
             var options = new List<ParameterInfo> { new ParameterInfo { Key = "capacity" }, new ParameterInfo { Key = "normalMean" } };
             Assert.AreEqual(1, SimuLean.Optimization.Editor.SpecGUI.SelectedOption("normalMean", options));
-            Assert.AreEqual(-1, SimuLean.Optimization.Editor.SpecGUI.SelectedOption("uniformMin", options), "kept, shown as not offered");
+            Assert.AreEqual(-1, SimuLean.Optimization.Editor.SpecGUI.SelectedOption("delayStrategy.uniformMin", options), "kept, shown as not offered");
             Assert.AreEqual(0, SimuLean.Optimization.Editor.SpecGUI.SelectedOption("", options), "a new parameter: the first option");
         }
 
@@ -90,7 +90,7 @@ namespace SimuLean.Unity.Editor.Tests
                     new OptimizationSettings { Seed = 5, Parallelism = 2 });
                 Assert.AreEqual(bestServers, result.Best.Number(0), "the optimiser finds the exhaustive optimum");
                 Assert.AreEqual(bestExhaustive, result.BestEvaluation.Fitness, 1e-9);
-                Assert.AreEqual(1, config.Elements.Find(e => e.Name == "Server").GetParameter<int>("capacity", 0), "the scene's model is not changed");
+                Assert.AreEqual(1, config.Elements.Find(e => e.Name == "Server").Get<int>("capacity", 0), "the scene's model is not changed");
 
                 // the component validates its set-up
                 var opt = root.AddComponent<Optimizer>();

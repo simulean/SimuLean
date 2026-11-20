@@ -20,12 +20,19 @@ namespace SimuLean
     /// The transfer fires <c>OnExit</c> / <c>OnEntry</c> like <see cref="GeneralLink"/>, so statistics stay
     /// link-driven. Call <see cref="Start"/> after the elements' own <c>Start</c> (registers the first pulls).
     /// <para><b>Transport.</b> When the holder carries its items with resources (<see cref="SetTransport"/>,
-    /// its <c>transportBy</c>, as FlexSim's <i>Use Transport</i>), the reserved item is not handed over at once: a carrier
+    /// its <c>transportBy</c>), the reserved item is not handed over at once: a carrier
     /// is requested (<see cref="Resources.TransportMoves"/>), travels to the holder, loads (the item leaves the holder),
     /// travels to the puller and delivers (the item enters it). The reservation keeps the puller from pulling another
     /// item meanwhile ("in transit").</para>
+    /// <para><b>Room promised.</b> A reserved item holds a place at its puller
+    /// (<see cref="Element.PromiseRoom"/>) until it enters or is listed again, and a puller pulls only while a place is
+    /// left after the promises of every link into it (a transport link, a milk run, another list).</para>
+    /// <para><b>Max wait of a puller.</b> A puller may carry a limit (<see cref="SetPullLimit"/>): its wait runs
+    /// from its pull until an entry matches (re-registering a pull does not restart it; a puller that stops pulling — full,
+    /// stopped, a transfer under way — ends it). On a timeout the puller counts it (<c>timeouts:list_pull</c>) and signals it;
+    /// the pull goes on (KeepWaiting: a puller holds nothing to give back, and no item to send elsewhere).</para>
     /// </summary>
-    public sealed class ListLink : ILink
+    public sealed class ListLink : IAdvertisingLink
     {
         public SimList List { get; }
 
@@ -56,9 +63,18 @@ namespace SimuLean
         public void AddPuller(Element puller, ListQuery query = null)
         {
             if (!pullers.ContainsKey(puller)) pullerOrder.Add(puller);
-            pullers[puller] = query ?? ListQuery.All;
+            pullers[puller] = PullQuery(puller, query ?? ListQuery.All);
             puller.SetInput(this);
         }
+
+        // The puller's query with the test of what it can take now (read live at each match): built once per puller, not
+        // at every pull request. Only entries the puller can take now: its availability
+        // (e.g. a combiner port accepts components only while a main item is being assembled) and its input strategy
+        // with the origin, and a place not promised to another load on its way.
+        private ListQuery PullQuery(Element puller, ListQuery query)
+            => query.Where(e => e.Item != null && e.Owner != null && !e.Owner.IsOutputBlocked && !puller.IsInputBlocked
+                                && puller.CheckAvailability(e.Item) && puller.ValidateInput(e.Item, e.Owner)
+                                && (puller.RoomPromised == 0 || puller.HasRoomBeyondPromises(this)));
 
         /// <summary>Registers the pullers' first pulls (after the elements' Start).</summary>
         public void Start()
@@ -66,17 +82,59 @@ namespace SimuLean
             foreach (var p in pullerOrder) RequestPull(p);
         }
 
+        // ── max wait of the pullers ──
+        private Dictionary<Element, WaitLimit> pullLimits;
+        private Dictionary<Element, WaitTimer> pullTimers;
+
+        /// <summary>The max wait of <paramref name="puller"/>'s pulls (null = none). Only KeepWaiting: the timeout is counted
+        /// and signalled, the pull goes on.</summary>
+        public void SetPullLimit(Element puller, WaitLimit limit)
+        {
+            if (puller == null) return;
+            if (limit != null && limit.OnTimeout != TimeoutAction.KeepWaiting)
+                throw new System.ArgumentException($"'{puller.Name}': a list pull's max wait can only keep waiting (it holds nothing to give " +
+                                                   $"back and no item to send elsewhere), not {limit.OnTimeout}.");
+            if (pullLimits == null) pullLimits = new Dictionary<Element, WaitLimit>();
+            if (limit == null) pullLimits.Remove(puller); else pullLimits[puller] = limit;
+        }
+
+        // A pull is registered (or not): the puller's wait starts if none runs, or ends when it does not pull any more.
+        private void PullWaitCheck(Element puller)
+        {
+            if (!pullLimits.TryGetValue(puller, out var limit)) return;
+            if (!pending.ContainsKey(puller)) { PullWaitEnds(puller); return; }
+            if (pullTimers != null && pullTimers.ContainsKey(puller)) return;
+            var t = WaitTimer.Start(puller.GetSimClock(), limit, null, puller, puller, PullTimedOut);
+            if (t != null) (pullTimers ?? (pullTimers = new Dictionary<Element, WaitTimer>()))[puller] = t;
+        }
+
+        private void PullWaitEnds(Element puller)
+        {
+            if (pullTimers == null || !pullTimers.TryGetValue(puller, out var t)) return;
+            t.Cancel();
+            pullTimers.Remove(puller);
+        }
+
+        private void PullTimedOut(WaitTimer t)
+        {
+            var puller = (Element)t.Token;
+            if (pullTimers == null || !pullTimers.TryGetValue(puller, out var mine) || mine != t) return;
+            pullTimers.Remove(puller);
+            puller.RecordTimeout(WaitKind.ListPull, null, puller.GetSimClock().GetSimulationTime() - t.Started, TimeoutAction.KeepWaiting);
+        }
+
         /// <summary>Forgets advertised items, reservations and pending pulls (new run; the list itself is reset by its owner).</summary>
         public void Reset()
         {
+            if (pullTimers != null) { foreach (var t in pullTimers.Values) t.Cancel(); pullTimers.Clear(); }
             foreach (var pull in pending.Values) pull.Cancel();
+            foreach (var kv in reserved) kv.Value.ForgetPromise(kv.Key);
             pending.Clear(); entries.Clear(); reserved.Clear(); entryOwners.Clear();
             foreach (var m in transports.Values) m.Reset();
             moving.Clear();
         }
 
-        /// <summary>The items <paramref name="origin"/> hands to the pullers are carried by <paramref name="transport"/>
-        ///; returns the moves (to set their load / travel / unload times).</summary>
+        /// <summary>The items <paramref name="origin"/> hands to the pullers are carried by <paramref name="transport"/>; returns the moves (to set their load / travel / unload times).</summary>
         public Resources.TransportMoves SetTransport(Element origin, Resources.StationResources transport)
         {
             var moves = new Resources.TransportMoves(origin, transport);
@@ -114,6 +172,22 @@ namespace SimuLean
             entries[item] = List.PushItem(item, origin);
         }
 
+        /// <summary>The puller an item is reserved for (a pull matched it, the hand-over is under way), or null. An origin
+        /// whose hand-over takes time (a storage publishing its stock: the item is retrieved and carried to the puller's
+        /// location first) uses it to know where the item goes.</summary>
+        public Element ReservedFor(Item item)
+            => item != null && reserved.TryGetValue(item, out Element puller) ? puller : null;
+
+        /// <summary>Withdraws an advertised (not reserved) item from the list, e.g. it left its origin by another path.
+        /// False when it was not listed or is reserved.</summary>
+        public bool Withdraw(Item item)
+        {
+            if (item == null || reserved.ContainsKey(item) || !entries.TryGetValue(item, out ListEntry entry)) return false;
+            entries.Remove(item);
+            if (entry != null) List.Remove(entry);
+            return true;
+        }
+
         // Re-registers every pending pull so the entries already listed are evaluated again.
         private bool refreshing;
         private void RefreshPulls()
@@ -149,6 +223,9 @@ namespace SimuLean
         {
             if (source.IsOutputBlocked) return false;   // keeps the reservation; resent when the origin resumes
 
+            // The item leaves the list before the hand-over: a puller that also pushes to this list offers it again
+            // while receiving it, and that offer must find it unlisted (it recursed or was lost).
+            Forget(item);
             bool received = false;
             if (!puller.IsInputBlocked && puller.CheckAvailability(item) && puller.ValidateInput(item, source))
             {
@@ -157,24 +234,23 @@ namespace SimuLean
                 finally { source.ExitSend(); }
             }
 
-            reserved.Remove(item);
-            entryOwners.Remove(item);
             if (!received)
             {
                 // The puller cannot take it any more: advertise it again, the puller asks again later.
-                entries.Remove(item);
                 SendItem(item, source);
-                // Ask again after this event (an immediate retry could match the same entry forever).
-                puller.GetSimClock().Schedule(() => RequestPull(puller), 0);
+                RequestPullLater(puller);
                 return false;
             }
 
             source.StatsCollector.OnExit(item);
             puller.StatsCollector.OnEntry(item);
-            entries.Remove(item);
             RequestPull(puller);   // the puller may have more room
             return true;
         }
+
+        // Ask again after this event (an immediate retry could match the same entry forever).
+        // In its own method: a closure that captures a parameter is allocated at every call, used or not.
+        private void RequestPullLater(Element puller) => puller.GetSimClock().Schedule(() => RequestPull(puller), 0);
 
         // A reserved item of a holder that carries its items: request a carrier; the item leaves the holder when loaded.
         private bool TransferCarried(Item item, Element source, Element puller, Resources.TransportMoves moves)
@@ -187,22 +263,40 @@ namespace SimuLean
             }
             if (moving.Contains(item) || source.IsOutputBlocked) return false;
             moving.Add(item);
-            moves.Request(item, puller, (it, dest) => DeliverCarried(it, source, dest));
+            RequestCarrier(item, source, puller, moves);
             return false;                             // stays in the holder until the carrier loads it
         }
+
+        // In its own method: a closure that captures a parameter is allocated at every call, used or not.
+        private void RequestCarrier(Item item, Element source, Element puller, Resources.TransportMoves moves)
+            => moves.Request(item, puller, (it, dest) => DeliverCarried(it, source, dest));
 
         // The carrier unloaded at the puller: it enters (false = it cannot take it now, the carrier waits).
         private bool DeliverCarried(Item item, Element origin, Element puller)
         {
-            if (puller.IsInputBlocked || !puller.CheckAvailability(item) || !puller.ValidateInput(item, origin) || !ItemHandOver.Receive(null, puller, item))
+            if (puller.IsInputBlocked || !puller.CheckAvailability(item) || !puller.ValidateInput(item, origin)) return false;
+            // As in Transfer: unlisted before it enters, in case the puller pushes it back to this list.
+            entries.TryGetValue(item, out ListEntry entry);
+            Forget(item);
+            if (!ItemHandOver.Receive(null, puller, item))
+            {
+                reserved[item] = puller; entryOwners[item] = origin; entries[item] = entry; moving.Add(item);   // the carrier waits
+                puller.PromiseRoom(item);
                 return false;
+            }
             puller.StatsCollector.OnEntry(item);
+            RequestPull(puller);   // the puller may have more room
+            return true;
+        }
+
+        // The item is no longer listed, reserved or being carried.
+        private void Forget(Item item)
+        {
+            if (reserved.TryGetValue(item, out Element puller)) puller.ReleaseRoom(item, this);
             reserved.Remove(item);
             entryOwners.Remove(item);
             entries.Remove(item);
             moving.Remove(item);
-            RequestPull(puller);   // the puller may have more room
-            return true;
         }
 
         // ── puller side ──────────────────────────────────────────────────────
@@ -230,16 +324,24 @@ namespace SimuLean
 
         private void RequestPull(Element puller)
         {
+            RequestPullNow(puller);
+            if (pullLimits != null) PullWaitCheck(puller);   // its max wait starts, goes on or ends
+        }
+
+        private void RequestPullNow(Element puller)
+        {
             if (pending.ContainsKey(puller) || puller.IsInputBlocked || puller.GetFreeCapacity() == 0) return;
             foreach (var p in reserved.Values) if (p == puller) return;   // a transfer to it is already under way
+            if (puller.RoomPromised > 0 && !puller.HasRoomBeyondPromises(this)) return;   // its room is promised
+            Pull(puller);
+        }
 
-            // Only entries the puller can take now: its availability (e.g. a combiner port accepts components
-            // only while a main item is being assembled) and its input strategy with the origin.
-            ListQuery q = pullers[puller]
-                .Where(e => e.Item != null && e.Owner != null && !e.Owner.IsOutputBlocked && !puller.IsInputBlocked
-                            && puller.CheckAvailability(e.Item) && puller.ValidateInput(e.Item, e.Owner));
+        // The pull itself, once it is due.
+        // In its own method: a closure that captures a parameter is allocated at every call, used or not.
+        private void Pull(Element puller)
+        {
             ListPull pull = null;
-            pull = List.Pull(q, entry =>
+            pull = List.Pull(pullers[puller], entry =>
             {
                 if (pull != null) pending.Remove(puller);
                 Matched(puller, entry);
@@ -251,8 +353,10 @@ namespace SimuLean
         {
             Item item = entry.Item;
             Element owner = entry.Owner;
+            if (pullTimers != null) PullWaitEnds(puller);   // an entry matched: its wait ended
             reserved[item] = puller;
             entryOwners[item] = owner;
+            puller.PromiseRoom(item);                   // its place at the puller, until it enters
             // The origin hands over this very item (it may not be its first), after the current event.
             owner.GetSimClock().Schedule(() => SendFromHolder(owner, item), 0);
         }

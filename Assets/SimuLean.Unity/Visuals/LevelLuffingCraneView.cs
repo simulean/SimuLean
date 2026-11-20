@@ -6,7 +6,7 @@ using SimuLean.Transport;
 namespace SimuLean.Unity
 {
     /// <summary>
-    /// View of a level-luffing portal crane resource ("grúa cigüeña", the library's <c>LevelLuffingCrane</c> model) — a
+    /// View of a level-luffing portal crane resource (the library's <c>LevelLuffingCrane</c> model) — a
     /// <see cref="TaskExecutor"/> with axis travel (team Travel = Axes) whose axes move the <b>hook</b> between points.
     /// The view turns the hook point into the crane's own motions, driven by the engine and never changing it:
     /// <list type="bullet">

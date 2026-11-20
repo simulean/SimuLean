@@ -15,7 +15,7 @@ The editors now **only show relevant parameters** based on the selected strategy
 ## UnityCombinerEditor
 
 ### File Location
-`Assets/UnitySimuLean/Editor/UnityCombinerEditor.cs`
+`Assets/SimuLean.Unity/Editor/Inspectors/UnityCombinerEditor.cs`
 
 ### Features
 
@@ -46,22 +46,22 @@ The Inspector is divided into logical sections:
 
 #### 3. Conditional Delay Strategy Parameters
 
-**When `delayStrategyType = Constant`:**
+**When `delayStrategy.strategyType = Constant`:**
 - Shows only `constantDelay`
 
-**When `delayStrategyType = Uniform`:**
+**When `delayStrategy.strategyType = Uniform`:**
 - Shows only `uniformMin` and `uniformMax`
 
-**When `delayStrategyType = Normal`:**
+**When `delayStrategy.strategyType = Normal`:**
 - Shows only `normalMean` and `normalStdDev`
 
-**When `delayStrategyType = Exponential`:**
+**When `delayStrategy.strategyType = Exponential`:**
 - Shows only `exponentialRate`
 
-**When `delayStrategyType = Triangular`:**
+**When `delayStrategy.strategyType = Triangular`:**
 - Shows only `triangularMin`, `triangularMode`, `triangularMax`
 
-**When `delayStrategyType = Expression`:**
+**When `delayStrategy.strategyType = Expression`:**
 - Shows only `expression` text area
 
 #### 4. Deprecated Field Warning
@@ -73,7 +73,7 @@ The `meanDelay` field is shown with a "(Deprecated)" label to indicate it should
 ## UnityMultiServerEditor
 
 ### File Location
-`Assets/UnitySimuLean/Editor/UnityMultiServerEditor.cs`
+`Assets/SimuLean.Unity/Editor/Inspectors/UnityMultiServerEditor.cs`
 
 ### Features
 
@@ -86,24 +86,24 @@ The `meanDelay` field is shown with a "(Deprecated)" label to indicate it should
 
 #### 2. Conditional Delay Strategy Parameters
 
-**When `delayStrategyType = Constant`:**
+**When `delayStrategy.strategyType = Constant`:**
 - Shows only `constantDelay`
 
-**When `delayStrategyType = Uniform`:**
+**When `delayStrategy.strategyType = Uniform`:**
 - Shows only `uniformMin` and `uniformMax`
 
-**When `delayStrategyType = Normal`:**
+**When `delayStrategy.strategyType = Normal`:**
 - Shows only `normalMean` and `normalStdDev`
 
-**When `delayStrategyType = Exponential`:**
+**When `delayStrategy.strategyType = Exponential`:**
 - Shows `exponentialMean`
 - Shows `cTime` with "(Deprecated)" label
 - Displays info box: "Use 'Exponential Mean' instead. This field is kept for backward compatibility."
 
-**When `delayStrategyType = Triangular`:**
+**When `delayStrategy.strategyType = Triangular`:**
 - Shows only `triangularMin`, `triangularMode`, `triangularMax`
 
-**When `delayStrategyType = Expression`:**
+**When `delayStrategy.strategyType = Expression`:**
 - Shows only `expression` text area
 
 #### 3. Backward Compatibility Notice
@@ -283,11 +283,11 @@ case DelayStrategyType.Weibull:
 
 ## Files Created
 
-1. `Assets/UnitySimuLean/Editor/UnityCombinerEditor.cs`
+1. `Assets/SimuLean.Unity/Editor/Inspectors/UnityCombinerEditor.cs`
    - Custom Inspector for UnityCombiner
    - Handles delay strategy and pull mode conditionals
 
-2. `Assets/UnitySimuLean/Editor/UnityMultiServerEditor.cs`
+2. `Assets/SimuLean.Unity/Editor/Inspectors/UnityMultiServerEditor.cs`
    - Custom Inspector for UnityMultiServer
    - Handles delay strategy conditionals
    - Shows backward compatibility warnings
@@ -296,7 +296,6 @@ case DelayStrategyType.Weibull:
 
 ## Related Documentation
 
-- `Assets/UnitySimuLean/MULTISERVER_DELAY_STRATEGY.md` - Delay strategy implementation
 - `Assets/SimuLean.Net/SimElements/Combiner.cs` - Core combiner logic
 
 ---

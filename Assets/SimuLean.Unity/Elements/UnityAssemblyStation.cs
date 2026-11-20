@@ -33,6 +33,37 @@ namespace SimuLean.Unity
 
         [Tooltip("Tie-break among equally-ready tasks: higher runs first.")]
         public int priority = 0;
+
+        [Tooltip("Resources of this task (empty = the station's Process requirements): e.g. a crane of another team and a " +
+                 "fitter. The station's Process block gives the rest (default team, priority, preemption, release, order).")]
+        public List<ResourceRequirementSpec> requirements = new List<ResourceRequirementSpec>();
+
+        [Tooltip("This task's own request settings (off = the station's Process block): its priority, preemption, " +
+                 "acquisition order and max wait.")]
+        public TaskResourceSettings resourceSettings = new TaskResourceSettings();
+    }
+
+    /// <summary>An assembly task's own request settings (per task instead of one per station); off =
+    /// the station's Process block. Exported as <c>tasks[i].processBy.*</c>.</summary>
+    [Serializable]
+    public class TaskResourceSettings
+    {
+        [Tooltip("Use these settings for this task instead of the station's Process block.")]
+        public bool own;
+        [Tooltip("Priority of the task's requests: an expression over the item and the station (empty = the station's).")]
+        [SimuLean.Unity.SimuLeanExpression("priority")]
+        public string priority = "";
+        [Tooltip("When no member is free (None / Resume / Restart / Abort), as the station's Process block.")]
+        public SimuLean.Resources.PreemptMode preemption = SimuLean.Resources.PreemptMode.None;
+        [Tooltip("Requests of higher priority with a preemption mode may take this task's members.")]
+        public bool preemptable = true;
+        [Tooltip("With several requirements: All At Once or In Order.")]
+        public SimuLean.Resources.AcquireOrder acquire = SimuLean.Resources.AcquireOrder.AllAtOnce;
+        [Tooltip("The longest the task waits for its resources (a time or an expression; empty or 0 = no limit).")]
+        [SimuLean.Unity.SimuLeanExpression("maxWait")]
+        public string maxWait = "";
+        [Tooltip("When the max wait is over: Keep Waiting or Give Up (a task cannot Reroute).")]
+        public SimuLean.TimeoutAction onTimeout = SimuLean.TimeoutAction.KeepWaiting;
     }
 
     /// <summary>
@@ -42,9 +73,13 @@ namespace SimuLean.Unity
     /// drawn by SKU from a shared stock buffer. Dispatch order is
     /// first-ready-first, tie-broken by priority then declaration order.
     /// </summary>
-    [SimuLean.Unity.SimuLeanElement(SimuLean.Unity.SimuLeanModules.Assembly, "Assembly Station", Description = "Precedence network of tasks consuming materials by SKU", Prefab = "AssemblyStation.prefab", Order = 2)]
-    public class UnityAssemblyStation : SElement, IVElement, IProcessResourceUser
+    [SimuLean.Unity.SimuLeanElement(SimuLean.Unity.SimuLeanModules.Assembly, "Assembly Station", Description = "Precedence network of tasks consuming materials by SKU", Prefab = "AssemblyStation.prefab", Order = 10)]
+    public class UnityAssemblyStation : SElement, IVElement, IProcessResourceUser, ISetupUser
     {
+        [Tooltip("Setup (changeover) per job, before its first task: when, how long, by whom (Setup section).")]
+        public StationSetupConfig setup = new StationSetupConfig();
+        public StationSetupConfig Setup => setup;
+
 
         [Header("Execution")]
         [Tooltip("Max tasks running concurrently (1 = strictly sequential).")]
@@ -63,6 +98,21 @@ namespace SimuLean.Unity
         public List<AssemblyTaskConfig> tasks = new List<AssemblyTaskConfig>();
 
         private AssemblyStation station;
+
+        /// <summary>No station process team, but tasks whose requirements name their own teams: those tasks'
+        /// uses take the Process block's priority, preemption, preemptable, acquisition order and max wait, so the
+        /// inspector shows these settings and the extractor exports them.</summary>
+        public bool TasksUseOwnTeams
+        {
+            get
+            {
+                if (processBy != null && processBy.IsUsed || tasks == null) return false;
+                foreach (var t in tasks)
+                    if (t?.requirements != null)
+                        foreach (var r in t.requirements) if (r?.team != null) return true;
+                return false;
+            }
+        }
 
 
 

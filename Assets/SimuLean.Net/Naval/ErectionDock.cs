@@ -17,16 +17,20 @@ namespace SimuLean.Naval
     /// releasing any accepted item or a list lets the others pass), and the dock asks again after every erection.</item>
     /// <item><b>Erection</b>: the time of its sampler (an expression may read the block's labels, e.g.
     /// <c>2 + 0.05 * weight</c>), with its process resources (crane, erection crew; their own share with
-    /// <c>processHoldFor</c>), on its own front; stops pause it as every station's work.</item>
+    /// <c>processBy.holdFor</c>), on its own front; stops pause it as every station's work.</item>
     /// <item><b>The hull</b>: an erected block stays (at rest, <see cref="IKeepsItems"/>). With
     /// <see cref="ExpectedBlocks"/> set, the complete hull leaves as one <b>ship</b> item (the blocks as its sub-items,
     /// each counted as leaving) to the dock's output — a launch / float-out sink — and the dock starts the next hull.
     /// Without an output (or with <see cref="ExpectedBlocks"/> = 0) the hull stays and the makespan is the last
     /// erection.</item>
+    /// <item><b>Setup</b> (optional, <see cref="Setup"/>): before a block is erected, its front is prepared —
+    /// staging, jigs, the berth's supports — on every block (EachItem) or when the block's label (e.g. <c>blockType</c>:
+    /// flat, curved, bow) differs from the previous block's at the same front (LabelChange), timed as a station's setup,
+    /// by the machine alone, a crew of its own or the erection resources kept for the erection.</item>
     /// </list>
     /// Flow statistics come from the link layer: a block enters when the dock takes it.
     /// </summary>
-    public sealed class ErectionDock : Element, IWorkStation, IResourceUser, IKeepsItems
+    public sealed class ErectionDock : Element, IWorkStation, IResourceUser, IKeepsItems, IInterruptibleStation, ISetupStation, ISetupHost
     {
         public enum ErectionRule { Sequence, Precedence }
 
@@ -59,6 +63,20 @@ namespace SimuLean.Naval
 
         public StationResources Resources { get; set; }
 
+        /// <summary>The preparation of a front before each block's erection (null = none); the previous block is tracked per front.</summary>
+        public StationSetup Setup { get; set; }
+
+        /// <summary>The free front that takes the next block is set up for <paramref name="block"/>.</summary>
+        public bool IsSetUpFor(Item block) => Setup != null && pendingShip == null && Setup.Matches(FreeFront(), block);
+
+        void ISetupHost.SetupState(ServerProcess front, ElementState state) => SetFront(front, state);
+
+        void ISetupHost.SetupEnded(ServerProcess front, bool keptResources)
+        {
+            if (keptResources) ((IWorkStation)this).StartProcessing(front);   // the setup's resources stay for the erection
+            else BeginErection(front);
+        }
+
         /// <summary>The erection fronts (one process each).</summary>
         public IReadOnlyList<ServerProcess> Fronts => fronts;
         /// <summary>The erected blocks of the current hull, in erection order.</summary>
@@ -84,6 +102,7 @@ namespace SimuLean.Naval
             hull.Clear(); erected.Clear(); started.Clear();
             pendingShip = null; shipSeq = 0; startedCount = 0; ShipsLaunched = 0;
             LastErectionTime = double.NaN;
+            Setup?.ResetStatistics();
             StatsCollector.CountSubItemsOnExit = true;   // a launched ship: each block leaves (content / stay balanced)
         }
 
@@ -91,6 +110,7 @@ namespace SimuLean.Naval
         {
             base.ResetStatistics();
             if (fronts != null) foreach (var f in fronts) f.ResetStatistics();
+            Setup?.ResetStatistics();
         }
 
         /// <summary>Mean share of time the fronts erect.</summary>
@@ -136,13 +156,25 @@ namespace SimuLean.Naval
             startedCount++;
             front.SetItem(theItem);
             vElement.LoadItem(theItem);
+            if (Setup != null && Setup.Needed(front, theItem))
+            {
+                SetFront(front, ElementState.WAITING_FOR_RESOURCE);   // taken off the free fronts at once
+                Setup.Begin(this, front, Resources, this);
+                return true;
+            }
+            BeginErection(front);
+            return true;
+        }
+
+        // the block's erection: its resources first (if any), then the erection
+        private void BeginErection(ServerProcess front)
+        {
             if (Resources != null)
             {
                 SetFront(front, ElementState.WAITING_FOR_RESOURCE);
-                front.job = Resources.Acquire(this, theItem, () => ((IWorkStation)this).StartProcessing(front));
+                front.job = Resources.Acquire(this, front.GetItem(), () => ((IWorkStation)this).StartProcessing(front));
             }
             else ((IWorkStation)this).StartProcessing(front);
-            return true;
         }
 
         // ------------------------------------------------------------------ erection
@@ -155,7 +187,26 @@ namespace SimuLean.Naval
             front.lastDelay = time;
             SetFront(front, ElementState.PROCESSING);
             vElement.UnloadItem(block);
-            ScheduleWork(front, time);
+            var work = ScheduleWork(front, time);
+            Resources?.ProcessStarted(front, work);   // its resources may be taken while it erects (preemption)
+        }
+
+        /// <summary>A front's erection lost a resource (preemption): the front waits for it, its erection paused; then it
+        /// goes on (its progress view shifted by the pause, or started again).</summary>
+        void IInterruptibleStation.JobPaused(ResourceJob job, bool paused, bool restart)
+        {
+            var front = job.Slot;
+            if (front == null) return;
+            if (paused) { SetFront(front, ElementState.WAITING_FOR_RESOURCE); return; }
+            if (front.InSetup)
+            {
+                if (restart) front.SetupStart = simClock.GetSimulationTime(); else front.SetupStart += job.LastPause;
+                SetFront(front, ElementState.SETUP);
+                return;
+            }
+            if (restart) front.loadTime = simClock.GetSimulationTime();
+            else front.loadTime += job.LastPause;
+            SetFront(front, ElementState.PROCESSING);
         }
 
         void IWorkStation.CompleteServerProcess(ServerProcess front)
@@ -215,11 +266,12 @@ namespace SimuLean.Naval
             UpdateState();
         }
 
-        // the dock's state from its fronts: erecting > waiting for resources > (ship waiting to leave) > idle
+        // the dock's state from its fronts: erecting > setting up > waiting for resources > (ship waiting to leave) > idle
         private void UpdateState()
         {
             if (fronts == null) return;
             if (fronts.Any(f => f.GetState() == ElementState.PROCESSING)) SetState(ElementState.PROCESSING);
+            else if (fronts.Any(f => f.GetState() == ElementState.SETUP)) SetState(ElementState.SETUP);
             else if (fronts.Any(f => f.GetState() == ElementState.WAITING_FOR_RESOURCE)) SetState(ElementState.WAITING_FOR_RESOURCE);
             else if (pendingShip != null) SetState(ElementState.BLOCKED);
             else SetState(ElementState.IDLE);
@@ -236,6 +288,7 @@ namespace SimuLean.Naval
             if (!ResumedWork(token) || fronts == null) return;
             foreach (var f in fronts)
                 if (f.GetState() == ElementState.PROCESSING) f.loadTime += PauseShiftFor(f.loadTime);
+                else if (f.GetState() == ElementState.SETUP) f.SetupStart += PauseShiftFor(f.SetupStart);
         }
 
         private static bool TryNumber(object v, out int n)

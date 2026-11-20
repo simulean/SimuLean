@@ -9,7 +9,7 @@ namespace SimuLean
     /// Items arriving through the link layer are stored in per-SKU FIFO queues;
     /// the owning station draws them by SKU and quantity.
     ///
-    /// The SKU of an item is its type string (<see cref="Item.GetTypeName"/>);
+    /// The SKU of an item is its type string (<see cref="Item.Name"/>);
     /// items without a type string fall back to "type_&lt;id&gt;".
     /// Being an <see cref="Element"/>, all arrivals cross a Link, so statistics
     /// (input counts, content, stay times) are collected automatically.
@@ -38,7 +38,7 @@ namespace SimuLean
         /// <summary>SKU key of an item: its type string, or "type_&lt;id&gt;" fallback.</summary>
         public static string KeyOf(Item item)
         {
-            string t = item.GetTypeName();
+            string t = item.Name;
             return string.IsNullOrEmpty(t) ? "type_" + item.GetId() : t;
         }
 
@@ -55,6 +55,17 @@ namespace SimuLean
             => store.TryGetValue(sku, out var q) ? q.Count : 0;
 
         public int TotalCount => totalCount;
+
+        /// <summary>The items in stock, SKU by SKU in FIFO order (read-only: for views).</summary>
+        public IEnumerable<Item> Stored
+        {
+            get
+            {
+                foreach (var q in store.Values)
+                    foreach (var item in q)
+                        yield return item;
+            }
+        }
 
         /// <summary>True when every SKU→qty need can be satisfied from stock.</summary>
         public bool Has(IReadOnlyDictionary<string, int> needs)

@@ -127,9 +127,9 @@ namespace SimuLean.Unity.Editor
             }
             GUI.enabled = true;
             showStored = GUILayout.Toggle(showStored, new GUIContent("Stored", "The results kept in the project database: open, rename, delete, compare."), EditorStyles.miniButtonMid);
-            if (GUILayout.Button(new GUIContent("Folder", "Opens the results folder."), EditorStyles.miniButtonRight))
+            if (GUILayout.Button(new GUIContent("Folder", "Opens the results folder (the open model's own, when the scene is one of your models)."), EditorStyles.miniButtonRight))
             {
-                string folder = ResultsOutput.Folder(ResultsOutput.ProjectRoot);
+                string folder = ResultsOutput.Folder(ResultsOutput.ProjectRoot, UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
                 Directory.CreateDirectory(folder);
                 EditorUtility.RevealInFinder(folder);
             }
@@ -160,7 +160,7 @@ namespace SimuLean.Unity.Editor
             EditorGUILayout.EndScrollView();
         }
 
-        // ── the summary: the basics of every element, team and list (review2 #35) ──
+        // ── the summary: the basics of every element, team and list ──
         private static GUIStyle rightLabel, rightBold;
 
         private void DrawSummary(double conf)
@@ -287,7 +287,7 @@ namespace SimuLean.Unity.Editor
                                .Select(r => S(r, "metric")).Where(m => !ResultMetrics.IsState(m)).Distinct().ToArray();
             if (stats.Length == 0) return;
             resStat = Mathf.Clamp(EditorGUILayout.Popup("Statistic", resStat, stats), 0, stats.Length - 1);
-            // elements: the ones the statistic applies to (no "input" of a source; review2 #36)
+            // elements: the ones the statistic applies to (no "input" of a source)
             string objects = "";
             if (scopes[resScope] == "element")
             {
@@ -315,7 +315,7 @@ namespace SimuLean.Unity.Editor
             if (scopes.Length == 0) return;
             GroupHeader("Time per state", "Resources", scenarios.Length > 1 ? scenario : "mean share of time");
             resStateScope = Mathf.Clamp(EditorGUILayout.Popup("Kind", resStateScope, scopes), 0, scopes.Length - 1);
-            // elements: the ones that work on their items (a sink "processes" its whole run, a buffer idles; review2 #36)
+            // elements: the ones that work on their items (a sink "processes" its whole run, a buffer idles)
             string objects = "";
             if (scopes[resStateScope] == "element")
             {
@@ -353,7 +353,7 @@ namespace SimuLean.Unity.Editor
             });
         }
 
-        // ── state timeline: a Gantt of one run (G3c) ──────────────────────────
+        // ── state timeline: a Gantt of one run ──────────────────────────
         private int resGanttScope, resGanttScenario, resGanttRep;
         private void DrawTimelineChart()
         {
@@ -390,7 +390,7 @@ namespace SimuLean.Unity.Editor
             int hidden = 0;
             foreach (var d in defs)
             {
-                // a chart of another model (e.g. the healthcare library's) has nothing to draw here: listed, not drawn (review2 #37)
+                // a chart of another model (e.g. the healthcare library's) has nothing to draw here: listed, not drawn
                 var probe = d.source == ChartDataSource.StoredSets ? null : d.Build(resultsDoc?.Tables, ResultsOutput.ProjectRoot);
                 if (probe != null && (probe.IsEmpty || !string.IsNullOrEmpty(probe.Message))) { hidden++; continue; }
                 EditorGUILayout.BeginHorizontal();

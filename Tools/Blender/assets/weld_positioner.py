@@ -13,7 +13,9 @@ Outputs
 Real-world reference: 2-axis tilt-rotate positioners of the 500 kg class (table 1.0 m, tilt axis ~0.9 m).
 Library palette (graphite base, orange columns and cradle as the IndustrialRobot, dark steel table).
 
-Frame as the other assets: authored front = -Y (Unity +Z: the side the robot works from), +Z up (Unity +Y),
+Frame as the other stations: authored front = -Y (the side the robot works from), exported turned 180 deg (station_parts.STATION_TURN) to
+the library's model frame -- front on Unity -Z, flow along Unity +X; the Unity coordinates quoted below are
+the authored ones (x and z change sign in the export) --, +Z up (Unity +Y),
 origin on the floor at the centre of the base.
 
 Animation hierarchy (Unity names; every name is a bare Transform with <name>_LOD0/1/2 meshes under it):
@@ -40,6 +42,7 @@ import bpy                                  # noqa: E402
 import simulean_kit as K                    # noqa: E402
 import simulean_materials as M              # noqa: E402
 from simulean_kit import Part, finish       # noqa: E402
+import station_parts as SP                  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(KIT, '..', '..'))
 OUT_DIR = os.path.join(REPO, 'Assets', 'SimuLean.Unity', 'Art', 'Models', 'WeldPositioner')
@@ -199,7 +202,7 @@ def main():
         obs = [ls[lvl] for ls in lods.values() if len(ls) > lvl]
         print(f'    LOD{lvl}  {sum(K.tri_count(o) for o in obs):>7}  ({len(obs)})')
     root = rig(lods)
-    K.export_fbx(root, os.path.join(OUT_DIR, 'WeldPositioner.fbx'))
+    K.export_fbx(root, os.path.join(OUT_DIR, 'WeldPositioner.fbx'), turn=SP.STATION_TURN)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(BUILD_DIR, 'WeldPositioner.blend'))
     print(f'[positioner] done in {time.time() - t0:.1f}s')
 

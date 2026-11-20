@@ -208,7 +208,7 @@ namespace SimuLean.Unity.Editor
                     var config = SceneExtractor.Extract(root).Config;
                     Fit(RunData.Collect(config, runElement, runQuantity, runTime, runSeed), $"run ▸ {runElement} ▸ {ObjectNames.NicifyVariableName(runQuantity.ToString())}");
                 }
-                catch (Exception e) { fitError = "Run: " + (e.InnerException?.Message ?? e.Message); }
+                catch (Exception e) { fitError = "Run: " + ((e is AggregateException || e is System.Reflection.TargetInvocationException) && e.InnerException != null ? e.InnerException.Message : e.Message); }
             }
         }
 

@@ -69,8 +69,8 @@ namespace SimuLean.Results
         // ── SQLite ───────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Appends every table to <paramref name="db"/> with a leading <c>set</c> column (the set's name): the tables
-        /// gather every exported set and are queried with <c>WHERE "set" = …</c>. Re-exporting a set replaces its rows.
+        /// Appends every table to <paramref name="db"/> with a leading <c>result_set</c> column (the set's name): the tables
+        /// gather every exported set and are queried with <c>WHERE result_set = …</c>. Re-exporting a set replaces its rows.
         /// Extra tables are named <c>&lt;source&gt;_&lt;table&gt;</c> (e.g. <c>optimization_history</c>).
         /// </summary>
         public static void WriteSqlite(ResultSet set, ProjectDatabase db)
@@ -81,14 +81,14 @@ namespace SimuLean.Results
             {
                 string name = extra.Contains(t) ? set.Source + "_" + t.Name : t.Name;
                 var keyed = WithSet(t, set.Name, name);
-                if (db.TableExists(name)) db.Execute($"DELETE FROM \"{name.Replace("\"", "\"\"")}\" WHERE \"set\" = ?", set.Name);
+                if (db.TableExists(name)) db.Execute($"DELETE FROM \"{name.Replace("\"", "\"\"")}\" WHERE \"result_set\" = ?", set.Name);
                 keyed.WriteTo(db, name, replace: false);
             }
         }
 
         private static ResultTable WithSet(ResultTable t, string set, string name)
         {
-            var columns = new List<string> { "set" };
+            var columns = new List<string> { "result_set" };
             columns.AddRange(t.Columns);
             var keyed = new ResultTable(name, columns.ToArray());
             foreach (var r in t.Rows)

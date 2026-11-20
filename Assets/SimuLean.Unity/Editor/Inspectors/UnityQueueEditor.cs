@@ -8,9 +8,64 @@ namespace SimuLean.Unity.Editor
     [CustomEditor(typeof(UnityQueue))]
     public class UnityQueueEditor : SElementInspector
     {
+        protected override string[] DrawnFields => new[]
+        {
+            "capacity", "offerOrder", "offerSort", "offerRule", "ruleParameters", "gated", "groupBySetup", "groupLimit", "offerScan", "maxWait", "onTimeout",
+            "timeoutTarget", "layoutMode", "separation", "gridArea", "itemPosition", "lineLength", "showFootprint",
+        };
+
         protected override void DrawParameters()
         {
             EditorGUILayout.PropertyField(Prop("capacity"), new GUIContent("Capacity", "Items it can hold."));
+            var release = Prop("offerOrder");
+            EditorGUILayout.PropertyField(release, new GUIContent("Release order", release.tooltip));
+            EditorGUILayout.PropertyField(Prop("offerSort"), new GUIContent("Offer by", Prop("offerSort").tooltip));
+            EditorGUILayout.PropertyField(Prop("offerRule"), new GUIContent("Offer by rule", Prop("offerRule").tooltip));
+            if (!string.IsNullOrWhiteSpace(Prop("offerRule").stringValue))
+                EditorGUILayout.PropertyField(Prop("ruleParameters"), new GUIContent("Rule parameters", Prop("ruleParameters").tooltip), true);
+            EditorGUILayout.PropertyField(Prop("gated"), new GUIContent("Release on command",
+                "Items leave only when released: a reaction's Release (orders every period, a kanban) or the button in Play. " +
+                "A release not used yet is kept for the next items."));
+            var group = Prop("groupBySetup");
+            EditorGUILayout.PropertyField(group, new GUIContent("Group by setup", group.tooltip));
+            if (group.boolValue)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(Prop("groupLimit"), new GUIContent("Most in a row", Prop("groupLimit").tooltip));
+                EditorGUILayout.PropertyField(Prop("offerScan"), new GUIContent("Items looked at", "Items looked through for one " +
+                    "the receiver is set up for (0 = every held item)."));
+                EditorGUI.indentLevel--;
+            }
+            else if (release.enumValueIndex == (int)OfferOrder.AnyAccepted)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(Prop("offerScan"), new GUIContent("Items looked at", Prop("offerScan").tooltip));
+                EditorGUI.indentLevel--;
+            }
+            var maxWait = Prop("maxWait");
+            EditorGUILayout.PropertyField(maxWait, new GUIContent("Max wait", maxWait.tooltip));
+            if (!string.IsNullOrWhiteSpace(maxWait.stringValue))
+            {
+                EditorGUI.indentLevel++;
+                var onTimeout = Prop("onTimeout");
+                EditorGUILayout.PropertyField(onTimeout, new GUIContent("On timeout", onTimeout.tooltip));
+                if (onTimeout.enumValueIndex != (int)SimuLean.TimeoutAction.KeepWaiting)
+                    EditorGUILayout.PropertyField(Prop("timeoutTarget"), new GUIContent("Timeout target", Prop("timeoutTarget").tooltip));
+                EditorGUI.indentLevel--;
+            }
+        }
+
+        private static int releaseQuantity = 1;
+
+        protected override void DrawPlayExtra()
+        {
+            var queue = (UnityQueue)target;
+            if (!queue.gated) return;
+            SimuLeanGUI.Row("Pending release", queue.PendingRelease.ToString());
+            EditorGUILayout.BeginHorizontal();
+            releaseQuantity = Mathf.Max(1, EditorGUILayout.IntField("Release", releaseQuantity));
+            if (GUILayout.Button("Release", GUILayout.Width(70))) queue.ReleaseItems(releaseQuantity);
+            EditorGUILayout.EndHorizontal();
         }
 
         protected override void DrawVisual()
@@ -78,6 +133,8 @@ namespace SimuLean.Unity.Editor
                 issues.Add(new InspectorIssue(MessageType.Warning,
                     $"Only {queue.Seats().Count} of {queue.capacity} places have a seat: the others stand.",
                     ChairRow(queue) != null ? "Fit chairs" : null, ChairRow(queue) != null ? () => FitChairs(queue) : (System.Action)null));
+            if (!string.IsNullOrWhiteSpace(queue.maxWait) && queue.onTimeout != SimuLean.TimeoutAction.KeepWaiting && queue.timeoutTarget == null)
+                issues.Add(new InspectorIssue(MessageType.Error, "Items that wait too long need a Timeout Target (e.g. a Sink)."));
             if (Prop("capacity").intValue < 1)
                 issues.Add(new InspectorIssue(MessageType.Error, "Capacity must be at least 1.", "Set to 1", () =>
                 {

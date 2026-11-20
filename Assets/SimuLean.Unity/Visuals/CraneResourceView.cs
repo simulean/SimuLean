@@ -9,7 +9,7 @@ namespace SimuLean.Unity
     /// View of a crane resource (a <see cref="TaskExecutor"/> with axis travel) on the library's
     /// crane model through its <see cref="ICraneRig"/> — the library's gantry (<see cref="GantryRig"/>, the same gantry a
     /// stacker animates by itself when it cycles by time), the hall overhead crane or a travelling-leg gantry (Goliath,
-    /// welding gantry: <see cref="TravellingGantryRig"/>). Driven by the engine, never changing it:
+    /// welding gantry: <see cref="TravelingGantryRig"/>). Driven by the engine, never changing it:
     /// <list type="bullet">
     /// <item><b>Travel:</b> the head travels with the travel leg; with <see cref="AxisTravel"/> each horizontal axis follows
     /// its own speed / acceleration profile (the times the engine computed), so the bridge and the trolley start

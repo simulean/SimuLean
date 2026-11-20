@@ -29,7 +29,7 @@ namespace SimuLean.Unity.Editor.Tests
             var model = new SimuLean.Headless.HeadlessModelFactory(clock);
             model.BuildModel(config);
             int n = 0;
-            model.GetAllElements().Values.First(e => e.GetName() == "Sink").ItemEntered += (el, it) => n++;
+            model.GetAllElements().Values.First(e => e.Name == "Sink").ItemEntered += (el, it) => n++;
             model.StartModel();
             clock.AdvanceClock(100);
             return n;
@@ -111,7 +111,7 @@ namespace SimuLean.Unity.Editor.Tests
                 try
                 {
                     var config = SceneExtractor.Extract(root).Config;
-                    Assert.AreEqual("Arrivals", config.Elements.Find(e => e.Name == "Src").Parameters["dataTable"], "the source names its table");
+                    Assert.AreEqual("Arrivals", config.Elements.Find(e => e.Name == "Src").Get<object>("dataTable"), "the source names its table");
                     Assert.AreEqual(path, config.Tables.Find(t => t.Name == "Arrivals").File, "the file goes to the config");
                     var set = SceneStudy.Of(root).Factor("data:Arrivals.file", path, other).Metric("out", "Sink.input").WithRunTime(100).Run();
                     Assert.AreEqual(5, set.Runs[0].Metrics["out"], "level 1: the 5-row file");

@@ -89,10 +89,10 @@ Required Value: (empty)
 ```
 Input Strategy:
   Strategy Type: MultiLabel
-  Label-Value Pairs:
-    [0] priority=1
-    [1] urgent=true
-    [2] color=red
+  Label-Value Pairs (records: label, value):
+    [0] priority / 1
+    [1] urgent / true
+    [2] color / red
 ```
 
 **Behavior:**
@@ -316,7 +316,7 @@ public class InputStrategyConfig
     public string singleLabelValue = "";
     
     // MultiLabel parameters
-    public string[] multiLabelPairs = new string[0];
+    public List<LabelValuePair> multiLabelPairs;   // records: label, value
     
     public SimuLean.InputStrategy CreateInputStrategy(string elementName = "");
     public bool ValidateConfiguration(out string errorMessage);
@@ -356,7 +356,7 @@ CheckAvailability(item)
 
 ```csharp
 // In UnityModelExtractor
-config.Parameters["inputStrategyType"] = queue.inputStrategy.strategyType.ToString();
+config.Parameters["inputStrategy.strategyType"] = queue.inputStrategy.strategyType.ToString();
 
 switch (queue.inputStrategy.strategyType)
 {
@@ -366,7 +366,7 @@ switch (queue.inputStrategy.strategyType)
         break;
     
     case InputStrategyType.MultiLabel:
-        config.Parameters["multiLabelPairs"] = new List<string>(queue.inputStrategy.multiLabelPairs);
+        config.Set("inputStrategy.multiLabelPairs", ExtractorHelpers.LabelValues(queue.inputStrategy.multiLabelPairs));
         break;
 }
 ```
@@ -377,7 +377,7 @@ switch (queue.inputStrategy.strategyType)
 // In HeadlessModelFactory
 private InputStrategy CreateInputStrategy(ElementConfig config)
 {
-    string strategyType = config.GetParameter<string>("inputStrategyType", "Default");
+    string strategyType = config.GetParameter<string>("inputStrategy.strategyType", "Default");
     
     switch (strategyType)
     {
@@ -390,11 +390,10 @@ private InputStrategy CreateInputStrategy(ElementConfig config)
             return new SingleLabelStrategy(labelName, requiredValue);
         
         case "MultiLabel":
-            var pairs = config.GetParameter<List<string>>("multiLabelPairs");
             var acceptedLabels = new Dictionary<string, object>();
-            foreach (string pair in pairs)
+            foreach (var pair in settings.MultiLabelPairs)   // LabelValueSettings records
             {
-                // Parse label=value pairs
+                // a value that reads as a number matches a numeric label, else a text
             }
             return new MultiLabelStrategy(acceptedLabels);
         
@@ -460,9 +459,9 @@ Debug.Log($"Validation result: {strategy.IsValid(item)}");
 
 **Symptom:** Items with matching labels still rejected
 
-**Possible Cause:** Incorrect format in label-value pairs
+**Possible Cause:** A record's label or value does not match the item's (case-sensitive)
 
-**Fix:** Ensure format is exactly `"label=value"` (no spaces around `=`)
+**Fix:** Check each record's `label` and `value` (a number matches a numeric label, a text a text label)
 
 ---
 

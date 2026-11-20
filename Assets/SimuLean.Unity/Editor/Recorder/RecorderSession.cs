@@ -9,7 +9,7 @@ using UnityEngine;
 namespace SimuLean.Unity.Editor
 {
     /// <summary>
-    /// The editor side of the <see cref="SimRecorder"/>: Unity's own H.264 encoder for its MP4 output (nothing
+    /// The editor side of the <see cref="SimRecorder"/> : Unity's own H.264 encoder for its MP4 output (nothing
     /// to install), and takes started from the MCP (<c>simulean_record_start</c> / <c>simulean_record_status</c>) — the
     /// take's settings (start date, length, size) are applied in Play without changing the scene, Play ends when the take
     /// does, and the take's status survives the domain reloads of entering and leaving Play (<see cref="SessionState"/>).
@@ -88,7 +88,7 @@ namespace SimuLean.Unity.Editor
             if (EditorApplication.isPlaying || EditorApplication.isPlayingOrWillChangePlaymode)
                 throw new InvalidOperationException("The editor is in Play: stop it first (or poll simulean_record_status).");
             if (EditorApplication.isCompiling) throw new InvalidOperationException("Unity is compiling: try again once it is idle.");
-            // Play would not start with compile errors, and the take's settings would be left for the next Play (review2 #31)
+            // Play would not start with compile errors, and the take's settings would be left for the next Play
             if (EditorUtility.scriptCompilationFailed) throw new InvalidOperationException("The scripts have compile errors: fix them first.");
             if (!string.IsNullOrWhiteSpace(scene)) OpenScene(scene.Trim());
             var r = FindRecorder(recorder);
@@ -215,6 +215,8 @@ namespace SimuLean.Unity.Editor
             string json = SessionState.GetString(RequestKey, "");
             if (string.IsNullOrEmpty(json)) return;
             SessionState.EraseString(RequestKey);
+            // a take simulean_record_start asked for: its folder (frames, video) is one simulean_results action=delete may remove
+            SimuLeanCommands.AgentWrote(s.folder);
             if (JsonUtility.FromJson<Request>(json).exitPlay)
                 EditorApplication.delayCall += () => { if (EditorApplication.isPlaying) EditorApplication.isPlaying = false; };
         }

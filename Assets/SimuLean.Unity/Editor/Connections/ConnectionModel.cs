@@ -136,10 +136,11 @@ namespace SimuLean.Unity.Editor
                 if (a.nextElements != null && a.nextElements.Contains(b)) { why = $"'{a.name}' already sends to '{b.name}'."; return; }
                 options.Add(new Option { Kind = ConnectionKind.Flow, Label = Label(ConnectionKind.Flow), Apply = () =>
                 {
-                    Undo.RecordObject(a, "Connect");
+                    Undo.RecordObjects(new Object[] { a, b }, "Connect");
                     if (a.nextElements == null) a.nextElements = new List<SElement>();
                     a.nextElements.Add(b);
                     if (a.sendTo == SElement.SendMode.List) a.sendTo = SElement.SendMode.Elements;
+                    if (b is UnityCombiner comb) { comb.NoteConnected(a); Done(comb); }   // connection order = input order
                     Done(a);
                 }});
             }
@@ -281,8 +282,16 @@ namespace SimuLean.Unity.Editor
                 case ConnectionKind.PushList: { var e = (SElement)c.Owner; e.pushToList = null; e.sendTo = SElement.SendMode.Elements; break; }
                 case ConnectionKind.PullList: { var e = (SElement)c.Owner; e.pullFromList = null; e.receiveFrom = SElement.ReceiveMode.Connections; break; }
                 case ConnectionKind.CombinerListInput: ((UnityCombiner)c.Owner).listInputs.RemoveAt(c.Index); break;
-                case ConnectionKind.ProcessTeam: ((SElement)c.Owner).processBy.team = null; break;
-                case ConnectionKind.TransportTeam: ((SElement)c.Owner).transportBy.team = null; break;
+                case ConnectionKind.ProcessTeam:
+                    if (c.Index >= SceneConnections.UseRequirements && c.Owner is UnityAssemblyStation asy)
+                    {
+                        int t = c.Index / SceneConnections.UseRequirements - 1, r = c.Index % SceneConnections.UseRequirements;
+                        asy.tasks[t].requirements[r].team = null;
+                    }
+                    else ClearUse(((SElement)c.Owner).processBy, c.Index);
+                    break;
+                case ConnectionKind.SetupCrew: ClearUse(((ISetupUser)c.Owner).Setup.setupBy, c.Index); break;
+                case ConnectionKind.TransportTeam: ClearUse(((SElement)c.Owner).transportBy, c.Index); break;
                 case ConnectionKind.Location: ((SElement)c.Owner).location = null; break;
                 case ConnectionKind.HomeNode: ((UnityResourceTeam)c.Owner).homeNode = null; break;
                 case ConnectionKind.NetworkEdge: ((UnityTransportNetwork)c.Owner).edges.RemoveAt(c.Index); break;
@@ -298,6 +307,22 @@ namespace SimuLean.Unity.Editor
                     var d = (UnityDowntime)c.Owner;
                     d.targets.RemoveAt(c.Index);
                     if (d.targetKeys != null && c.Index < d.targetKeys.Count) d.targetKeys.RemoveAt(c.Index);
+                    break;
+                }
+                case ConnectionKind.DowntimeTeamTarget: ((UnityDowntime)c.Owner).teamTargets.RemoveAt(c.Index); break;
+                case ConnectionKind.RepairCrew: ClearUse(((UnityDowntime)c.Owner).repairBy, c.Index); break;
+                case ConnectionKind.MilkRunFlow:
+                {
+                    var f = ((UnityMilkRun)c.Owner).flows[c.Index / 2];
+                    if (c.Index % 2 == 0) f.origin = null; else f.destination = null;
+                    break;
+                }
+                case ConnectionKind.MilkRunEmpties:
+                {
+                    var m = (UnityMilkRun)c.Owner;
+                    if (c.Index == SceneConnections.MilkRunOwnEmpties) { m.emptiesDestination = null; break; }
+                    var st = m.stops[c.Index / 1000];
+                    if (c.Index % 1000 == 999) st.emptiesDestination = null; else st.emptiesOrigins.RemoveAt(c.Index % 1000);
                     break;
                 }
             }
@@ -328,10 +353,18 @@ namespace SimuLean.Unity.Editor
             a.nextElements.Remove(b);
             if (b.nextElements == null) b.nextElements = new List<SElement>();
             b.nextElements.Add(a);
+            if (a is UnityCombiner comb) comb.NoteConnected(b);
             Done(a); Done(b);
         }
 
         // ── helpers ──────────────────────────────────────────────────────────
+
+        // a resource connection's index (SceneConnections.UseRequirements): -1 = the use's team, i = requirement i's team
+        private static void ClearUse(ResourceUse use, int index)
+        {
+            if (index < 0) use.team = null;
+            else if (use.requirements != null && index < use.requirements.Count) use.requirements[index].team = null;
+        }
 
         public static string Kind(Component c)
         {

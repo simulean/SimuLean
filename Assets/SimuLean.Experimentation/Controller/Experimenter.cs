@@ -50,18 +50,18 @@ namespace SimuLean.Experimentation.Controller
 
         [Tooltip("On: background runs (Edit or Play mode). Off: every scenario × replication runs in the scene, one after another (Play mode).")]
         [SerializeField] private bool headlessMode = true;
-        [Tooltip("Runs at once (headless; 0 = one per processor up to 8, 1 = one after another).")]
+        [Tooltip("Runs at once (headless; 0 = half the logical processors, 1 to 16; 1 = one after another).")]
         [Min(0)] [SerializeField] private int threads = 0;
         [Tooltip("Seed of replication 1 (replication r: seed + r − 1, the same in every scenario). 0 = a new seed each time.")]
         [SerializeField] private int randomSeed = 1;
 
         [Tooltip("Formats the results are exported to when the experiment completes (the results folder of the project settings; SQLite: the project database). Nothing = no file (the SimuLean window's Results tab still shows them).")]
-        [SerializeField] private ResultFormats exportFormats = ResultFormats.None;   // the Results tab shows them; a file on request (review2 #43)
+        [SerializeField] private ResultFormats exportFormats = ResultFormats.None;   // the Results tab shows them; a file on request
         [Tooltip("Record every statistic of each run (elements, resources, teams, lists…) — the model sheets of the report.")]
         [SerializeField] private bool exportElementStats = true;
         [Tooltip("Interval of the time series recorded in each headless run (content, throughput, states per interval). 0 = none.")]
         [Min(0)] [SerializeField] private double seriesInterval = 0;
-        [Tooltip("Keep every state interval of elements and resources (the Gantt charts; G3c). Off by default: the results grow with every state change.")]
+        [Tooltip("Keep every state interval of elements and resources (the Gantt charts). Off by default: the results grow with every state change.")]
         [SerializeField] private bool recordTimeline = false;
 
         // progress and results: in memory only (the report keeps them) — never saved with the scene
@@ -124,6 +124,13 @@ namespace SimuLean.Experimentation.Controller
             };
             for (int i = 0; i < parameters.Count; i++)
             {
+                // a text setting: a choice among the scenarios' texts (a row takes the text to try)
+                if (parameters[i].IsText(config))
+                {
+                    int k = i;
+                    study.Factor(parameters[i].ToTextParameter(config, Runs.Select(s => s.parameterValues.Count > k ? s.parameterValues[k] ?? "" : "")));
+                    continue;
+                }
                 var p = parameters[i].ToModelParameter(config);
                 var kind = p.Variable.Kind;
                 if (kind == VariableKind.Integer || kind == VariableKind.Real)
@@ -188,18 +195,26 @@ namespace SimuLean.Experimentation.Controller
         {
             Study study;
             try { study = BuildStudy(SceneExtractor.Extract(modelRoot).Config); }
+            catch (SimuLean.Unity.SceneNotHeadlessException e)
+            {
+                // a model that needs Unity's physics runs only in the scene
+                Fail(e.Message + " Or switch this Experimenter off Headless to run it in the scene (Play).");
+                return;
+            }
             catch (Exception e) { Fail(e.Message); return; }
             cancellation = new CancellationTokenSource();
             var token = cancellation.Token;
+            var executor = ExternalRunner.Prepare();   // main thread: the runner outside the editor, or here
             running = true;
             try
             {
-                bool complete = await Task.Run(() => Execute(study, token));
+                bool complete = await Task.Run(() => Execute(study, token, executor));
                 Complete(complete ? "Done" : "Cancelled");
             }
             catch (Exception e)
             {
-                Fail(e.InnerException?.Message ?? e.Message);
+                // a study's own errors keep their text (an engine error may carry the one it wraps as its inner exception)
+                Fail((e is AggregateException || e is System.Reflection.TargetInvocationException) && e.InnerException != null ? e.InnerException.Message : e.Message);
             }
         }
 
@@ -209,17 +224,18 @@ namespace SimuLean.Experimentation.Controller
             results.Clear();
             started = DateTime.Now;
             completedRuns = 0;
-            Execute(BuildStudy(SceneExtractor.Extract(modelRoot).Config), CancellationToken.None);
+            Execute(BuildStudy(SceneExtractor.Extract(modelRoot).Config), CancellationToken.None, ExternalRunner.Prepare());
             return results;
         }
 
-        /// <summary>Every (scenario, replication) in parallel (<see cref="Study.Run"/>); the results in run order. False when
-        /// cancelled (the runs done are kept).</summary>
-        private bool Execute(Study study, CancellationToken token)
+        /// <summary>Every (scenario, replication) in parallel (<see cref="Study.Run"/>; outside the editor when the runner is
+        /// there, <see cref="ExternalRunner"/>); the results in run order. False when cancelled (the runs done are kept).</summary>
+        private bool Execute(Study study, CancellationToken token, ExternalRunner.Executor executor)
         {
             totalRuns = Runs.Sum(s => Math.Max(1, s.replications));
-            status = $"Running {totalRuns} runs…";
-            var set = study.Run(token, (n, total) => { completedRuns = n; status = $"Run {n} / {total}"; });
+            string where = executor.RunnerPath != null ? " outside the editor" : "";
+            status = $"Running {totalRuns} runs{where}…";
+            var set = executor.Run(study, token, (n, total) => { completedRuns = n; status = $"Run {n} / {total}{where}"; });
             results.AddRange(set.Runs);
             studyMetadata = set.Metadata;   // base_seed actually used, cancelled, failed_runs / first_error
             return !token.IsCancellationRequested;
@@ -231,7 +247,7 @@ namespace SimuLean.Experimentation.Controller
         {
             var clock = UnitySimClock.Instance;
             if (!Application.isPlaying || clock == null) { Fail("Running in the scene needs Play mode and a Simulation Clock."); return; }
-            // Validate returns the problem (it was discarded: an invalid set-up ran anyway)
+            // Validate returns the problem (discarding it would let an invalid set-up run anyway)
             string problem;
             try { problem = BuildStudy(SceneExtractor.Extract(modelRoot).Config).Validate(); }
             catch (Exception e) { problem = e.Message; }

@@ -81,7 +81,7 @@ namespace SimuLean
                 Released?.Invoke(this, head);
             }
             // Pushing to a list: every pending item is advertised, not only the head.
-            if (output is ListLink list)
+            if (output is IAdvertisingLink list)
                 foreach (var it in pending) list.Advertise(it, this);
             UpdateState();
             return any;

@@ -98,7 +98,7 @@ namespace SimuLean
         /// <summary>Level the item will take on the stack (0 = bottom).</summary>
         public int Level { get; }
         /// <summary>Simulation time the cycle started (the item left the pick point).</summary>
-        public double Start { get; }
+        public double Start { get; internal set; }
         /// <summary>Sampled cycle time (0 = instantaneous placement). Stops pause it (see <see cref="Stacker.IsWorkPaused"/>).</summary>
         public double Duration { get; }
         /// <summary>Resolved height of the item (0 when unknown).</summary>
@@ -111,8 +111,8 @@ namespace SimuLean
     /// Stacker / palletiser: receives items of any type and builds stacks at N positions, then
     /// releases each finished stack downstream as <b>one compound item</b> that carries the stacked
     /// items as <see cref="Item.subItems"/> (the engine's batching convention, as the combiner and
-    /// the picking / assembly stations use it). Generalised from a pick-and-place board stacker of an
-    /// industrial application; nothing in it depends on the item type.
+    /// the picking / assembly stations use it). Nothing in it depends
+    /// on the item type.
     ///
     /// <para><b>Flow.</b> The stacker has one <i>pick point</i> (capacity 1): an item arriving there
     /// waits until a position can take it, then a pick-and-place <i>cycle</i> moves it onto the stack
@@ -134,7 +134,8 @@ namespace SimuLean
     ///
     /// <para><b>Release.</b> A complete stack becomes a new item of type <see cref="StackType"/> (labels of
     /// its first item copied when <see cref="CopyLabelsFromFirst"/>, plus <c>stackPosition</c>,
-    /// <c>stackCount</c>, <c>stackHeight</c>, <c>stackKey</c> and <c>stackReason</c>) and is sent through the
+    /// <c>stackCount</c>, <c>stackHeight</c>, <c>stackKey</c> and <c>stackReason</c>; when its height is known, also
+    /// <see cref="HeightLabel"/> = the stack's height) and is sent through the
     /// output link; refused stacks wait in completion order and are retried on <see cref="Unblock"/>.
     /// The position is free again once its stack has left.</para>
     ///
@@ -147,8 +148,15 @@ namespace SimuLean
     /// items), IDLE (empty). Views get C# events (<see cref="ItemArrived"/>, <see cref="CycleStarted"/>,
     /// <see cref="ItemPlaced"/>, <see cref="StackCompleted"/>, <see cref="StackReleased"/>) plus the
     /// <see cref="IVElement"/> calls. Engine-pure (no Unity dependency). See docs/architecture.md §3.14.</para>
+    ///
+    /// <para><b>Setup</b> (optional, <see cref="Setup"/>): a changeover of the gripper / the layer pattern
+    /// before an item's cycle — on every item (EachItem) or when the item's label differs from the previous item's
+    /// (LabelChange; one robot, so the value is the stacker's) —, once a position can take the item, before its operator or
+    /// crane is asked; the item waits at the pick point meanwhile (SETUP). The machine alone or a crew of its own (its
+    /// cycle resources are asked per cycle: <see cref="StationSetup.KeepForProcess"/> is not offered).</para>
     /// </summary>
-    public class Stacker : Element, SimuLean.Resources.IResourceUser
+    public class Stacker : Element, SimuLean.Resources.IResourceUser, SimuLean.Resources.IInterruptibleStation,
+                           ISetupStation, ISetupHost
     {
         public const string LabelPosition = "stackPosition";
         public const string LabelCount = "stackCount";
@@ -312,7 +320,7 @@ namespace SimuLean
         public string KeyOf(Item item)
         {
             if (item == null) return "";
-            if (string.IsNullOrEmpty(KeyLabel)) return item.GetTypeName() ?? "";
+            if (string.IsNullOrEmpty(KeyLabel)) return item.Name ?? "";
             return item.GetLabelText(KeyLabel) ?? "";
         }
 
@@ -339,6 +347,47 @@ namespace SimuLean
 
         private bool awaitingOperator;   // request issued, not granted yet
         private bool operatorHeld;       // granted, used by the next / current cycle
+        private bool cyclePaused;        // the cycle lost its operator (preemption): it waits for one, paused
+
+        /// <summary>Its changeover before an item's cycle (null = none); the previous item is the stacker's.</summary>
+        public StationSetup Setup { get; set; }
+        private ServerProcess setupSlot;           // what the setup tracks (the last value, the running setup)
+        private Item setupDecided;                 // the pick item whose setup was decided (once per item)
+        private ElementState setupShown = ElementState.SETUP;   // WAITING_FOR_RESOURCE while its crew comes
+
+        /// <summary>The pick point is free and the stacker set up for <paramref name="item"/>.</summary>
+        public bool IsSetUpFor(Item item) => Setup != null && pickItem == null && Setup.Matches(setupSlot, item);
+
+        /// <summary>The changeover is running (or waits for its crew): no cycle starts.</summary>
+        public bool InSetup => setupSlot != null && setupSlot.InSetup;
+
+        void ISetupHost.SetupState(ServerProcess slot, ElementState state) { setupShown = state; UpdateState(); }
+
+        void ISetupHost.SetupEnded(ServerProcess slot, bool keptResources) => TryStartCycle();
+
+        public override void ResetStatistics()
+        {
+            base.ResetStatistics();
+            Setup?.ResetStatistics();
+        }
+
+        /// <summary>The cycle lost a resource (preemption): the stacker waits for it, the cycle paused; then it goes on
+        /// (the cycle's start shifted by the pause for the views, or set to now when it starts again).</summary>
+        void SimuLean.Resources.IInterruptibleStation.JobPaused(SimuLean.Resources.ResourceJob job, bool paused, bool restart)
+        {
+            if (job.Slot != null && job.Slot == setupSlot)
+            {
+                // the setup crew lost a member: the changeover waits, paused, then goes on
+                if (!paused) { if (restart) setupSlot.SetupStart = simClock.GetSimulationTime(); else setupSlot.SetupStart += job.LastPause; }
+                setupShown = paused ? ElementState.WAITING_FOR_RESOURCE : ElementState.SETUP;
+                UpdateState();
+                return;
+            }
+            cyclePaused = paused;
+            if (!paused && currentCycle != null)
+                currentCycle.Start = restart ? simClock.GetSimulationTime() : currentCycle.Start + job.LastPause;
+            UpdateState();
+        }
 
         private void OnOperatorGranted()
         {
@@ -349,12 +398,14 @@ namespace SimuLean
 
         public override void Start()
         {
-            awaitingOperator = false; operatorHeld = false; cycleJob = null;
+            awaitingOperator = false; operatorHeld = false; cycleJob = null; cyclePaused = false;
             foreach (var p in positions) p.Clear();
             Array.Clear(closeAfterPlace, 0, closeAfterPlace.Length);
             releaseQueue.Clear();
             pickItem = null; carried = null; carriedTarget = -1; currentCycle = null;
             kickPending = false; rrNext = 0; stackSeq = 0;
+            setupSlot = new ServerProcess(null, null, simClock); setupDecided = null; setupShown = ElementState.SETUP;
+            Setup?.ResetStatistics();
             ItemsStacked = 0; StacksReleased = 0; PartialStacksReleased = 0;
             base.Start();
         }
@@ -437,7 +488,7 @@ namespace SimuLean
 
         private void TryStartCycle()
         {
-            if (pickItem == null || carried != null) { UpdateState(); return; }
+            if (pickItem == null || carried != null || InSetup) { UpdateState(); return; }
             double h = HeightOf(pickItem);
             int p = Choose(pickItem, h, out int blocker);
             if (p < 0 && blocker >= 0 && ReleasePartialWhenBlocked)
@@ -447,6 +498,14 @@ namespace SimuLean
                 p = Choose(pickItem, h, out _);
             }
             if (p < 0) { UpdateState(); return; }   // waits: retried on Unblock / ReleaseStack
+
+            // the changeover for this item (decided once, when a position can take it), before its operator / crane
+            if (Setup != null && setupDecided != pickItem)
+            {
+                setupDecided = pickItem;
+                setupSlot.SetItem(pickItem);
+                if (Setup.Needed(setupSlot, pickItem)) { Setup.Begin(this, setupSlot, null, this); return; }
+            }
 
             if (CraneMode)
             {
@@ -472,7 +531,8 @@ namespace SimuLean
             var pos = positions[p];
             double dt = SampleCycle(item);
             currentCycle = new StackerCycle(item, p, pos.Count, simClock.GetSimulationTime(), dt, h, pos.Height);
-            ScheduleWork(new ActionEvent(FinishCycle), dt);
+            var work = ScheduleWork(new ActionEvent(FinishCycle), dt);
+            if (operatorHeld) Resources.ProcessStarted(cycleJob, work);   // its operator may be taken during the cycle
             UpdateState();
             CycleStarted?.Invoke(this, currentCycle);
             vElement.ReportState("Cycle");
@@ -482,14 +542,26 @@ namespace SimuLean
         // Crane mode: ask for the crane; the target position is chosen when it is assigned.
         private void RequestCrane()
         {
-            var request = new ResourceRequest(this, TaskType.Transport, (r, got) => CraneAssigned(got),
+            var request = new ResourceRequest(this, TaskType.Transport, CraneAssigned,
                                               new List<ResourceRequirement>(Resources.Requirements).ToArray());
-            request.Priority = Resources.Priority?.Invoke(pickItem) ?? 0;
+            request.Priority = Resources.Priority?.Invoke(pickItem) ?? 1;
+            request.Preempt = Resources.Preempt;
             request.Location = PickLocation;
             Resources.Dispatcher.Request(request);
         }
 
-        private void CraneAssigned(IReadOnlyList<TaskExecutor> got)
+        // Crane mode, preemption: the crane taken on its way, empty, to the pick point — the cycle is not started yet
+        // (the item still waits there) and asks for a crane again.
+        private void CraneTaken()
+        {
+            carried = null; carriedTarget = -1; currentCycle = null;
+            if (pickItem == null) { UpdateState(); return; }
+            awaitingOperator = true;
+            UpdateState();
+            RequestCrane();
+        }
+
+        private void CraneAssigned(ResourceRequest request, IReadOnlyList<TaskExecutor> got)
         {
             awaitingOperator = false;
             if (pickItem == null || carried != null) { UpdateState(); return; }   // nothing to do: the crane goes back
@@ -504,7 +576,7 @@ namespace SimuLean
             if (p < 0) { UpdateState(); return; }                                 // retried on Unblock / ReleaseStack
             var pos = positions[p];
             if (pos.Location == null)
-                throw new InvalidOperationException($"Stacker '{GetName()}': position {p} has no location for the crane.");
+                throw new InvalidOperationException($"Stacker '{Name}': position {p} has no location for the crane.");
 
             Item item = pickItem;
             carried = item;
@@ -514,20 +586,28 @@ namespace SimuLean
             if (crane.TravelModel != null)
                 dt += SafeTime(crane, crane.Location ?? PickLocation, PickLocation) + SafeTime(crane, PickLocation, pos.Location);
             currentCycle = new StackerCycle(item, p, pos.Count, simClock.GetSimulationTime(), dt, h, pos.Height);
-            var task = new TaskSequence(TaskType.Transport, this, "Stack " + item.GetId())
-                .Travel(PickLocation)
-                .Load(item, null, _ => { pickItem = null; NotifyInput(); })   // the pick point is free again
-                .Travel(pos.Location)
-                .Unload(item, null, _ => FinishCycle());
-            for (int k = 1; k < got.Count; k++)                 // helpers accompany the crane
-            {
-                var helper = got[k];
-                helper.Execute(new TaskSequence(TaskType.Transport, this, "Help " + item.GetId()).Hold(ResourceStates.TRAVELLING_LOADED));
-                task.Completed += _ => helper.Continue();
-            }
+            Action<Item> picked = _ => { pickItem = null; NotifyInput(); };   // the pick point is free again
+            Action<Item> placed = _ => FinishCycle();
             UpdateState();
             CycleStarted?.Invoke(this, currentCycle);
             vElement.ReportState("Cycle");
+            if (got.Count > 1)
+            {
+                // several cranes / helpers together: they gather at the pick point, the lead carries the item
+                new CarrierGroup(this, request, Resources.Dispatcher, Resources.Preemptable, PickLocation, "Stack " + item.GetId(),
+                                 "Help " + item.GetId(), (lead, c) => lead.Load(item, null, picked).Travel(pos.Location).Unload(item, null, placed),
+                                 null, null).Start(got);
+                return;
+            }
+            var task = new TaskSequence(TaskType.Transport, this, "Stack " + item.GetId())
+            {
+                Priority = request.Priority, Preemptable = Resources.Preemptable,
+            };
+            task.Interruption = new EmptyLegMove(CraneTaken);
+            task.Travel(PickLocation)
+                .Load(item, null, picked)
+                .Travel(pos.Location)
+                .Unload(item, null, placed);
             crane.Execute(task);
         }
 
@@ -680,6 +760,8 @@ namespace SimuLean
             stack.SetLabelValue(LabelPosition, pos.Index);
             stack.SetLabelValue(LabelCount, pos.Count);
             stack.SetLabelValue(LabelHeight, pos.Height);
+            // the stack's own height (not the first item's, copied above): what a storage with physical dimensions checks
+            if (pos.Height > 0 && !string.IsNullOrEmpty(HeightLabel)) stack.SetLabelValue(HeightLabel, pos.Height);
             stack.SetLabelText(LabelKey, pos.Key ?? "");
             stack.SetLabelText(LabelReason, reason);
             foreach (var it in pos.items) stack.AddItem(it);
@@ -713,7 +795,8 @@ namespace SimuLean
 
         private void UpdateState()
         {
-            if (carried != null) SetState(ElementState.PROCESSING);
+            if (carried != null) SetState(cyclePaused ? ElementState.WAITING_FOR_RESOURCE : ElementState.PROCESSING);
+            else if (InSetup) SetState(setupShown);
             else if (awaitingOperator) SetState(ElementState.WAITING_FOR_RESOURCE);
             else if (releaseQueue.Count > 0 || (pickItem != null && !kickPending)) SetState(ElementState.BLOCKED);
             else if (pickItem != null || HoldsItems()) SetState(ElementState.RECEIVING);

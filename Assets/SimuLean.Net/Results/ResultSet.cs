@@ -259,7 +259,7 @@ namespace SimuLean.Results
             return t;
         }
 
-        /// <summary>Where each item was and when (G3d): <c>run, scenario, replication, item, element, start, end</c>.</summary>
+        /// <summary>Where each item was and when: <c>run, scenario, replication, item, element, start, end</c>.</summary>
         public ResultTable JobsTable()
         {
             var t = new ResultTable("jobs", "run", "scenario", "replication", "item", "element", "start", "end");

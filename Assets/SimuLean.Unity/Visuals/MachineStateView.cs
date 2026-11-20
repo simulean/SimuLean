@@ -10,7 +10,7 @@ namespace SimuLean.Unity
     /// transforms of the model, so runs are unchanged.
     ///
     /// <para><b>Lamps</b> (<c>Beacon</c> › <c>Lamp_Green</c> / <c>Lamp_Amber</c> / <c>Lamp_Red</c>, one renderer per lamp
-    /// and LOD): green while the element works (PROCESSING, SETUP), red while it is down (STOPPED, BREAKDOWN,
+    /// and LOD): green while the element works (PROCESSING, SETUP), red while it is down (STOPPED, BREAKDOWN, WAITING_FOR_REPAIR,
     /// SCHEDULED_DOWN, OFF_SHIFT), amber otherwise (IDLE, RECEIVING, BLOCKED, WAITING_FOR_RESOURCE). Lit by a
     /// <see cref="MaterialPropertyBlock"/> (the atlas material stays shared); before a run the baked look shows all
     /// lamps lit.</para>
@@ -19,8 +19,8 @@ namespace SimuLean.Unity
     /// <c>Tools/Blender/assets</c>): <c>Spindle</c> / <c>Turntable</c> spin, <c>Head</c> / <c>Table</c> /
     /// <c>Tilt</c> / <c>Screwdriver</c> cycle, <c>Lights</c> flash while working; doors (<c>Door_L/R</c> slide,
     /// <c>Door_In/Out</c> roll up) and the <c>Curtain</c> are open while the element waits and closed while it
-    /// works; the palletizer's <c>Slew</c> › <c>Lift</c> › <c>Reach</c> run a pick-and-place cycle. Motions run on
-    /// screen time while the simulation clock advances.</para>
+    /// works. The motions run on screen time while the simulation clock advances. (The palletizer's arm, <c>Slew</c> ›
+    /// <c>Lift</c> › <c>Reach</c>, is not one of them: its combiner carries each case with it, <see cref="ColumnArm"/>.)</para>
     /// </summary>
     [DisallowMultipleComponent]
     [AddComponentMenu("SimuLean/Visuals/Machine State View")]
@@ -34,6 +34,12 @@ namespace SimuLean.Unity
         public float motionSpeed = 1f;
 
         public enum Lamp { None, Green, Amber, Red }
+
+        /// <summary>The emission colour of each lamp (green, amber, red).</summary>
+        public static readonly Color[] LampColors =
+        {
+            new Color(0.10f, 0.85f, 0.20f), new Color(1.00f, 0.55f, 0.05f), new Color(1.00f, 0.10f, 0.08f),
+        };
 
         private SElement element;
         private readonly List<Renderer>[] lamps = { new List<Renderer>(), new List<Renderer>(), new List<Renderer>() };
@@ -51,7 +57,7 @@ namespace SimuLean.Unity
             {
                 case null: return Lamp.None;
                 case "PROCESSING": case "SETUP": return Lamp.Green;
-                case "STOPPED": case "BREAKDOWN": case "SCHEDULED_DOWN": case "OFF_SHIFT": return Lamp.Red;
+                case "STOPPED": case "BREAKDOWN": case "WAITING_FOR_REPAIR": case "SCHEDULED_DOWN": case "OFF_SHIFT": return Lamp.Red;
                 default: return Lamp.Amber;
             }
         }
@@ -65,6 +71,7 @@ namespace SimuLean.Unity
         {
             foreach (var m in motions) m.Reset();
             ShowLamp(Lamp.None);
+            Watch(null);
         }
 
         private void Bind()
@@ -81,6 +88,64 @@ namespace SimuLean.Unity
                 if (nodes.TryGetValue(lampNodes[i], out var n))
                     lamps[i].AddRange(n.GetComponentsInChildren<Renderer>(true));
             Motion.Build(nodes, motions);
+            hasPusher = false;
+            if (nodes.TryGetValue("Pusher", out var pusher) && nodes.TryGetValue("RejectSocket", out var reject) && pusher.parent != null)
+            {
+                // the stroke: towards the reject bin, 0.72 m (the model's contract), in the pusher's parent frame
+                Vector3 toBin = reject.position - pusher.position; toBin.y = 0f;
+                if (toBin.sqrMagnitude > 1e-6f)
+                {
+                    motions.Add(new Push(pusher, pusher.parent.InverseTransformVector(toBin.normalized * PusherStroke), () => TakePush()));
+                    hasPusher = true;
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------ the reject pusher (inspection station)
+
+        /// <summary>The inspection station's pusher stroke (m) — <c>Tools/Blender/assets/inspection_station.py</c>.</summary>
+        public const float PusherStroke = 0.72f;
+
+        // An item that leaves this element for any next element but the first (a reject: an inspection's second exit)
+        // makes the pusher stroke once: the element's exit, then that element's entry, as the link layer reports them.
+        private bool hasPusher;
+        private Element watched;
+        private readonly List<Element> rejectTargets = new List<Element>();
+        private Item lastExited;
+        private int pushes;
+
+        private bool TakePush()
+        {
+            if (pushes <= 0) return false;
+            pushes--;
+            return true;
+        }
+
+        private void Watch(Element e)
+        {
+            if (e == watched) return;
+            if (watched != null) watched.ItemExited -= OnItemExited;
+            foreach (var r in rejectTargets) r.ItemEntered -= OnRejectEntered;
+            rejectTargets.Clear();
+            watched = e;
+            lastExited = null; pushes = 0;
+            if (e == null || element == null) return;
+            e.ItemExited += OnItemExited;
+            var next = element.nextElements;
+            for (int i = 1; next != null && i < next.Count; i++)
+            {
+                var r = next[i] != null ? next[i].GetElement() : null;
+                if (r == null || rejectTargets.Contains(r)) continue;
+                r.ItemEntered += OnRejectEntered;
+                rejectTargets.Add(r);
+            }
+        }
+
+        private void OnItemExited(Element from, Item item) => lastExited = item;
+
+        private void OnRejectEntered(Element at, Item item)
+        {
+            if (item != null && item == lastExited) { pushes = Mathf.Min(pushes + 1, 2); lastExited = null; }   // fast runs: at most one waiting
         }
 
         private void LateUpdate()
@@ -88,6 +153,7 @@ namespace SimuLean.Unity
             if (!Application.isPlaying) return;
             if (!bound) Bind();
             var e = element != null ? element.GetElement() : null;
+            if (hasPusher) Watch(e);
             string state = e?.CurrentState.Name;
             var lamp = LampFor(state);
             if (lamp != shown) ShowLamp(lamp);
@@ -115,8 +181,9 @@ namespace SimuLean.Unity
                     if (r == null) continue;
                     if (lamp == Lamp.None) { r.SetPropertyBlock(null); continue; }
                     r.GetPropertyBlock(block);
-                    block.SetColor("_EmissionColor", Color.white * (on ? litIntensity : offIntensity));
-                    block.SetColor("_Color", on ? Color.white : new Color(0.35f, 0.35f, 0.35f));
+                    // the lamp's own colour: a white emission washed the green out to a pale yellow
+                    block.SetColor("_EmissionColor", LampColors[i] * (on ? litIntensity : offIntensity));
+                    block.SetColor("_BaseColor", on ? Color.white : new Color(0.35f, 0.35f, 0.35f));
                     r.SetPropertyBlock(block);
                 }
             }
@@ -152,13 +219,12 @@ namespace SimuLean.Unity
                 Add("Screwdriver", t => new Cycle(t, Vector3.up * -0.30f, 4.0f));
                 Add("Tilt", t => new Swing(t, Vector3.right, 30f, 8.0f));
                 Add("Lights", t => new Flash(t, 1.5f));
-                Add("Door_L", t => new Slide(t, Vector3.right * -0.38f));
-                Add("Door_R", t => new Slide(t, Vector3.right * 0.38f));
+                // the CNC's doors (the model frame: seen from its front, −Z, Door_L is on the left and opens to the right)
+                Add("Door_L", t => new Slide(t, Vector3.right * 0.38f));
+                Add("Door_R", t => new Slide(t, Vector3.right * -0.38f));
                 Add("Door_In", t => new Roll(t, 1));
                 Add("Door_Out", t => new Roll(t, 1));
                 Add("Curtain", t => new Roll(t, 0));
-                if (n.TryGetValue("Slew", out var slew))
-                    list.Add(new PickPlace(slew, n.TryGetValue("Lift", out var lift) ? lift : null));
             }
         }
 
@@ -243,23 +309,22 @@ namespace SimuLean.Unity
             }
         }
 
-        // the palletizer: slew to the infeed (180 deg), dip, slew back to the pallet, dip — one cycle per 8 s
-        private class PickPlace : Motion
+        // the reject pusher: one stroke out and back (0.8 s of screen time) per reject; at rest otherwise
+        private class Push : Motion
         {
-            private readonly Transform lift; private readonly Vector3 lift0;
-            public PickPlace(Transform slew, Transform lift) : base(slew)
-            { this.lift = lift; if (lift != null) lift0 = lift.localPosition; }
+            private readonly Vector3 stroke; private readonly System.Func<bool> take;
+            private float elapsed = -1f;
+            public Push(Transform pusher, Vector3 stroke, System.Func<bool> take) : base(pusher) { this.stroke = stroke; this.take = take; }
             public override void Update(bool working, float phase, float dt)
             {
-                if (!working) { if (dt > 0f) { t.localRotation = Quaternion.Slerp(t.localRotation, rot0, dt * 2f); } return; }
-                float u = (phase % 8f) / 8f;                                         // 0..1 over the cycle
-                float yaw = 180f * Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((u < 0.5f ? u : 1f - u) * 4f - 0.5f));
-                t.localRotation = rot0 * Quaternion.AngleAxis(yaw, Vector3.up);
-                if (lift != null)
-                {
-                    float dip = Mathf.Max(0f, Mathf.Sin(2f * Mathf.PI * u * 2f + Mathf.PI)) * 0.5f;
-                    lift.localPosition = lift0 + Vector3.up * -dip;
-                }
+                if (elapsed < 0f && take()) elapsed = 0f;
+                if (elapsed < 0f) return;
+                elapsed += dt;
+                const float duration = 0.8f, outShare = 0.4f;
+                float u = Mathf.Clamp01(elapsed / duration);
+                float k = u < outShare ? Mathf.SmoothStep(0f, 1f, u / outShare) : 1f - Mathf.SmoothStep(0f, 1f, (u - outShare) / (1f - outShare));
+                t.localPosition = pos0 + stroke * k;
+                if (u >= 1f) elapsed = -1f;
             }
         }
     }
