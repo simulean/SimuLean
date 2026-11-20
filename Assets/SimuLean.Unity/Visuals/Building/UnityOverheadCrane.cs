@@ -372,8 +372,8 @@ namespace SimuLean.Unity
             if (!buildRunways || !buildColumns) return;
             float half = runwayLength * 0.5f;
             var footprints = new List<Rect>();
-            // the elements' views and the floor zones that mark work areas
-            var areas = UnityCompat.FindAll<SElement>(false).Select(e => e.transform)
+            // the stations' views and the floor zones that mark work areas (not a team: its members move about)
+            var areas = UnityCompat.FindAll<SElement>(false).Where(e => !(e is UnityResourceTeam)).Select(e => e.transform)
                 .Concat(UnityCompat.FindAll<UnityFloorZone>(false).Select(z => z.transform));
             foreach (var area in areas)
             {

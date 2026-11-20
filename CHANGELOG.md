@@ -48,6 +48,8 @@ The agent interface after evaluation rounds with AI agents building models from 
   the model importer makes URP materials, the connection overlay draws after each camera.
 - The Input System package replaces the deprecated Input Manager for the camera, HUD and run-time panels.
 - The hall crane's runways stand on steel columns of the building kit, kept clear of every work station and its floor zone.
+- The shipyard example: a hall of two bays with a bridge crane each (the sub-assembly and the turning bay), the
+  goliath crane parked clear of the level-luffing crane.
 
 **Code and tests**
 - The engine's model build in named passes, namespace cycles removed, duplicated helpers merged; the Unity commands edit
