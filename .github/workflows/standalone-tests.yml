@@ -30,8 +30,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # the runner image also carries a newer SDK, which dotnet would pick (and whose parallel NuGet restore failed on
-      # the suites: "Cannot create a file when that file already exists"): the job builds with the .NET 10 SDK set up
+      # the runner image also carries a newer SDK, which dotnet would pick: the job builds with the .NET 10 SDK set up
       # above, through a global.json of the job only (a developer's machine keeps its own SDK choice)
       - name: Pin the .NET 10 SDK
         shell: powershell
