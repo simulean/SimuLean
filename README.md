@@ -36,7 +36,8 @@ Download the release's source archive (or clone the repository; git is not neede
 | **Unity Hub** and **Unity 6.6** (6000.6.4f1, the version in `ProjectSettings/ProjectVersion.txt`) | everything | Install the Hub, then that editor version from it; *Add project from disk* with this folder. The first import takes several minutes. |
 | **Unity CLI** (`unity`) | AI agents: it runs the editor's MCP server | It comes with recent versions of the Unity Hub, or see [Unity CLI](https://docs.unity.com/en-us/unity-cli/replace-mcp-server-unity-cli) in Unity's documentation. Check with `unity --version`; `unity mcp configure <client>` writes the server into a client's configuration (Claude, Cursor, VS Code, Windsurf). |
 | An **MCP client** (an AI coding agent) | AI agents | Any client that speaks the Model Context Protocol. With Claude Code, the project's `simulean-modeller` skill loads the agent guide. |
-| **.NET 10 SDK** | studies and optimisation outside the editor (the runner, about 10–25× faster on long runs); the headless test suites | From Microsoft's .NET download page. Without it everything works, and studies run inside the editor. |
+| **The runner** `simulean` | studies and optimisation outside the editor, about 10–25× faster on long runs | Download `SimuLeanRunner-<version>-<os>.zip` from the release and unzip it in this folder (it creates `SimuLeanRunner/<os>/`; on macOS / Linux keep the file executable). Or install the .NET 10 SDK and the editor builds the runner itself on first use. Without either, everything works and studies run inside the editor. |
+| **.NET 10 SDK** | building the runner; the headless test suites | From Microsoft's .NET download page. Optional. |
 | Python 3 | the full headless test script (`run-all.ps1`) and the documentation generators | Optional. |
 | Blender | only to rebuild the 3D models (`Tools/Blender`) | Optional. |
 

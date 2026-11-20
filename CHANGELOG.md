@@ -40,6 +40,8 @@ The agent interface after evaluation rounds with AI agents building models from 
 **Project**
 - Opening the project needs no git: the unused *MCP for Unity* package (a git dependency) was removed; every
   package comes from Unity's registry.
+- Prebuilt runners for Windows, macOS (Apple silicon) and Linux attached to the release: unzipped at the project
+  root, studies run outside the editor without installing .NET.
 
 **Code and tests**
 - The engine's model build in named passes, namespace cycles removed, duplicated helpers merged; the Unity commands edit
