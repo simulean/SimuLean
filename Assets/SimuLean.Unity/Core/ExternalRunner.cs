@@ -39,6 +39,7 @@ namespace SimuLean.Unity
     {
         private static readonly object gate = new object();
         private static string fingerprint, verifiedPath, unavailable, shippedRejected, downloadFailed;
+        private static string pendingReason = "the runner is being built for this engine version (first use)";
         private static Task building;
 
         /// <summary>
@@ -204,7 +205,7 @@ namespace SimuLean.Unity
             lock (gate)
             {
                 if (verifiedPath == exe && File.Exists(exe)) return exe;
-                if (building != null && !building.IsCompleted) { reason = "the runner is being built for this engine version (first use)"; return null; }
+                if (building != null && !building.IsCompleted) { reason = pendingReason; return null; }
                 if (unavailable != null) { reason = unavailable; return null; }
             }
             if (File.Exists(exe))
@@ -245,6 +246,7 @@ namespace SimuLean.Unity
             lock (gate)
             {
                 if (building != null && !building.IsCompleted) return;
+                pendingReason = "the runner is being built for this engine version (first use)";
                 building = Task.Run(() => Build(project, folder, fp));
             }
         }
@@ -275,7 +277,7 @@ namespace SimuLean.Unity
                     bool canBuild = File.Exists(project);
                     SimLog.Warning("[SimuLean] Runner: the download failed (" + error + ")" +
                                    (canBuild ? "; building it with the .NET SDK instead." : "; studies run in the editor."));
-                    if (canBuild) Build(project, Folder(root), fp);
+                    if (canBuild) { lock (gate) pendingReason = "the runner is being built for this engine version (first use)"; Build(project, Folder(root), fp); }
                     else lock (gate) unavailable = "no runner: its download failed (" + error + ")";
                 });
             }

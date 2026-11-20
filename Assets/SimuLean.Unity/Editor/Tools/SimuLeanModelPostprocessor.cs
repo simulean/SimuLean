@@ -209,7 +209,7 @@ namespace SimuLean.Unity.Editor
             string matPath = $"{dir}/{baseName}.mat";
             var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
             bool created = mat == null;
-            var lit = Shader.Find(LitShader);
+            var lit = Shader.Find(LitShader) ?? Shader.Find("Standard");   // a project without URP keeps the built-in one
             if (created)
                 mat = new Material(lit) { name = baseName };
             else if (mat.shader != lit)

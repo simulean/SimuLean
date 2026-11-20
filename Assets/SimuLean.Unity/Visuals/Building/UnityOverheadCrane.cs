@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace SimuLean.Unity
@@ -353,7 +354,65 @@ namespace SimuLean.Unity
             runwayLength = Mathf.Max(4f, along + 2f * margin);
             Rebuild();
             runwayLength += 2f * Mathf.Max(0f, runwayLength * 0.5f - BridgeLimit);   // room for the end trucks and stops
+            ClearColumnRows();
             Rebuild();
+        }
+
+        /// <summary>A column's half width (HEB300) plus the free space kept around it (m).</summary>
+        const float ColumnBand = 1.15f;   // 0.15 m half flange + 1 m free
+
+        /// <summary>
+        /// Moves each runway outwards until its row of columns stands clear of the scene's elements and floor zones (the
+        /// footprint of their views) along the runway — a column never stands in a work station or its marked area, the
+        /// ones the crane serves or its neighbours —, then re-centres the crane between the two rails. Nothing to do
+        /// without columns.
+        /// </summary>
+        public void ClearColumnRows()
+        {
+            if (!buildRunways || !buildColumns) return;
+            float half = runwayLength * 0.5f;
+            var footprints = new List<Rect>();
+            // the elements' views and the floor zones that mark work areas
+            var areas = UnityCompat.FindAll<SElement>(false).Select(e => e.transform)
+                .Concat(UnityCompat.FindAll<UnityFloorZone>(false).Select(z => z.transform));
+            foreach (var area in areas)
+            {
+                if (area.IsChildOf(transform) || transform.IsChildOf(area)) continue;
+                var renderers = area.GetComponentsInChildren<Renderer>();
+                if (renderers.Length == 0) continue;
+                var b = renderers[0].bounds;
+                foreach (var r in renderers) b.Encapsulate(r.bounds);
+                float x0 = float.MaxValue, x1 = float.MinValue, z0 = float.MaxValue, z1 = float.MinValue;
+                foreach (var corner in new[] { new Vector3(b.min.x, 0f, b.min.z), new Vector3(b.min.x, 0f, b.max.z),
+                                               new Vector3(b.max.x, 0f, b.min.z), new Vector3(b.max.x, 0f, b.max.z) })
+                {
+                    Vector3 l = transform.InverseTransformPoint(corner);
+                    x0 = Mathf.Min(x0, l.x); x1 = Mathf.Max(x1, l.x); z0 = Mathf.Min(z0, l.z); z1 = Mathf.Max(z1, l.z);
+                }
+                if (z1 > -half && z0 < half) footprints.Add(Rect.MinMaxRect(x0, z0, x1, z1));
+            }
+            if (footprints.Count == 0) return;
+            float right = ClearLine(span * 0.5f + UnitySteelColumn.BracketReach, +1, footprints) - UnitySteelColumn.BracketReach;
+            float left = ClearLine(-span * 0.5f - UnitySteelColumn.BracketReach, -1, footprints) + UnitySteelColumn.BracketReach;
+            transform.position += transform.right * ((right + left) * 0.5f);
+            span = right - left;
+        }
+
+        // the first column line outward of x (direction dir) whose band crosses no footprint
+        static float ClearLine(float x, int dir, List<Rect> footprints)
+        {
+            for (int pass = 0; pass < 64; pass++)
+            {
+                bool moved = false;
+                foreach (var f in footprints)
+                    if (x + ColumnBand > f.xMin && x - ColumnBand < f.xMax)
+                    {
+                        x = dir > 0 ? f.xMax + ColumnBand : f.xMin - ColumnBand;
+                        moved = true;
+                    }
+                if (!moved) break;
+            }
+            return x;
         }
 
         // the inverse of DropForSocketHeight

@@ -4454,7 +4454,9 @@ or *Add Component*.
 - **`UnityOverheadCrane`** — a double-runway bridge crane: optional two runways
   (±span/2, at `railHeight`, along +Z) standing on the building kit's steel columns (`buildColumns`, on by default: the
   `UnitySteelColumn` pieces, the bracket under each rail, the axis 0.5 m outside it, at most `MaxColumnSpacing` = 8 m
-  apart; off when a hall's own columns carry the runways), a `Bridge` transform holding two fixed-shape
+  apart; off when a hall's own columns carry the runways; `FitAround` / `ClearColumnRows` move each runway outwards
+  until its columns stand at least 1 m clear of every element's view and floor zone along it — a column never stands
+  in a work station), a `Bridge` transform holding two fixed-shape
   **end trucks** and the **extensible box girder** (segments + centred logo panel + end
   plates, combined), and the fixed-shape **trolley** (hoist, drum, ropes, hook block,
   pendant). Pose: `bridgePosition`, `trolleyPosition`, `hookDrop`. `SetPose` jumps,
