@@ -69,8 +69,19 @@ if ($serial) {
 # (Tools/Docs/command_reference.py). Needs Python; skipped without it.
 Write-Host '== commandreference' -ForegroundColor Cyan
 if (Get-Command python -ErrorAction SilentlyContinue) {
-    python (Join-Path $root '..\Tools\Docs\command_reference.py') --check
+    python (Join-Path $root '../Tools/Docs/command_reference.py') --check   # '/': a separator on every OS
     if ($LASTEXITCODE -ne 0) { $failed += 'commandreference' }
 } else { Write-Host '  skipped: no python on the PATH' }
+# What the public repository would get: no deny term, development tag or leak (tracker ids, agent-run notes, case hints,
+# Spanish, simulator names, sections only the development text has) in the export of the working tree - caught when written, not at release
+# time. Only in the development repository (the release tools are not exported).
+$export = Join-Path $root '../Tools/Release/export_public.py'
+if (Test-Path $export) {
+    Write-Host '== publicexport' -ForegroundColor Cyan
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        python $export --gate
+        if ($LASTEXITCODE -ne 0) { $failed += 'publicexport' }
+    } else { Write-Host '  skipped: no python on the PATH' }
+}
 if ($failed.Count -gt 0) { Write-Host "FAILED: $($failed -join ', ')" -ForegroundColor Red; exit 1 }
 Write-Host "All suites passed." -ForegroundColor Green

@@ -160,10 +160,16 @@ namespace SimuLean.Unity.Editor
         /// settings) into the PNG <paramref name="path"/> (its folder must exist), then draws over it the connections of
         /// <paramref name="groups"/> and the <paramref name="markers"/> (<see cref="ConnectionOverlay"/>; their names as
         /// temporary labels, never saved). The scene is not changed. Returns the number of connections drawn.</summary>
+        /// <summary>Whether this editor can render (false in a batch run started with -nographics).</summary>
+        internal static bool HasGraphicsDevice => SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null;
+
         internal static int RenderPng(SimRecorder.CameraPose pose, float fov, int width, int height, string path,
                                       ICollection<ConnectionGroup> groups = null,
                                       IList<(Vector3 at, Color color, string name)> markers = null)
         {
+            // without a device (a batch run with -nographics) the render texture cannot be created: say why, not a Unity error
+            if (!HasGraphicsDevice)
+                throw new InvalidOperationException("No graphics device: this editor runs without one (-nographics), so nothing can be rendered.");
             var go = new GameObject("SimuLean capture") { hideFlags = HideFlags.HideAndDontSave };
             var rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32) { antiAliasing = 4 };
             var image = new Texture2D(width, height, TextureFormat.RGB24, false);

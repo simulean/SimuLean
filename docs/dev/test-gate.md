@@ -1,6 +1,7 @@
 # The test gate (hooks)
 
-Detail behind the short rules of [`CLAUDE.md`](../../CLAUDE.md). Both hooks run `.claude/hooks/test-gate.ps1`; the suites
+Detail behind the short rules of [`CLAUDE.md`](../../CLAUDE.md). Both hooks run `.claude/hooks/test-gate.ps1` (through
+`.claude/hooks/test-gate.sh`, which picks the PowerShell: see *Which PowerShell* below); the suites
 are described in [`StandaloneTests/README.md`](../../StandaloneTests/README.md).
 
 ## After every edit (Claude Code hook)
@@ -15,6 +16,27 @@ broken tree). The compile check works while someone else has the editor open.
   re-runs the check. Silence after a failure is therefore not a pass: re-run `run-all.ps1` if in doubt.
 - It never waits for a pre-commit run and waits 2 minutes at most for another post run, then skips (the next call
   checks again).
+
+## Which PowerShell (Windows, macOS, Linux)
+
+Both hooks call `.claude/hooks/test-gate.sh`, a POSIX `sh` wrapper (Claude Code runs hook commands in Git Bash on
+Windows and in `sh` elsewhere; git runs `.githooks/pre-commit` in `sh`). It runs `test-gate.ps1` with Windows
+PowerShell (`powershell.exe`) when there is one — on Windows nothing changes — else with PowerShell 7 (`pwsh`, the
+cross-platform one). With neither the gate is skipped and exits 0: the Claude Code hook says so once per clone (a
+message to the user; the marker is `.claude/hooks/.state/no-powershell-noted`), the pre-commit hook on every commit.
+Install PowerShell 7 to get the gate on macOS / Linux.
+
+Under `pwsh` off Windows:
+- the standalone suites run as on Windows (`StandaloneTests/run-all.ps1`, .NET 10 SDK); they are tested on Windows (CI
+  runs `windows-latest`);
+- the Unity compile check is skipped (it rewrites the Windows paths of Unity's generated `Assembly-CSharp*.csproj`); the
+  EditMode run compiles the code instead;
+- the batch EditMode run looks for the Hub install of the project's editor (`/Applications/Unity/Hub/Editor/<version>/
+  Unity.app/Contents/MacOS/Unity` on macOS, `~/Unity/Hub/Editor/<version>/Editor/Unity` on Linux), else
+  `UNITY_EDITOR_PATH`, and builds the external runner for the machine's runtime id (`osx-*`, `linux-*`). Whether the
+  editor is open is told by a lock on `Temp/UnityLockfile`; if the editor holds no lock the test sees there, the batch
+  run fails to open the project and the commit is blocked with Unity's log — close the editor, or commit with the
+  in-editor full run first.
 
 ## In CI
 

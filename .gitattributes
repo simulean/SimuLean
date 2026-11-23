@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Shell scripts run by sh (hooks): LF on every checkout, or sh reads a CR into each line
+*.sh text eol=lf
+.githooks/* text eol=lf

@@ -162,10 +162,23 @@ namespace SimuLean.Unity.Editor.Tests
             Assert.Throws<ArgumentException>(() => SimuLeanCommands.Repeat("CBuf", 1), "a name already taken (CBuf_1) is refused");
         }
 
+        /// <summary>Without a graphics device (a batch run with -nographics) a capture refuses with a clear message instead
+        /// of a Unity error; true when that is what was checked (the render itself needs a device).</summary>
+        private static bool RefusedWithoutDevice()
+        {
+            if (SimuLeanCommands.HasGraphicsDevice) return false;
+            string file = System.IO.Path.GetFullPath($"Temp/simulean_capture_test_{Guid.NewGuid():N}.png");
+            var e = Assert.Throws<InvalidOperationException>(() => SimuLeanCommands.Capture("", 40, 30, 0, 40, "", 64, 64, file));
+            StringAssert.Contains("No graphics device", e.Message);
+            Assert.IsFalse(System.IO.File.Exists(file), "no picture is written");
+            return true;
+        }
+
         [Test]
         public void CaptureRendersAPictureOfTheModelOrOfElements()
         {
             SimuLeanCommands.Apply(LineOps("P"));
+            if (RefusedWithoutDevice()) return;
             string file = System.IO.Path.GetFullPath($"Temp/simulean_capture_test_{Guid.NewGuid():N}.png");
             try
             {
@@ -219,6 +232,7 @@ namespace SimuLean.Unity.Editor.Tests
             Assert.GreaterOrEqual(all.max.z, 9f - 1e-3f, "the node is framed");
             Assert.LessOrEqual(all.min.z, -6f + 0.5f, "the team's members are framed");
 
+            if (RefusedWithoutDevice()) return;
             string file = System.IO.Path.GetFullPath($"Temp/simulean_capture_test_{Guid.NewGuid():N}.png");
             try
             {
@@ -258,6 +272,7 @@ namespace SimuLean.Unity.Editor.Tests
             Assert.IsTrue(res.Any(c => c.Kind == ConnectionKind.RepairCrew && c.From == down && c.To.name == "RFixers"), "the repair crew");
             Assert.AreEqual(3, res.Count, string.Join(", ", res.Select(c => $"{c.Kind} {c.From.name}-{c.To.name}")));
 
+            if (RefusedWithoutDevice()) return;
             string file = System.IO.Path.GetFullPath($"Temp/simulean_capture_test_{Guid.NewGuid():N}.png");
             try
             {

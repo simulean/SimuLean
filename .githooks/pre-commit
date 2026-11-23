@@ -2,5 +2,6 @@
 # SimuLean pre-commit: standalone tests + Unity EditMode tests (batch mode, editor closed).
 # Enable once per clone:  git config core.hooksPath .githooks
 # Skip the Unity step:    SIMULEAN_SKIP_UNITY_TESTS=1 git commit ...   Skip everything: git commit --no-verify
+# Needs PowerShell (Windows PowerShell, or PowerShell 7 'pwsh' on macOS / Linux); without it the gate is skipped.
 root="$(git rev-parse --show-toplevel)"
-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root/.claude/hooks/test-gate.ps1" precommit < /dev/null
+exec sh "$root/.claude/hooks/test-gate.sh" precommit < /dev/null

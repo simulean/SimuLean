@@ -119,7 +119,7 @@ no third-party numerics); everything else compiles into Unity's `Assembly-CSharp
 - **Comments say why, not when.** No dates, review / battery / round ids or phase names in code comments or test names
   (the history lives in git); name tests after the behaviour they check.
 - **No case-specific or confidential content** (customer names, plant data, drawings, calibrated parameters) in this
-  shared repository; case studies live in their own repositories and use the engine through its public API.
+  shared repository; models of real systems live in their own repositories and use the engine through its public API.
 
 ## Working through the Unity MCP
 
