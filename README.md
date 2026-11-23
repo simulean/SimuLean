@@ -1,5 +1,7 @@
 # SimuLean
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24460337.svg)](https://doi.org/10.5281/zenodo.24460337)
+
 **A discrete-event simulator built to be modelled by AI agents — and by people.**
 
 | ![Healthcare pack: an emergency department](docs/images/healthcare.gif) | ![Shipbuilding pack: block assembly and erection](docs/images/shipbuilding.gif) |
@@ -25,7 +27,8 @@ built, checked, run, studied and optimised either in the Unity editor or by an A
 > J. Pernas-Álvarez and D. Crespo-Pereira, *Agentic discrete-event simulation for manufacturing system design: an open
 > 3D simulator, a benchmark and an industrial case*, arXiv:2611.10602 (2026),
 > [doi:10.48550/arXiv.2611.10602](https://doi.org/10.48550/arXiv.2611.10602). To cite the software, see
-> [CITATION.cff](CITATION.cff) (version 1.0.0: [doi:10.5281/zenodo.23565564](https://doi.org/10.5281/zenodo.23565564)).
+> [CITATION.cff](CITATION.cff): [doi:10.5281/zenodo.24460337](https://doi.org/10.5281/zenodo.24460337) (all versions; each
+> release also has its own DOI on Zenodo).
 
 ## Installation
 
