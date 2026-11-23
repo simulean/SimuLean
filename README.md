@@ -1,5 +1,11 @@
 # SimuLean
 
+[![CI](https://github.com/simulean/SimuLean/actions/workflows/standalone-tests.yml/badge.svg)](https://github.com/simulean/SimuLean/actions/workflows/standalone-tests.yml)
+[![Release](https://img.shields.io/github/v/release/simulean/SimuLean)](https://github.com/simulean/SimuLean/releases/latest)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Unity 6.6](https://img.shields.io/badge/Unity-6000.6.4f1-black?logo=unity)](ProjectSettings/ProjectVersion.txt)
+[![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet)](Tools/Runner/README.md)
+[![arXiv](https://img.shields.io/badge/arXiv-2611.10602-b31b1b.svg)](https://doi.org/10.48550/arXiv.2611.10602)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24460337.svg)](https://doi.org/10.5281/zenodo.24460337)
 
 **A discrete-event simulator built to be modelled by AI agents — and by people.**
