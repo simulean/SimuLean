@@ -137,6 +137,8 @@ A bigger buffer delivers more (about 203, 218 and 233 items in 8 h here) at the 
   baselines, without Unity.
 - The Unity EditMode tests: *Window ▸ General ▸ Test Runner*, or `simulean_test` through the MCP.
 
+To contribute a change, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License and authors
 
 SimuLean is released under the [GNU GPLv3](LICENSE). Third-party libraries (ExcelDataReader and `System.*` packages,

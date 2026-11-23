@@ -66,6 +66,12 @@ static class Program
         @"|\bCASE\s?\d+\b|\b[Cc]ase[- ]study\s*#?\d" +           // a case-study tag: CASE2, case-study 3
         @"|\bv\d+\s+run\b|\b[Rr]un\s+v\d+\b" +                   // a numbered run: v2 run, run v3
         @"|\((?:[A-Z]{1,2}\d{1,2}[a-z]?|R-\d+[a-z]?)[;,:)]" +    // a tracker id in brackets: (P1), (S4): (R-11)
+        @"|\(\d[a-e]\)|\bR-\d+[a-z]?\b|\b(?:pre|post)-[A-Z]\d{1,2}[a-z]?\b" +          // (1b), R-5b, pre-A6
+        @"|\b[Tt]ask\s+\d+-[A-Z]\b|\b[Bb]acklog\s+(?:item\s+)?\d+-?[A-Z]?\b" +         // Task 0-D, backlog 5-A
+        @"|\b[Bb]enchmark\s+[A-Z]\d+\b|\b[Ff]ollow-up\s+#\d|\(item\s+\d+\)|\b[Aa]udit\s+[A-Z]\d" + // benchmark C2, (item 5)
+        @"|\b(?:the|both|all|two|three|several|most|some|\d+)\s+agents\s+(?:placed|guessed|passed|tried|missed|forgot|needed|struggled|stalled|invented|misread)\b" + // a run's note
+        @"|\bindustrial case\b|\b(?:from|in) the (?:[A-Z][\w-]*|shipyard|hospital|plant|factory|customer|client|pilot) case\b" + // where a feature came from
+        @"|\b(?:from|in) the (?!(?:main|default|else|if|true|false|other|same|first|second|left|right|current|new)\b)[\w-]+ branch\b" +
         @"|\bas before\b");
     static bool HistoryApplies(string path) =>
         path.StartsWith("Assets/SimuLean.Net/") || path.StartsWith("Assets/SimuLean.Unity/")
@@ -127,6 +133,15 @@ static class Program
               $"self-test: '{HistoryRuleId}' catches a case-study run tag, not a switch case or a version");
         Check(!HistoryTag.IsMatch(Comments("string s = \"Phase 4 2026-10-07\"; // see architecture §3.5, roadmap §11.2")),
               $"self-test: '{HistoryRuleId}' ignores strings and § citations");
+        foreach (string tagged in new[] { "// offer by keys (1b)", "// R-5b: the queue", "// pre-A6 the rule", "// Task 0-D", "// backlog 5-A",
+                                          "// benchmark C2 showed it", "// follow-up #4", "// (item 5)", "// the agents guessed the key", "// from the conveyor-rework branch",
+                                          "// from the shipyard case", "// review I3" })
+            Check(HistoryTag.IsMatch(Comments(tagged)), $"self-test: '{HistoryRuleId}' catches '{tagged}'");
+        foreach (string plain in new[] { "// R1 feeds C1, then Q1", "// axes A1–A6 of the robot", "// x.ToString(\"N2\"), G6", "// P50 and P90",
+                                         "// the OX1 lane", "// an agent passes the item on", "// in step 2 the queue offers",
+                                         "// in the default case the queue waits", "// in the worst case it blocks",
+                                         "// in the else branch", "// the agent placed it there" })
+            Check(!HistoryTag.IsMatch(Comments(plain)), $"self-test: '{HistoryRuleId}' leaves '{plain}' alone");
         foreach (var (path, _, raw) in sources.Where(s => HistoryApplies(s.path)))
         {
             Match m = HistoryTag.Match(Comments(raw));

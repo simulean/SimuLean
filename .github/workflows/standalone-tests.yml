@@ -1,12 +1,14 @@
-# The standalone (headless, no Unity) suites on every push and pull request to main: StandaloneTests/run-all.ps1 builds
-# the engine library once and every suite, runs them (reference models against their baselines, unit suites, docs
-# checks) and checks that docs/agents/commands.md is current (Python). The Unity EditMode suite needs a licensed editor
-# and runs in the local pre-commit gate only (.claude/hooks/test-gate.ps1).
+# The standalone (headless, no Unity) suites on every push and pull request to main, on Windows, Linux and macOS:
+# StandaloneTests/run-all.ps1 builds the engine library once and every suite, runs them (reference models against their
+# baselines, unit suites, docs checks) and checks that docs/agents/commands.md is current (Python). Off Windows the
+# local test gate (.claude/hooks/test-gate.sh, PowerShell 7) runs too, as a contributor there runs it. The Unity
+# EditMode suite needs a licensed editor and runs in the local pre-commit gate only (.claude/hooks/test-gate.ps1).
+# A branch ci/<name> runs the workflow without a pull request (to try a change of the workflow itself).
 name: standalone-tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'ci/**']
   pull_request:
     branches: [main]
 
@@ -19,7 +21,12 @@ concurrency:
 
 jobs:
   standalone:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux and macOS only in the public repository (the private one pays for their minutes)
+        os: ${{ github.repository == 'simulean/SimuLean' && fromJSON('["windows-latest", "ubuntu-latest", "macos-latest"]') || fromJSON('["windows-latest"]') }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +40,7 @@ jobs:
       # the runner image also carries a newer SDK, which dotnet would pick: the job builds with the .NET 10 SDK set up
       # above, through a global.json of the job only (a developer's machine keeps its own SDK choice)
       - name: Pin the .NET 10 SDK
-        shell: powershell
+        shell: pwsh
         run: dotnet new globaljson --sdk-version ${{ steps.dotnet.outputs.dotnet-version }} --roll-forward latestFeature --force
 
       # run-all's commands.md check (Tools/Docs/command_reference.py, standard library only)
@@ -42,17 +49,32 @@ jobs:
           python-version: '3.12'
 
       - name: Standalone suites
-        shell: powershell
+        shell: pwsh
         env:
           DOTNET_CLI_TELEMETRY_OPTOUT: '1'
           DOTNET_NOLOGO: '1'
+        # On Windows the suites run under Windows PowerShell 5.1, as on a developer's machine; elsewhere under pwsh.
         # SqliteInterop loads a "sqlite3" library before Windows' own winsqlite3.dll: a sqlite3.dll that a tool of the
         # runner image puts on the PATH crashed sqlite3_open16 (0xC0000005) in the four suites that open a database.
         # The suites get the machine without it, as on a developer's Windows (winsqlite3.dll).
         run: |
-          $dirs = $env:PATH -split ';' | Where-Object { $_ }
-          $dropped = @($dirs | Where-Object { Test-Path (Join-Path $_ 'sqlite3.dll') })
-          if ($dropped.Count -gt 0) { Write-Host "PATH folders with a sqlite3.dll left out: $($dropped -join ', ')" }
-          $env:PATH = (@($dirs | Where-Object { $dropped -notcontains $_ }) -join ';')
-          powershell -NoProfile -ExecutionPolicy Bypass -File StandaloneTests/run-all.ps1
+          if ($IsWindows) {
+            $dirs = $env:PATH -split ';' | Where-Object { $_ }
+            $dropped = @($dirs | Where-Object { Test-Path (Join-Path $_ 'sqlite3.dll') })
+            if ($dropped.Count -gt 0) { Write-Host "PATH folders with a sqlite3.dll left out: $($dropped -join ', ')" }
+            $env:PATH = (@($dirs | Where-Object { $dropped -notcontains $_ }) -join ';')
+            powershell -NoProfile -ExecutionPolicy Bypass -File StandaloneTests/run-all.ps1
+          } else {
+            pwsh -NoProfile -File StandaloneTests/run-all.ps1
+          }
           exit $LASTEXITCODE
+
+      # the gate a contributor's commit runs (sh wrapper -> pwsh); no Unity here, so its EditMode step is left out
+      - name: Test gate (pre-commit)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          SIMULEAN_SKIP_UNITY_TESTS: '1'
+          DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+          DOTNET_NOLOGO: '1'
+        run: sh .claude/hooks/test-gate.sh precommit

@@ -38,12 +38,19 @@
 # fingerprints the git INDEX (what is committed: scripts, scenes, prefabs and assets under Assets, the package
 # manifest and the baselines), so the user's unstaged work in progress does not invalidate it (2026-10-08).
 # Unity editor: $env:UNITY_EDITOR_PATH, else the Hub install of ProjectSettings/ProjectVersion.txt.
+# Runs under Windows PowerShell 5.1 and under PowerShell 7 (pwsh) on Windows, macOS and Linux (.claude/hooks/test-gate.sh
+# picks the one the machine has). Off Windows the Unity compile check is skipped: it rewrites the Windows paths of the
+# csproj files Unity generates there.
 param([ValidateSet('post', 'precommit', 'treefp')][string]$Mode = 'post')
 
 $ErrorActionPreference = 'Stop'
 # Any unexpected failure of the gate itself is reported (and fails the hook), never silently ignored.
 trap { [Console]::Error.WriteLine("test-gate hook error: $_"); exit 2 }
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$onWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
+$sep = [string][IO.Path]::DirectorySeparatorChar
+# the PowerShell running this script runs the suites' scripts too (powershell.exe on Windows, pwsh elsewhere)
+$psExe = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+$root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 
 # What the Unity EditMode verdict covers.
 $uPaths = @('Assets', 'Packages\manifest.json', 'ProjectSettings\ProjectVersion.txt', 'StandaloneTests\referencemodels\baselines')
@@ -63,7 +70,7 @@ function Get-Fingerprint([string[]]$paths, [string[]]$exts) {
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $stack = New-Object 'System.Collections.Generic.Stack[IO.DirectoryInfo]'
     foreach ($p in $paths) {
-        $full = [IO.Path]::GetFullPath((Join-Path $root $p))
+        $full = [IO.Path]::GetFullPath((Join-Path $root ($p -replace '\\', '/')))   # '/' is a separator on every OS
         if ([IO.File]::Exists($full)) {
             $f = New-Object IO.FileInfo $full
             if ($extSet.Contains($f.Extension) -and $seen.Add($f.FullName)) { $lines.Add("$($f.FullName)|$($f.Length)|$($f.LastWriteTimeUtc.Ticks)") }
@@ -111,7 +118,7 @@ if ($Mode -eq 'post') {
         $hookEvent -match '"(?:file_path|notebook_path)"\s*:\s*"((?:[^"\\]|\\.)*)"') {
         $edited = $Matches[1] -replace '\\(["\\/])', '$1'   # JSON escapes in a path: \\ \" \/
         if ([IO.Path]::IsPathRooted($edited) -and
-            -not ([IO.Path]::GetFullPath($edited)).StartsWith($root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { exit 0 }
+            -not ([IO.Path]::GetFullPath($edited)).StartsWith($root.TrimEnd('\', '/') + $sep, [StringComparison]::OrdinalIgnoreCase)) { exit 0 }
     }
 }
 
@@ -120,23 +127,24 @@ if ($Mode -eq 'post') {
 # What the standalone verdict depends on: what the suites compile (the engine and the choice rules, through
 # Engine.props / Tests.props; StandaloneTests) and what they read (architecturelint: every C# file under Assets;
 # docsymboltests: the docs, the code and script corpus of Assets / StandaloneTests / Tools / .claude/hooks / .githooks;
-# agentinterfacetests: docs/agents; run-all's commands.md check: Tools/Docs and the pipeline commands). Files outside
+# agentinterfacetests: docs/agents; run-all's commands.md check: Tools/Docs and the pipeline commands; its public-export
+# check: every exported text but Unity's YAML, which the release check covers). Files outside
 # StandaloneTests that a suite's csproj includes or imports (Tools/Runner/RunnerCli.cs, Fingerprint.targets) are added
 # from the csproj files themselves, so a new one is covered without editing this list.
-$saPaths = @('Assets', 'StandaloneTests', 'Tools', 'docs', '.claude\hooks', '.claude\skills', '.githooks')
+$saPaths = @('Assets', 'StandaloneTests', 'Tools', 'docs', '.claude\hooks', '.claude\skills', '.githooks', '.github')
 # the root's own files (CLAUDE.md, AGENTS.md, README.md...): docsymboltests checks that every file a doc names exists, so
 # deleting or restoring one is an input too (a folder elsewhere is covered only by the folders above)
 $saPaths += @([IO.Directory]::GetFiles($root) | ForEach-Object { [IO.Path]::GetFileName($_) })
 foreach ($proj in [IO.Directory]::EnumerateFiles((Join-Path $root 'StandaloneTests'), '*.*proj*', 'AllDirectories')) {
-    if ($proj -match '\\(bin|obj)\\') { continue }
+    if ($proj -match '[\\/](bin|obj)[\\/]') { continue }
     foreach ($m in [regex]::Matches([IO.File]::ReadAllText($proj), '(?:Include|Project)="([^"*$;]+)"')) {
         $rel = $m.Groups[1].Value
         if ($rel -notmatch '^\.\.') { continue }
         $full = [IO.Path]::GetFullPath((Join-Path (Split-Path $proj) $rel))
-        if ($full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { $saPaths += $full.Substring($root.Length + 1) }
+        if ($full.StartsWith($root + $sep, [StringComparison]::OrdinalIgnoreCase)) { $saPaths += $full.Substring($root.Length + 1) }
     }
 }
-$saExts = @('.cs', '.csproj', '.props', '.proj', '.targets', '.json', '.ps1', '.md', '.py', '.txt', '.tsv', '.asmdef', '.sh', '')
+$saExts = @('.cs', '.csproj', '.props', '.proj', '.targets', '.json', '.ps1', '.md', '.py', '.txt', '.tsv', '.asmdef', '.sh', '.cff', '.yml', '.yaml', '.html', '')
 $saFp = Get-Fingerprint $saPaths $saExts
 $ccPaths = @('Assets', 'Assembly-CSharp.csproj', 'Assembly-CSharp-Editor.csproj', 'StandaloneTests\unity-compile-check.ps1')
 $ccFp = Get-Fingerprint $ccPaths @('.cs', '.asmdef', '.csproj', '.ps1')
@@ -162,7 +170,7 @@ function Get-IndexFingerprint([string[]]$paths, [string[]]$exts) {
 
 # The last FULL run of SimuLeanTestRunner in the open editor, if it completed (else $null).
 function Get-EditorRun {
-    $path = Join-Path $root 'Temp\simulean_test_results_full.json'
+    $path = Join-Path $root 'Temp/simulean_test_results_full.json'
     if (-not (Test-Path $path)) { return $null }
     $text = Get-Content $path -Raw
     if ($text -notmatch '"status":"completed"' -or $text -notmatch '"full":true') { return $null }
@@ -205,6 +213,7 @@ function Fail([string]$message, [string[]]$summary) {
 if ($Mode -eq 'post') {
     $quiet = $true
     foreach ($c in @(@('standalone', $saFp), @('unitycompile', $ccFp))) {
+        if ($c[0] -eq 'unitycompile' -and -not $onWindows) { continue }
         $v = Get-Cached $c[0] $c[1]
         if ($null -eq $v -or (-not $v.ok -and -not (Test-Reported $c[0] $c[1]))) { $quiet = $false }
     }
@@ -248,10 +257,10 @@ $cached = Get-Cached 'standalone' $saFp
 $blocked = if ($Mode -eq 'precommit') { 'Commit blocked: ' } else { '' }
 
 if ($null -eq $cached) {
-    $runAll = Join-Path $root 'StandaloneTests\run-all.ps1'
+    $runAll = Join-Path $root 'StandaloneTests/run-all.ps1'
     # Windows PowerShell 5.1 turns a native command's stderr into errors: do not stop on them.
     $ErrorActionPreference = 'Continue'
-    $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $runAll 2>&1 | ForEach-Object { "$_" }
+    $out = & $psExe -NoProfile -ExecutionPolicy Bypass -File $runAll 2>&1 | ForEach-Object { "$_" }
     $code = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     $summary = @()
@@ -282,9 +291,12 @@ if ($null -eq $cached) {
 # ── 2. Unity code compiles (no editor needed: StandaloneTests/unity-compile-check.ps1) ──
 
 $cached = Get-Cached 'unitycompile' $ccFp
-if ($null -eq $cached) {
+if (-not $onWindows) {
+    # the check rewrites the Windows paths of Unity's generated csproj files; elsewhere the EditMode run compiles the code
+    if ($Mode -eq 'precommit') { Write-Output 'Unity compile check skipped (Windows only); the EditMode run compiles the code.' }
+} elseif ($null -eq $cached) {
     $ErrorActionPreference = 'Continue'
-    $out = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'StandaloneTests\unity-compile-check.ps1') 2>&1 | ForEach-Object { "$_" }
+    $out = & $psExe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'StandaloneTests/unity-compile-check.ps1') 2>&1 | ForEach-Object { "$_" }
     $code = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     $summary = if ($code -ne 0) { @($out | Where-Object { $_ -notmatch '^== ' } | Select-Object -First 40) } else { @() }
@@ -339,7 +351,7 @@ if ($null -ne $cached) {
 }
 
 # The editor locks Temp/UnityLockfile while the project is open.
-$lock = Join-Path $root 'Temp\UnityLockfile'
+$lock = Join-Path $root 'Temp/UnityLockfile'
 $editorOpen = $false
 if (Test-Path $lock) {
     try { $fs = [System.IO.File]::Open($lock, 'Open', 'ReadWrite', 'None'); $fs.Close() } catch { $editorOpen = $true }
@@ -371,8 +383,10 @@ foreach ($v in @([Environment]::GetEnvironmentVariables('Process').Keys | Where-
 
 $unity = $env:UNITY_EDITOR_PATH
 if (-not $unity) {
-    $ver = (Select-String -Path (Join-Path $root 'ProjectSettings\ProjectVersion.txt') -Pattern '^m_EditorVersion:\s*(\S+)').Matches[0].Groups[1].Value
-    $unity = "C:\Program Files\Unity\Hub\Editor\$ver\Editor\Unity.exe"
+    $ver = (Select-String -Path (Join-Path $root 'ProjectSettings/ProjectVersion.txt') -Pattern '^m_EditorVersion:\s*(\S+)').Matches[0].Groups[1].Value
+    $unity = if ($onWindows) { "C:\Program Files\Unity\Hub\Editor\$ver\Editor\Unity.exe" }
+             elseif ($IsMacOS) { "/Applications/Unity/Hub/Editor/$ver/Unity.app/Contents/MacOS/Unity" }
+             else { "$HOME/Unity/Hub/Editor/$ver/Editor/Unity" }
 }
 if (-not (Test-Path $unity)) {
     Fail "Commit blocked: Unity editor not found at '$unity' (set UNITY_EDITOR_PATH)." @()
@@ -394,26 +408,29 @@ function Get-Sha([System.Collections.Generic.IEnumerable[object]]$entries, [int]
     return (($sha.Hash[0..($bytes - 1)] | ForEach-Object { $_.ToString('x2') }) -join '')
 }
 function Get-RunnerFolder {
-    $engine = (Resolve-Path (Join-Path $root 'Assets\SimuLean.Net')).Path.TrimEnd('\', '/')
+    $engine = (Resolve-Path (Join-Path $root 'Assets/SimuLean.Net')).Path.TrimEnd('\', '/')
     $files = @(Get-ChildItem -Path $engine -Recurse -File -Filter '*.cs' | Where-Object { $_.Extension -eq '.cs' } | ForEach-Object {
         [pscustomobject]@{ Name = $_.FullName.Substring($engine.Length + 1).Replace('\', '/'); Full = $_.FullName } })
     $files = [Linq.Enumerable]::ToArray([Linq.Enumerable]::OrderBy([object[]]$files, [Func[object, string]] { param($f) $f.Name }, [StringComparer]::Ordinal))
     $fp = Get-Sha $files 8
     $suffix = ''
-    $runnerDir = Join-Path $root 'Tools\Runner'
+    $runnerDir = Join-Path $root 'Tools/Runner'
     if (Test-Path $runnerDir) {
         $own = @(Get-ChildItem -Path $runnerDir -File | Where-Object { $_.Name -like '*.cs' -or $_.Name -like '*.csproj' -or $_.Name -like '*.targets' } |
             ForEach-Object { [pscustomobject]@{ Name = $_.Name; Full = $_.FullName } })
         $own = [Linq.Enumerable]::ToArray([Linq.Enumerable]::OrderBy([object[]]$own, [Func[object, string]] { param($f) $f.Name }, [StringComparer]::Ordinal))
         $suffix = '-' + (Get-Sha $own 4)
     }
-    return Join-Path $root "Library\SimuLeanRunner\$fp$suffix"
+    return Join-Path $root "Library/SimuLeanRunner/$fp$suffix"
 }
-$runnerProject = Join-Path $root 'Tools\Runner\simulean.csproj'
+$runnerProject = Join-Path $root 'Tools/Runner/simulean.csproj'
 if ((Test-Path $runnerProject) -and (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     $runnerFolder = Get-RunnerFolder
-    if (-not (Test-Path (Join-Path $runnerFolder 'simulean.exe'))) {
-        $rid = if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'win-arm64' } else { 'win-x64' }
+    # same executable name and runtime id as ExternalRunner.ExeName / Rid
+    $exeName = if ($onWindows) { 'simulean.exe' } else { 'simulean' }
+    if (-not (Test-Path (Join-Path $runnerFolder $exeName))) {
+        $arch = if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
+        $rid = if ($onWindows) { "win-$arch" } elseif ($IsMacOS) { "osx-$arch" } else { "linux-$arch" }
         Write-Host "Building the external runner for this engine version ($(Split-Path $runnerFolder -Leaf))..."
         & dotnet publish "$runnerProject" -c Release -r $rid --self-contained true -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:PublishReadyToRun=true `
@@ -425,7 +442,8 @@ if ((Test-Path $runnerProject) -and (Get-Command dotnet -ErrorAction SilentlyCon
 $results = Join-Path $stateDir 'editmode-results.xml'
 $log = Join-Path $stateDir 'editmode.log'
 if (Test-Path $results) { Remove-Item $results -Force }
-$p = Start-Process -FilePath $unity -PassThru -WindowStyle Hidden -ArgumentList @(
+$hidden = if ($onWindows) { @{ WindowStyle = 'Hidden' } } else { @{} }   # -WindowStyle exists on Windows only
+$p = Start-Process -FilePath $unity -PassThru @hidden -ArgumentList @(
     '-batchmode', '-nographics', '-projectPath', "`"$root`"", '-runTests', '-testPlatform', 'EditMode',
     '-testResults', "`"$results`"", '-logFile', "`"$log`"")
 # Bounded: a hung import must not hold the commit and the gate lock forever.
