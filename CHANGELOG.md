@@ -7,6 +7,14 @@ to do. Seeded results may change between minor versions when a random stream dra
 1.1.0 and 1.2.0 were development milestones, not released separately: 1.3.0 is the first release after 1.0.0 and
 contains all three sections below.
 
+## Unreleased
+
+- The test gate runs on Windows, macOS and Linux (Windows PowerShell or PowerShell 7) and CI runs the standalone suites
+  on the three systems; [CONTRIBUTING.md](CONTRIBUTING.md) explains how to propose a change.
+- A capture without a graphics device (a batch run with `-nographics`) refuses with a clear message.
+- SimuLean is archived on Zenodo with each release: [doi:10.5281/zenodo.24460337](https://doi.org/10.5281/zenodo.24460337)
+  (all versions).
+
 ## 1.3.0 — 2026-11-20
 
 The agent interface after evaluation rounds with AI agents building models from written briefs, and a cleaner code base.
